@@ -17,10 +17,11 @@ async fn main() -> Result<(), Error> {
     let subscriptions_config = config::load_subscriptions()?;
     let configs_updater_config = config::load_configs_updater()?;
 
-    let redis_pool_manager = RedisConnectionManager::new(format!(
-        "redis://{}@{}:{}/",
-        redis_config.password, redis_config.host, redis_config.port
-    ))?;
+    let redis_connection_url = format!(
+        "redis://{}:{}@{}:{}/",
+        redis_config.username, redis_config.password, redis_config.host, redis_config.port
+    );
+    let redis_pool_manager = RedisConnectionManager::new(redis_connection_url)?;
     let redis_pool = bb8::Pool::builder().build(redis_pool_manager).await?;
 
     let resources_repo = resources::repo::ResourcesRepoImpl::new(redis_pool.clone());

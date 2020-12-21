@@ -11,6 +11,7 @@ pub struct RedisConfig {
     pub host: String,
     #[serde(default = "default_redis_port")]
     pub port: u16,
+    pub username: String,
     pub password: String,
 }
 
