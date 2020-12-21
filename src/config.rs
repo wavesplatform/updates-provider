@@ -2,9 +2,16 @@ use crate::error::Error;
 use crate::{providers, subscriptions};
 use serde::Deserialize;
 
+fn default_redis_port() -> u16 {
+    6379
+}
+
 #[derive(Deserialize)]
 pub struct RedisConfig {
     pub host: String,
+    #[serde(default = "default_redis_port")]
+    pub port: u16,
+    pub password: String,
 }
 
 #[derive(Deserialize)]
