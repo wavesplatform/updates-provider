@@ -25,12 +25,14 @@ impl PullerImpl {
     pub async fn run(
         self,
     ) -> Result<tokio::sync::mpsc::UnboundedReceiver<SubscriptionUpdate>, Error> {
-        let (notifications_sender, notifications_receiver) =
+        let (subscriptions_updates_sender, subscriptions_updates_receiver) =
             tokio::sync::mpsc::unbounded_channel::<SubscriptionUpdate>();
 
         let con = bb8::Pool::dedicated_connection(&self.redis_pool).await?;
 
         let mut current_subscriptions: Subscriptions = self.get_subscriptions().await?;
+
+        tracing::debug!("current subscriptions: {:?}", current_subscriptions);
 
         let initial_subscriptions_updates = current_subscriptions.iter().try_fold(
             vec![],
@@ -48,7 +50,7 @@ impl PullerImpl {
 
         initial_subscriptions_updates
             .iter()
-            .try_for_each(|update| notifications_sender.send(update.to_owned()))?;
+            .try_for_each(|update| subscriptions_updates_sender.send(update.to_owned()))?;
 
         let mut pubsub = con.into_pubsub();
 
@@ -65,14 +67,14 @@ impl PullerImpl {
                         .unwrap();
 
                 diff.iter()
-                    .try_for_each(|update| notifications_sender.send(update.to_owned()))
+                    .try_for_each(|update| subscriptions_updates_sender.send(update.to_owned()))
                     .unwrap();
 
                 current_subscriptions = updated_subscriptions;
             }
         });
 
-        Ok(notifications_receiver)
+        Ok(subscriptions_updates_receiver)
     }
 
     async fn get_subscriptions(&self) -> Result<Subscriptions, Error> {

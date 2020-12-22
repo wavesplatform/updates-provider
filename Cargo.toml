@@ -21,6 +21,8 @@ thiserror = "1.0"
 tokio = { version = "0.2", features = ["full"] }
 url = "2.2"
 wavesexchange_log = { git = "https://github.com/waves-exchange/wavesexchange-rs", version = "0.1" }
+tracing = "0.1"
+tracing-subscriber = { version = "0.2", features = ["tracing-log"] }
 
 [[bin]]
 name = "service"

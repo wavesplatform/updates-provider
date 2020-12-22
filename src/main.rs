@@ -10,9 +10,13 @@ use error::Error;
 use providers::UpdatesProvider;
 use subscriptions::SubscriptionsUpdatesObservers;
 use wavesexchange_log::{error, info};
+use tracing_subscriber;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
+    // install global collector configured based on RUST_LOG env var.
+    tracing_subscriber::fmt::init();
+
     let redis_config = config::load_redis()?;
     let subscriptions_config = config::load_subscriptions()?;
     let configs_updater_config = config::load_configs_updater()?;
