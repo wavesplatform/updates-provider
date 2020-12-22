@@ -39,7 +39,7 @@ impl ConfigsRepo for ConfigsRepoImpl {
         if status.is_success() {
             Ok(text.to_owned())
         } else {
-            error!("error while fetching config file: {}", text);
+            error!("error while fetching config file: {}", config_file_path);
             Err(Error::ResourceFetchingError(config_file_path.to_owned()))
         }
     }

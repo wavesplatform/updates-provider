@@ -6,6 +6,7 @@ use bb8_redis::RedisConnectionManager;
 use futures::StreamExt;
 use std::collections::HashMap;
 use std::convert::TryFrom;
+use wavesexchange_log::debug;
 
 pub struct PullerImpl {
     redis_pool: bb8::Pool<RedisConnectionManager>,
@@ -32,11 +33,12 @@ impl PullerImpl {
 
         let mut current_subscriptions: Subscriptions = self.get_subscriptions().await?;
 
-        tracing::debug!("current subscriptions: {:?}", current_subscriptions);
+        debug!("current subscriptions: {:?}", current_subscriptions);
 
-        let initial_subscriptions_updates = current_subscriptions.iter().try_fold(
-            vec![],
-            |mut acc, (subscription_key, subscribers_count)| {
+        let initial_subscriptions_updates = current_subscriptions
+            .iter()
+            .filter(|(_, count)| count.to_owned().to_owned() > 0)
+            .try_fold(vec![], |mut acc, (subscription_key, subscribers_count)| {
                 Resource::try_from(subscription_key.as_ref()).map(|resource| {
                     acc.push(SubscriptionUpdate {
                         update_type: SubscriptionUpdateType::New,
@@ -45,8 +47,7 @@ impl PullerImpl {
                     });
                     acc
                 })
-            },
-        )?;
+            })?;
 
         initial_subscriptions_updates
             .iter()
@@ -60,15 +61,18 @@ impl PullerImpl {
 
         tokio::task::spawn(async move {
             while let Some(_) = pubsub.on_message().next().await {
-                let updated_subscriptions = self.get_subscriptions().await.unwrap();
+                let updated_subscriptions = self
+                    .get_subscriptions()
+                    .await
+                    .expect("Subscriptions has to be a hash map");
 
                 let diff =
                     subscription_updates_diff(&current_subscriptions, &updated_subscriptions)
-                        .unwrap();
+                        .expect("Cannot calculate subscriptions diff");
 
                 diff.iter()
                     .try_for_each(|update| subscriptions_updates_sender.send(update.to_owned()))
-                    .unwrap();
+                    .expect("Cannot send a subscription update");
 
                 current_subscriptions = updated_subscriptions;
             }
