@@ -68,7 +68,7 @@ impl UpdatesProvider for ConfigsUpdaterImpl {
             info!("starting configs updater");
             loop {
                 let watchlist = watchlist.read().await;
-
+                
                 let watchlist_processing: Vec<_> = watchlist
                     .items
                     .iter()
@@ -86,7 +86,7 @@ impl UpdatesProvider for ConfigsUpdaterImpl {
                     error!("error occured while watchlist processing: {:?}", err);
                 }
 
-                tokio::time::delay_for(polling_delay.to_owned()).await;
+                tokio::time::delay_for(polling_delay).await;
             }
         });
 

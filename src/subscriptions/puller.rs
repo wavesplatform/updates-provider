@@ -6,7 +6,6 @@ use bb8_redis::RedisConnectionManager;
 use futures::StreamExt;
 use std::collections::HashMap;
 use std::convert::TryFrom;
-use wavesexchange_log::debug;
 
 pub struct PullerImpl {
     redis_pool: bb8::Pool<RedisConnectionManager>,
@@ -33,21 +32,20 @@ impl PullerImpl {
 
         let mut current_subscriptions: Subscriptions = self.get_subscriptions().await?;
 
-        debug!("current subscriptions: {:?}", current_subscriptions);
-
-        let initial_subscriptions_updates = current_subscriptions
+        let initial_subscriptions_updates: Vec<SubscriptionUpdate> = current_subscriptions
             .iter()
             .filter(|(_, count)| count.to_owned().to_owned() > 0)
-            .try_fold(vec![], |mut acc, (subscription_key, subscribers_count)| {
-                Resource::try_from(subscription_key.as_ref()).map(|resource| {
-                    acc.push(SubscriptionUpdate {
+            .filter_map(|(subscriptions_key, subscribers_count)| {
+                match Resource::try_from(subscriptions_key.as_ref()) {
+                    Ok(resource) => Some(SubscriptionUpdate {
                         update_type: SubscriptionUpdateType::New,
                         resource: resource,
                         subscribers_count: subscribers_count.to_owned(),
-                    });
-                    acc
-                })
-            })?;
+                    }),
+                    _ => None,
+                }
+            })
+            .collect();
 
         initial_subscriptions_updates
             .iter()
@@ -60,7 +58,7 @@ impl PullerImpl {
             .await?;
 
         tokio::task::spawn(async move {
-            while let Some(_) = pubsub.on_message().next().await {
+            while let Some(_msg) = pubsub.on_message().next().await {
                 let updated_subscriptions = self
                     .get_subscriptions()
                     .await
@@ -110,29 +108,32 @@ fn subscription_updates_diff(
             if current.contains_key(subscription_key) {
                 if current.get(subscription_key).unwrap().to_owned() > subscribers_count.to_owned()
                 {
-                    let resource = Resource::try_from(subscription_key.as_ref())?;
-                    acc.push(SubscriptionUpdate {
-                        update_type: SubscriptionUpdateType::Decrement,
-                        resource: resource,
-                        subscribers_count: subscribers_count.to_owned(),
-                    });
+                    if let Ok(resource) = Resource::try_from(subscription_key.as_ref()) {
+                        acc.push(SubscriptionUpdate {
+                            update_type: SubscriptionUpdateType::Decrement,
+                            resource: resource,
+                            subscribers_count: subscribers_count.to_owned(),
+                        });
+                    }
                 } else if current.get(subscription_key).unwrap().to_owned()
                     < subscribers_count.to_owned()
                 {
-                    let resource = Resource::try_from(subscription_key.as_ref())?;
+                    if let Ok(resource) = Resource::try_from(subscription_key.as_ref()) {
+                        acc.push(SubscriptionUpdate {
+                            update_type: SubscriptionUpdateType::Increment,
+                            resource: resource,
+                            subscribers_count: subscribers_count.to_owned(),
+                        });
+                    }
+                }
+            } else {
+                if let Ok(resource) = Resource::try_from(subscription_key.as_ref()) {
                     acc.push(SubscriptionUpdate {
-                        update_type: SubscriptionUpdateType::Increment,
+                        update_type: SubscriptionUpdateType::New,
                         resource: resource,
                         subscribers_count: subscribers_count.to_owned(),
                     });
                 }
-            } else {
-                let resource = Resource::try_from(subscription_key.as_ref())?;
-                acc.push(SubscriptionUpdate {
-                    update_type: SubscriptionUpdateType::New,
-                    resource: resource,
-                    subscribers_count: subscribers_count.to_owned(),
-                });
             }
             Ok(acc)
         })

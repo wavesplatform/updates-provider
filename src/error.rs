@@ -24,6 +24,4 @@ pub enum Error {
     InvalidResource(String),
     #[error("InvalidConfigPath: {0}")]
     InvalidConfigPath(String),
-    #[error("InvalidStateEntry: {0}")]
-    InvalidStateEntry(String),
 }

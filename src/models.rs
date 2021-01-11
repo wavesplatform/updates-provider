@@ -1,36 +1,28 @@
 use crate::error::Error;
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
+use url::Url;
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Resource {
     Config(ConfigFile),
-    Entry(StateEntry),
 }
 
 impl TryFrom<&str> for Resource {
     type Error = Error;
 
     fn try_from(s: &str) -> Result<Self, Self::Error> {
-        let parts: Vec<&str> = s.splitn(2, ":").collect();
+        let url = Url::parse(s)?;
 
-        if parts.len() < 2 {
-            return Err(Error::InvalidResource(s.to_owned()));
-        }
-
-        let resource = parts.first().unwrap().to_owned();
-        let metadata = parts.last().unwrap().to_owned();
-
-        match resource {
-            "config" => {
-                let config_file = ConfigFile::try_from(metadata)?;
-                Ok(Resource::Config(config_file))
-            }
-            "entry" => {
-                let state_entry = StateEntry::try_from(metadata)?;
-                Ok(Resource::Entry(state_entry))
-            }
+        match url.scheme() {
+            "topic" => match url.host_str() {
+                Some("config") => {
+                    let config_file = ConfigFile::try_from(url.path())?;
+                    Ok(Resource::Config(config_file))
+                }
+                _ => Err(Error::InvalidResource(s.to_owned())),
+            },
             _ => Err(Error::InvalidResource(s.to_owned())),
         }
     }
@@ -38,9 +30,14 @@ impl TryFrom<&str> for Resource {
 
 impl ToString for Resource {
     fn to_string(&self) -> String {
+        let mut url = Url::parse("topic://").unwrap();
         match self {
-            Resource::Config(cf) => format!("config:{}", cf.to_string()),
-            Resource::Entry(se) => format!("entry:{}", se.to_string()),
+            Resource::Config(cf) => {
+                url.set_host(Some("config")).unwrap();
+                url.set_path(&cf.path);
+                url.as_str().to_owned()
+            }
+            _ => unimplemented!("only config resource is implemented now"),
         }
     }
 }
@@ -65,36 +62,5 @@ impl TryFrom<&str> for ConfigFile {
             .ok_or(Error::InvalidConfigPath(s.to_owned()))?;
 
         Ok(ConfigFile { path: p.to_owned() })
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-pub struct StateEntry {
-    address: String,
-    key: String,
-}
-
-impl ToString for StateEntry {
-    fn to_string(&self) -> String {
-        format!("{}:{}", self.address, self.key)
-    }
-}
-
-impl TryFrom<&str> for StateEntry {
-    type Error = Error;
-
-    fn try_from(s: &str) -> Result<Self, Self::Error> {
-        let parts: Vec<&str> = s.split(":").collect();
-        if parts.len() < 2 {
-            return Err(Error::InvalidStateEntry(s.to_owned()));
-        }
-
-        let address = parts.first().unwrap().to_owned();
-        let key = parts.last().unwrap().to_owned();
-
-        Ok(StateEntry {
-            address: address.to_owned(),
-            key: key.to_owned(),
-        })
     }
 }
