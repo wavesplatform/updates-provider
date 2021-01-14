@@ -4,10 +4,12 @@ pub enum Error {
     ConfigLoadError(#[from] envy::Error),
     #[error("JoinError: {0}")]
     JoinError(#[from] tokio::task::JoinError),
+    #[error("PoolError: {0}")]
+    PoolError(#[from] r2d2::Error),
     #[error("RedisPoolError: {0}")]
-    RedisPoolError(#[from] bb8_redis::redis::RedisError),
-    #[error("RunRedisError: {0}")]
-    RunRedisError(#[from] bb8::RunError<bb8_redis::redis::RedisError>),
+    RedisPoolError(#[from] r2d2_redis::Error),
+    #[error("RedisError: {0}")]
+    RedisError(#[from] r2d2_redis::redis::RedisError),
     #[error("SerdeJsonError: {0}")]
     SerdeJsonError(#[from] serde_json::Error),
     #[error("SendError: {0}")]

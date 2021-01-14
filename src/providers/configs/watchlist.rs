@@ -1,4 +1,4 @@
-use crate::error::Error;
+use crate::errors::Error;
 use crate::models::{ConfigFile, Resource};
 use crate::subscriptions;
 use std::collections::HashSet;
@@ -26,9 +26,6 @@ impl WatchList<ConfigFile> {
                     }
                 }
             },
-            _ => {
-                // nothing to do
-            }
         }
 
         Ok(())

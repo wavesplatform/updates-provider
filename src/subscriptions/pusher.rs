@@ -1,6 +1,5 @@
 use super::{SubscriptionUpdate, SubscriptionsUpdatesObservers};
-use crate::error::Error;
-use futures::StreamExt;
+use crate::errors::Error;
 use tokio::sync::mpsc;
 use wavesexchange_log::error;
 
@@ -21,7 +20,7 @@ impl PusherImpl {
     }
 
     pub async fn run(&mut self) -> Result<(), Error> {
-        while let Some(subscription_update) = self.subscriptions_changes_receiver.next().await {
+        while let Some(subscription_update) = self.subscriptions_changes_receiver.recv().await {
             let observers = self.subscriptions_changes_observers.read().await;
 
             let fs: Vec<_> = observers

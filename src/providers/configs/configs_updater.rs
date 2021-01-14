@@ -3,14 +3,13 @@ use super::{
     ConfigsRepo, TSConfigFilesWatchList, TSConfigUpdatesProviderLastValues, TSConfigsRepoImpl,
     TSResourcesRepoImpl,
 };
-use crate::error::Error;
+use crate::errors::Error;
 use crate::models::{ConfigFile, Resource};
 use crate::providers::UpdatesProvider;
 use crate::resources::repo::ResourcesRepoImpl;
 use crate::resources::ResourcesRepo;
 use crate::subscriptions;
 use async_trait::async_trait;
-use futures::StreamExt;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -52,7 +51,7 @@ impl UpdatesProvider for ConfigsUpdaterImpl {
         let watchlist = self.watchlist.clone();
         tokio::task::spawn(async move {
             info!("starting subscriptions updates handler");
-            while let Some(upd) = subscriptions_updates_receiver.next().await {
+            while let Some(upd) = subscriptions_updates_receiver.recv().await {
                 if let Err(err) = watchlist.write().await.on_update(upd) {
                     error!("error while updating watchlist: {:?}", err);
                 }
@@ -68,7 +67,7 @@ impl UpdatesProvider for ConfigsUpdaterImpl {
             info!("starting configs updater");
             loop {
                 let watchlist = watchlist.read().await;
-                
+
                 let watchlist_processing: Vec<_> = watchlist
                     .items
                     .iter()
@@ -86,7 +85,7 @@ impl UpdatesProvider for ConfigsUpdaterImpl {
                     error!("error occured while watchlist processing: {:?}", err);
                 }
 
-                tokio::time::delay_for(polling_delay).await;
+                tokio::time::sleep(polling_delay).await;
             }
         });
 
@@ -113,9 +112,7 @@ async fn watchlist_config_file_processing(
     match last_value {
         Some(last_value) => {
             if current_value != last_value {
-                resources_repo
-                    .set(resource.clone(), current_value.clone())
-                    .await?;
+                resources_repo.set(resource.clone(), current_value.clone())?;
 
                 last_values
                     .write()
@@ -129,14 +126,14 @@ async fn watchlist_config_file_processing(
                 .await
                 .insert(config_file_key.clone(), current_value.clone());
 
-            match resources_repo.get(&resource).await? {
+            match resources_repo.get(&resource)? {
                 Some(last_updated_value) => {
                     if current_value != last_updated_value {
-                        resources_repo.set(resource, current_value).await?;
+                        resources_repo.set(resource, current_value)?;
                     }
                 }
                 None => {
-                    resources_repo.set(resource, current_value).await?;
+                    resources_repo.set(resource, current_value)?;
                 }
             }
         }

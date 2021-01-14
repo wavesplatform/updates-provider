@@ -1,4 +1,4 @@
-use crate::error::Error;
+use crate::errors::Error;
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 use url::Url;
@@ -37,7 +37,6 @@ impl ToString for Resource {
                 url.set_path(&cf.path);
                 url.as_str().to_owned()
             }
-            _ => unimplemented!("only config resource is implemented now"),
         }
     }
 }

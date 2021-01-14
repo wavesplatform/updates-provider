@@ -1,5 +1,5 @@
 use super::ConfigsRepo;
-use crate::error::Error;
+use crate::errors::Error;
 use crate::models::ConfigFile;
 use async_trait::async_trait;
 use reqwest::{Client, ClientBuilder};

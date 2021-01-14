@@ -1,6 +1,8 @@
 pub mod puller;
 pub mod pusher;
+pub mod repo;
 
+use crate::errors::Error;
 use crate::models::Resource;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -27,4 +29,8 @@ pub struct SubscriptionUpdate {
     pub update_type: SubscriptionUpdateType,
     pub resource: Resource,
     pub subscribers_count: i32,
+}
+
+pub trait SubscriptionsRepo {
+    fn get_subscriptions(&self) -> Result<Subscriptions, Error>;
 }
