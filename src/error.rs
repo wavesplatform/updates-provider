@@ -23,7 +23,7 @@ pub enum Error {
     #[error("ResourceFetchingError: {0}")]
     ResourceFetchingError(String),
     #[error("InvalidResource: {0}")]
-    InvalidResource(String),
+    InvalidTopic(String),
     #[error("InvalidConfigPath: {0}")]
     InvalidConfigPath(String),
 }

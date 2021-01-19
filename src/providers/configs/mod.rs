@@ -2,7 +2,7 @@ pub mod configs_updater;
 pub mod repo;
 mod watchlist;
 
-use crate::errors::Error;
+use crate::error::Error;
 use crate::models::ConfigFile;
 use crate::resources::repo::ResourcesRepoImpl;
 use async_trait::async_trait;

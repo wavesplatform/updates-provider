@@ -1,11 +1,11 @@
 mod config;
-mod errors;
+mod error;
 mod models;
 mod providers;
 mod resources;
 mod subscriptions;
 
-use errors::Error;
+use error::Error;
 use providers::UpdatesProvider;
 use r2d2::Pool;
 use r2d2_redis::{r2d2, redis, RedisConnectionManager};

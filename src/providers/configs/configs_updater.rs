@@ -3,8 +3,8 @@ use super::{
     ConfigsRepo, TSConfigFilesWatchList, TSConfigUpdatesProviderLastValues, TSConfigsRepoImpl,
     TSResourcesRepoImpl,
 };
-use crate::errors::Error;
-use crate::models::{ConfigFile, Resource};
+use crate::error::Error;
+use crate::models::{ConfigFile, Topic};
 use crate::providers::UpdatesProvider;
 use crate::resources::repo::ResourcesRepoImpl;
 use crate::resources::ResourcesRepo;
@@ -106,7 +106,7 @@ async fn watchlist_config_file_processing(
         .await?;
 
     let config_file_key = config_file.to_string();
-    let resource = Resource::Config(config_file.to_owned());
+    let resource = Topic::Config(config_file.to_owned());
     let last_value = last_values.read().await.get(&config_file_key).cloned();
 
     match last_value {

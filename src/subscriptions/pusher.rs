@@ -1,5 +1,5 @@
 use super::{SubscriptionUpdate, SubscriptionsUpdatesObservers};
-use crate::errors::Error;
+use crate::error::Error;
 use tokio::sync::mpsc;
 use wavesexchange_log::error;
 

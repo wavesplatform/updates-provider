@@ -2,8 +2,8 @@ pub mod puller;
 pub mod pusher;
 pub mod repo;
 
-use crate::errors::Error;
-use crate::models::Resource;
+use crate::error::Error;
+use crate::models::Topic;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{self, mpsc};
@@ -27,7 +27,7 @@ pub enum SubscriptionUpdateType {
 #[derive(Clone, Debug)]
 pub struct SubscriptionUpdate {
     pub update_type: SubscriptionUpdateType,
-    pub resource: Resource,
+    pub resource: Topic,
     pub subscribers_count: i32,
 }
 

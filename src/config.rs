@@ -1,4 +1,4 @@
-use crate::errors::Error;
+use crate::error::Error;
 use crate::{providers, subscriptions};
 use serde::Deserialize;
 

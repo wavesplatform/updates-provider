@@ -1,10 +1,10 @@
 pub mod repo;
 
-use crate::errors::Error;
-use crate::models::Resource;
+use crate::error::Error;
+use crate::models::Topic;
 
 pub trait ResourcesRepo {
-    fn get(&self, resource: &Resource) -> Result<Option<String>, Error>;
+    fn get(&self, resource: &Topic) -> Result<Option<String>, Error>;
 
-    fn set(&self, resource: Resource, value: String) -> Result<(), Error>;
+    fn set(&self, resource: Topic, value: String) -> Result<(), Error>;
 }

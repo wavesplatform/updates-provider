@@ -1,6 +1,6 @@
 use super::{SubscriptionUpdate, SubscriptionUpdateType, Subscriptions, SubscriptionsRepo};
-use crate::errors::Error;
-use crate::models::Resource;
+use crate::error::Error;
+use crate::models::Topic;
 use r2d2_redis::redis;
 use std::convert::TryFrom;
 use wavesexchange_log::info;
@@ -40,7 +40,7 @@ impl PullerImpl {
             .iter()
             .filter(|(_, count)| count.to_owned().to_owned() > 0)
             .filter_map(|(subscriptions_key, subscribers_count)| {
-                match Resource::try_from(subscriptions_key.as_ref()) {
+                match Topic::try_from(subscriptions_key.as_ref()) {
                     Ok(resource) => Some(SubscriptionUpdate {
                         update_type: SubscriptionUpdateType::New,
                         resource: resource,
@@ -66,7 +66,7 @@ impl PullerImpl {
         tokio::task::spawn_blocking(move || {
             let mut con = redis_client.get_connection().unwrap();
             let mut pubsub = con.as_pubsub();
-            
+
             let subscription_pattern = format!("__keyspace*__:{}", self.subscriptions_key);
             pubsub
                 .psubscribe(subscription_pattern.clone())
@@ -110,7 +110,7 @@ fn subscription_updates_diff(
             if current.contains_key(subscription_key) {
                 if current.get(subscription_key).unwrap().to_owned() > subscribers_count.to_owned()
                 {
-                    if let Ok(resource) = Resource::try_from(subscription_key.as_ref()) {
+                    if let Ok(resource) = Topic::try_from(subscription_key.as_ref()) {
                         acc.push(SubscriptionUpdate {
                             update_type: SubscriptionUpdateType::Decrement,
                             resource: resource,
@@ -120,7 +120,7 @@ fn subscription_updates_diff(
                 } else if current.get(subscription_key).unwrap().to_owned()
                     < subscribers_count.to_owned()
                 {
-                    if let Ok(resource) = Resource::try_from(subscription_key.as_ref()) {
+                    if let Ok(resource) = Topic::try_from(subscription_key.as_ref()) {
                         acc.push(SubscriptionUpdate {
                             update_type: SubscriptionUpdateType::Increment,
                             resource: resource,
@@ -129,7 +129,7 @@ fn subscription_updates_diff(
                     }
                 }
             } else {
-                if let Ok(resource) = Resource::try_from(subscription_key.as_ref()) {
+                if let Ok(resource) = Topic::try_from(subscription_key.as_ref()) {
                     acc.push(SubscriptionUpdate {
                         update_type: SubscriptionUpdateType::New,
                         resource: resource,

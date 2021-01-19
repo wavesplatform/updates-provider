@@ -1,5 +1,5 @@
 use super::{Subscriptions, SubscriptionsRepo};
-use crate::errors::Error;
+use crate::error::Error;
 use r2d2::Pool;
 use r2d2_redis::redis::Commands;
 use r2d2_redis::RedisConnectionManager;

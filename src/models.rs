@@ -1,15 +1,15 @@
-use crate::errors::Error;
+use crate::error::Error;
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 use url::Url;
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum Resource {
+pub enum Topic {
     Config(ConfigFile),
 }
 
-impl TryFrom<&str> for Resource {
+impl TryFrom<&str> for Topic {
     type Error = Error;
 
     fn try_from(s: &str) -> Result<Self, Self::Error> {
@@ -19,20 +19,20 @@ impl TryFrom<&str> for Resource {
             "topic" => match url.host_str() {
                 Some("config") => {
                     let config_file = ConfigFile::try_from(url.path())?;
-                    Ok(Resource::Config(config_file))
+                    Ok(Topic::Config(config_file))
                 }
-                _ => Err(Error::InvalidResource(s.to_owned())),
+                _ => Err(Error::InvalidTopic(s.to_owned())),
             },
-            _ => Err(Error::InvalidResource(s.to_owned())),
+            _ => Err(Error::InvalidTopic(s.to_owned())),
         }
     }
 }
 
-impl ToString for Resource {
+impl ToString for Topic {
     fn to_string(&self) -> String {
         let mut url = Url::parse("topic://").unwrap();
         match self {
-            Resource::Config(cf) => {
+            Topic::Config(cf) => {
                 url.set_host(Some("config")).unwrap();
                 url.set_path(&cf.path);
                 url.as_str().to_owned()

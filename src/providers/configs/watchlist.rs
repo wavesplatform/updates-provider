@@ -1,5 +1,5 @@
-use crate::errors::Error;
-use crate::models::{ConfigFile, Resource};
+use crate::error::Error;
+use crate::models::{ConfigFile, Topic};
 use crate::subscriptions;
 use std::collections::HashSet;
 
@@ -11,7 +11,7 @@ pub struct WatchList<T> {
 impl WatchList<ConfigFile> {
     pub fn on_update(&mut self, update: subscriptions::SubscriptionUpdate) -> Result<(), Error> {
         match update.resource {
-            Resource::Config(config_file) => match update.update_type {
+            Topic::Config(config_file) => match update.update_type {
                 subscriptions::SubscriptionUpdateType::New => {
                     self.items.insert(config_file);
                 }
