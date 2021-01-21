@@ -11,7 +11,7 @@ pub struct WatchList<T> {
 impl WatchList<ConfigFile> {
     pub fn on_update(&mut self, update: subscriptions::SubscriptionUpdate) -> Result<(), Error> {
         match update.resource {
-            Topic::Config(config_file) => match update.update_type {
+            Topic::ConfigFromGitlab(config_file) => match update.update_type {
                 subscriptions::SubscriptionUpdateType::New => {
                     self.items.insert(config_file);
                 }

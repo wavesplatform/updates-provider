@@ -1,7 +1,7 @@
-use super::ConfigsRepoImpl;
+use super::ConfigsFromGitlabRepoImpl;
 use super::{
-    ConfigsRepo, TSConfigFilesWatchList, TSConfigUpdatesProviderLastValues, TSConfigsRepoImpl,
-    TSResourcesRepoImpl,
+    ConfigsFromGitlabRepo, TSConfigFilesWatchList, TSConfigUpdatesProviderLastValues,
+    TSConfigsFromGitlabRepoImpl, TSResourcesRepoImpl,
 };
 use crate::error::Error;
 use crate::models::{ConfigFile, Topic};
@@ -16,21 +16,21 @@ use std::time::Duration;
 use tokio::sync::{mpsc, RwLock};
 use wavesexchange_log::{error, info};
 
-pub struct ConfigsUpdaterImpl {
-    configs_repo: TSConfigsRepoImpl,
+pub struct ConfigsFromGitlabUpdaterImpl {
+    configs_repo: TSConfigsFromGitlabRepoImpl,
     resources_repo: TSResourcesRepoImpl,
     polling_delay: Duration,
     watchlist: TSConfigFilesWatchList,
     last_values: TSConfigUpdatesProviderLastValues,
 }
 
-impl ConfigsUpdaterImpl {
+impl ConfigsFromGitlabUpdaterImpl {
     pub fn new(
-        configs_repo: ConfigsRepoImpl,
+        configs_repo: ConfigsFromGitlabRepoImpl,
         resources_repo: Arc<ResourcesRepoImpl>,
         polling_delay: Duration,
-    ) -> ConfigsUpdaterImpl {
-        ConfigsUpdaterImpl {
+    ) -> ConfigsFromGitlabUpdaterImpl {
+        Self {
             configs_repo: Arc::new(RwLock::new(configs_repo)),
             resources_repo: resources_repo,
             polling_delay: polling_delay,
@@ -41,7 +41,7 @@ impl ConfigsUpdaterImpl {
 }
 
 #[async_trait]
-impl UpdatesProvider for ConfigsUpdaterImpl {
+impl UpdatesProvider for ConfigsFromGitlabUpdaterImpl {
     async fn fetch_updates(
         &self,
     ) -> Result<mpsc::UnboundedSender<subscriptions::SubscriptionUpdate>, Error> {
@@ -64,7 +64,7 @@ impl UpdatesProvider for ConfigsUpdaterImpl {
         let last_values = self.last_values.clone();
         let watchlist = self.watchlist.clone();
         tokio::task::spawn(async move {
-            info!("starting configs updater");
+            info!("starting configs-from-gitlab updater");
             loop {
                 let watchlist = watchlist.read().await;
 
@@ -94,7 +94,7 @@ impl UpdatesProvider for ConfigsUpdaterImpl {
 }
 
 async fn watchlist_config_file_processing(
-    configs_repo: &TSConfigsRepoImpl,
+    configs_repo: &TSConfigsFromGitlabRepoImpl,
     resources_repo: &TSResourcesRepoImpl,
     last_values: &TSConfigUpdatesProviderLastValues,
     config_file: &ConfigFile,
@@ -106,7 +106,7 @@ async fn watchlist_config_file_processing(
         .await?;
 
     let config_file_key = config_file.to_string();
-    let resource = Topic::Config(config_file.to_owned());
+    let resource = Topic::ConfigFromGitlab(config_file.to_owned());
     let last_value = last_values.read().await.get(&config_file_key).cloned();
 
     match last_value {

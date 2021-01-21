@@ -7,6 +7,7 @@ use url::Url;
 #[serde(rename_all = "snake_case")]
 pub enum Topic {
     Config(ConfigFile),
+    ConfigFromGitlab(ConfigFile),
 }
 
 impl TryFrom<&str> for Topic {
@@ -20,7 +21,11 @@ impl TryFrom<&str> for Topic {
                 Some("config") => {
                     let config_file = ConfigFile::try_from(url.path())?;
                     Ok(Topic::Config(config_file))
-                }
+                },
+                Some("config-from-gitlab") => {
+                    let config_file = ConfigFile::try_from(url.path())?;
+                    Ok(Topic::ConfigFromGitlab(config_file))
+                },
                 _ => Err(Error::InvalidTopic(s.to_owned())),
             },
             _ => Err(Error::InvalidTopic(s.to_owned())),
@@ -36,7 +41,12 @@ impl ToString for Topic {
                 url.set_host(Some("config")).unwrap();
                 url.set_path(&cf.path);
                 url.as_str().to_owned()
-            }
+            },
+            Topic::ConfigFromGitlab(cf) => {
+                url.set_host(Some("config-from-gitlab")).unwrap();
+                url.set_path(&cf.path);
+                url.as_str().to_owned()
+            },
         }
     }
 }

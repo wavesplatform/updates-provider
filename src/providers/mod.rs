@@ -1,4 +1,5 @@
 pub mod configs;
+pub mod configs_from_gitlab;
 
 use crate::{error::Error, subscriptions::SubscriptionUpdate};
 use async_trait::async_trait;
