@@ -20,6 +20,7 @@ thiserror = "1.0"
 tokio = { version = "1.0", features = ["full"] }
 url = "2.2"
 wavesexchange_log = { git = "https://github.com/waves-exchange/wavesexchange-rs", version = "0.1" }
+percent-encoding = "2.1"
 
 [[bin]]
 name = "service"

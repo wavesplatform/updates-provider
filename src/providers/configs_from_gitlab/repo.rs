@@ -36,9 +36,15 @@ impl ConfigsFromGitlabRepo for ConfigsFromGitlabRepoImpl {
     async fn get(&self, config_file: ConfigFile) -> Result<String, Error> {
         let config_file_path = config_file.to_string();
         let config_file_path = config_file_path.trim_start_matches("/");
+        let config_file_path = percent_encoding::percent_encode(
+            config_file_path.as_bytes(),
+            percent_encoding::NON_ALPHANUMERIC,
+        )
+        .to_string();
+
         let config_file_url = reqwest::Url::parse(
             format!(
-                "{}/{}?ref={}",
+                "{}/{}/raw?ref={}",
                 self.configs_base_url, config_file_path, self.gitlab_configs_branch
             )
             .as_ref(),

@@ -1543,6 +1543,7 @@ dependencies = [
  "async-trait",
  "envy",
  "futures",
+ "percent-encoding",
  "r2d2",
  "r2d2_redis",
  "reqwest",
