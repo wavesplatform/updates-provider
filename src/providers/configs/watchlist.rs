@@ -26,9 +26,6 @@ impl WatchList<ConfigFile> {
                     }
                 }
             },
-            _ => {
-                // nothing to do
-            }
         }
 
         Ok(())

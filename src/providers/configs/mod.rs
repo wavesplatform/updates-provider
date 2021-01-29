@@ -24,6 +24,8 @@ type TSConfigUpdatesProviderLastValues = Arc<RwLock<HashMap<String, String>>>;
 pub struct Config {
     pub configs_base_url: String,
     pub polling_delay: Duration,
+    pub gitlab_private_token: String,
+    pub gitlab_configs_branch: String,
 }
 
 #[async_trait]

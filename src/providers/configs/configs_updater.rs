@@ -1,7 +1,7 @@
 use super::ConfigsRepoImpl;
 use super::{
-    ConfigsRepo, TSConfigFilesWatchList, TSConfigUpdatesProviderLastValues, TSConfigsRepoImpl,
-    TSResourcesRepoImpl,
+    ConfigsRepo, TSConfigFilesWatchList, TSConfigUpdatesProviderLastValues,
+    TSConfigsRepoImpl, TSResourcesRepoImpl,
 };
 use crate::error::Error;
 use crate::models::{ConfigFile, Topic};
@@ -30,7 +30,7 @@ impl ConfigsUpdaterImpl {
         resources_repo: Arc<ResourcesRepoImpl>,
         polling_delay: Duration,
     ) -> ConfigsUpdaterImpl {
-        ConfigsUpdaterImpl {
+        Self {
             configs_repo: Arc::new(RwLock::new(configs_repo)),
             resources_repo: resources_repo,
             polling_delay: polling_delay,
