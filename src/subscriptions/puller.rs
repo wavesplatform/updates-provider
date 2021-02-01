@@ -1,4 +1,4 @@
-use super::{SubscriptionUpdate, SubscriptionUpdateType, Subscriptions, SubscriptionsRepo};
+use super::{SubscriptionUpdate, Subscriptions, SubscriptionsRepo};
 use crate::error::Error;
 use crate::models::Topic;
 use r2d2_redis::redis;
@@ -39,13 +39,9 @@ impl PullerImpl {
         let initial_subscriptions_updates: Vec<SubscriptionUpdate> = current_subscriptions
             .iter()
             .filter(|(_, count)| count.to_owned().to_owned() > 0)
-            .filter_map(|(subscriptions_key, subscribers_count)| {
+            .filter_map(|(subscriptions_key, _subscribers_count)| {
                 match Topic::try_from(subscriptions_key.as_ref()) {
-                    Ok(resource) => Some(SubscriptionUpdate {
-                        update_type: SubscriptionUpdateType::New,
-                        resource: resource,
-                        subscribers_count: subscribers_count.to_owned(),
-                    }),
+                    Ok(topic) => Some(SubscriptionUpdate::New { topic: topic }),
                     _ => None,
                 }
             })
@@ -88,10 +84,7 @@ impl PullerImpl {
                     .try_for_each(|update| subscriptions_updates_sender.send(update.to_owned()))
                     .expect("Cannot send a subscription update");
 
-                info!(
-                    "subscriptions were updated, new count: {}",
-                    updated_subscriptions.len()
-                );
+                info!("subscriptions were updated");
 
                 current_subscriptions = updated_subscriptions;
             }
@@ -105,39 +98,49 @@ fn subscription_updates_diff(
     current: &Subscriptions,
     new: &Subscriptions,
 ) -> Result<Vec<SubscriptionUpdate>, Error> {
-    new.iter()
-        .try_fold(&mut vec![], |acc, (subscription_key, subscribers_count)| {
-            if current.contains_key(subscription_key) {
-                if current.get(subscription_key).unwrap().to_owned() > subscribers_count.to_owned()
-                {
-                    if let Ok(resource) = Topic::try_from(subscription_key.as_ref()) {
-                        acc.push(SubscriptionUpdate {
-                            update_type: SubscriptionUpdateType::Decrement,
-                            resource: resource,
-                            subscribers_count: subscribers_count.to_owned(),
-                        });
+    let mut updated = new
+        .iter()
+        .try_fold::<_, _, Result<&mut Vec<SubscriptionUpdate>, Error>>(
+            &mut vec![],
+            |acc, (subscription_key, subscribers_count)| {
+                if current.contains_key(subscription_key) {
+                    if current.get(subscription_key).unwrap().to_owned()
+                        > subscribers_count.to_owned()
+                    {
+                        if let Ok(topic) = Topic::try_from(subscription_key.as_ref()) {
+                            acc.push(SubscriptionUpdate::Decrement {
+                                topic: topic,
+                                subscribers_count: subscribers_count.to_owned(),
+                            });
+                        }
+                    } else if current.get(subscription_key).unwrap().to_owned()
+                        < subscribers_count.to_owned()
+                    {
+                        if let Ok(topic) = Topic::try_from(subscription_key.as_ref()) {
+                            acc.push(SubscriptionUpdate::Increment { topic: topic });
+                        }
                     }
-                } else if current.get(subscription_key).unwrap().to_owned()
-                    < subscribers_count.to_owned()
-                {
-                    if let Ok(resource) = Topic::try_from(subscription_key.as_ref()) {
-                        acc.push(SubscriptionUpdate {
-                            update_type: SubscriptionUpdateType::Increment,
-                            resource: resource,
-                            subscribers_count: subscribers_count.to_owned(),
-                        });
+                } else {
+                    if let Ok(topic) = Topic::try_from(subscription_key.as_ref()) {
+                        acc.push(SubscriptionUpdate::New { topic: topic });
                     }
                 }
-            } else {
-                if let Ok(resource) = Topic::try_from(subscription_key.as_ref()) {
-                    acc.push(SubscriptionUpdate {
-                        update_type: SubscriptionUpdateType::New,
-                        resource: resource,
-                        subscribers_count: subscribers_count.to_owned(),
-                    });
-                }
+                Ok(acc)
+            },
+        )
+        .map(|vec| vec.to_owned())?;
+
+    // handle deleted subscriptions
+    current.iter().for_each(|(subscription_key, _)| {
+        if let Ok(topic) = Topic::try_from(subscription_key.as_ref()) {
+            if !new.contains_key(subscription_key) {
+                updated.push(SubscriptionUpdate::Decrement {
+                    topic: topic,
+                    subscribers_count: 0,
+                });
             }
-            Ok(acc)
-        })
-        .map(|vec| vec.to_owned())
+        }
+    });
+
+    Ok(updated)
 }

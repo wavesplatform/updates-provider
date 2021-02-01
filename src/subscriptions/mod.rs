@@ -18,17 +18,17 @@ pub struct Config {
 }
 
 #[derive(Clone, Debug)]
-pub enum SubscriptionUpdateType {
-    New,
-    Increment,
-    Decrement,
-}
-
-#[derive(Clone, Debug)]
-pub struct SubscriptionUpdate {
-    pub update_type: SubscriptionUpdateType,
-    pub resource: Topic,
-    pub subscribers_count: i32,
+pub enum SubscriptionUpdate {
+    New {
+        topic: Topic,
+    },
+    Increment {
+        topic: Topic,
+    },
+    Decrement {
+        topic: Topic,
+        subscribers_count: i32,
+    },
 }
 
 pub trait SubscriptionsRepo {

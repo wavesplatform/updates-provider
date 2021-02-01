@@ -10,17 +10,24 @@ pub struct WatchList<T> {
 
 impl WatchList<ConfigFile> {
     pub fn on_update(&mut self, update: subscriptions::SubscriptionUpdate) -> Result<(), Error> {
-        match update.resource {
-            Topic::Config(config_file) => match update.update_type {
-                subscriptions::SubscriptionUpdateType::New => {
+        match update {
+            subscriptions::SubscriptionUpdate::New { topic } => match topic {
+                Topic::Config(config_file) => {
                     self.items.insert(config_file);
                 }
-                subscriptions::SubscriptionUpdateType::Decrement => {
-                    if update.subscribers_count == 0 {
+            },
+            subscriptions::SubscriptionUpdate::Decrement {
+                topic,
+                subscribers_count,
+            } => match topic {
+                Topic::Config(config_file) => {
+                    if subscribers_count == 0 {
                         self.items.remove(&config_file);
                     }
                 }
-                subscriptions::SubscriptionUpdateType::Increment => {
+            },
+            subscriptions::SubscriptionUpdate::Increment { topic } => match topic {
+                Topic::Config(config_file) => {
                     if !self.items.contains(&config_file) {
                         self.items.insert(config_file);
                     }
