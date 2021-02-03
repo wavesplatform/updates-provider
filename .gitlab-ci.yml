@@ -8,9 +8,6 @@ include:
 
 variables:
   APP_NAME: updates-provider
-  IMAGE: ${REGISTRY}/wx-backend/${APP_NAME}:$CI_COMMIT_REF_NAME
-  GIT_OPS_REPO: "gitlab.waves.exchange/we-private/backend/k8s-configs-backend.git"
-  GIT_OPS_BRANCH: "develop"
 
 stages:
   - "Build docker image"
