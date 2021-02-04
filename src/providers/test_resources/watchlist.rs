@@ -1,5 +1,5 @@
 use crate::error::Error;
-use crate::models::{ConfigFile, Topic};
+use crate::models::{TestResource, Topic};
 use crate::subscriptions;
 use std::collections::HashSet;
 
@@ -8,12 +8,12 @@ pub struct WatchList<T> {
     pub items: HashSet<T>,
 }
 
-impl WatchList<ConfigFile> {
+impl WatchList<TestResource> {
     pub fn on_update(&mut self, update: subscriptions::SubscriptionUpdate) -> Result<(), Error> {
         match update {
             subscriptions::SubscriptionUpdate::New { topic } => match topic {
-                Topic::Config(config_file) => {
-                    self.items.insert(config_file);
+                Topic::TestResource(tr) => {
+                    self.items.insert(tr);
                 }
                 _ => {}
             },
@@ -21,17 +21,17 @@ impl WatchList<ConfigFile> {
                 topic,
                 subscribers_count,
             } => match topic {
-                Topic::Config(config_file) => {
+                Topic::TestResource(tr) => {
                     if subscribers_count == 0 {
-                        self.items.remove(&config_file);
+                        self.items.remove(&tr);
                     }
                 }
                 _ => {}
             },
             subscriptions::SubscriptionUpdate::Increment { topic } => match topic {
-                Topic::Config(config_file) => {
-                    if !self.items.contains(&config_file) {
-                        self.items.insert(config_file);
+                Topic::TestResource(tr) => {
+                    if !self.items.contains(&tr) {
+                        self.items.insert(tr);
                     }
                 }
                 _ => {}
@@ -42,7 +42,7 @@ impl WatchList<ConfigFile> {
     }
 }
 
-impl Default for WatchList<ConfigFile> {
+impl Default for WatchList<TestResource> {
     fn default() -> Self {
         WatchList {
             items: HashSet::new(),

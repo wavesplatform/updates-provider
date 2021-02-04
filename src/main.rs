@@ -18,6 +18,7 @@ async fn main() -> Result<(), Error> {
     let redis_config = config::load_redis()?;
     let subscriptions_config = config::load_subscriptions()?;
     let configs_updater_config = config::load_configs_updater()?;
+    let test_resources_config = config::load_test_resources_updater()?;
 
     let subscriptions_updates_observers: SubscriptionsUpdatesObservers =
         SubscriptionsUpdatesObservers::default();
@@ -32,6 +33,7 @@ async fn main() -> Result<(), Error> {
     let resources_repo = resources::repo::ResourcesRepoImpl::new(redis_pool.clone());
     let resources_repo = Arc::new(resources_repo);
 
+    // Configs
     let configs_repo = providers::configs::repo::ConfigsRepoImpl::new(
         configs_updater_config.configs_base_url,
         configs_updater_config.gitlab_private_token,
@@ -50,6 +52,26 @@ async fn main() -> Result<(), Error> {
         .write()
         .await
         .push(configs_subscriptions_updates_sender);
+
+    // Test Resources
+    let test_resources_repo = providers::test_resources::repo::TestResourcesRepoImpl::new(
+        test_resources_config.test_resources_base_url,
+    );
+
+    let test_resources_updates_provider =
+        providers::test_resources::updater::TestResourcesUpdaterImpl::new(
+            test_resources_repo,
+            resources_repo.clone(),
+            test_resources_config.polling_delay,
+        );
+
+    let test_resources_subscriptions_updates_sender =
+        test_resources_updates_provider.fetch_updates().await?;
+
+    subscriptions_updates_observers
+        .write()
+        .await
+        .push(test_resources_subscriptions_updates_sender);
 
     let subscriptions_repo = subscriptions::repo::SubscriptionsRepoImpl::new(
         redis_pool.clone(),

@@ -1,4 +1,5 @@
 pub mod configs;
+pub mod test_resources;
 
 use crate::{error::Error, subscriptions::SubscriptionUpdate};
 use async_trait::async_trait;
