@@ -9,6 +9,7 @@ use url::Url;
 pub enum Topic {
     Config(ConfigFile),
     State(State),
+    TestResource(TestResource),
 }
 
 impl TryFrom<&str> for Topic {
@@ -26,6 +27,10 @@ impl TryFrom<&str> for Topic {
                 Some("state") => {
                     let state = State::try_from(url.path())?;
                     Ok(Topic::State(state))
+                }
+                Some("test.resource") => {
+                    let ps = TestResource::try_from(&url)?;
+                    Ok(Topic::TestResource(ps))
                 }
                 _ => Err(Error::InvalidTopic(s.to_owned())),
             },
@@ -46,6 +51,14 @@ impl ToString for Topic {
             Topic::State(state) => {
                 url.set_host(Some("state")).unwrap();
                 url.set_path(state.to_string().as_str());
+                url.as_str().to_owned()
+            }
+            Topic::TestResource(ps) => {
+                url.set_host(Some("test.resource")).unwrap();
+                url.set_path(&ps.path);
+                if let Some(query) = ps.query.clone() {
+                    url.set_query(Some(query.as_str()));
+                }
                 url.as_str().to_owned()
             }
         }
@@ -139,3 +152,47 @@ impl MaybeToTopic for State {
 }
 
 impl WatchListItem for State {}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub struct TestResource {
+    pub path: String,
+    pub query: Option<String>,
+}
+
+impl ToString for TestResource {
+    fn to_string(&self) -> String {
+        let mut s = self.path.clone();
+        if let Some(query) = self.query.clone() {
+            s = format!("{}?{}", s, query).to_string();
+        }
+        s
+    }
+}
+
+impl TryFrom<&url::Url> for TestResource {
+    type Error = Error;
+
+    fn try_from(u: &url::Url) -> Result<Self, Self::Error> {
+        Ok(Self {
+            path: u.path().to_string(),
+            query: u.query().map(|q| q.to_owned()),
+        })
+    }
+}
+
+impl From<TestResource> for Topic {
+    fn from(test_resource: TestResource) -> Self {
+        Self::TestResource(test_resource)
+    }
+}
+
+impl MaybeToTopic for TestResource {
+    fn maybe_item(topic: Topic) -> Option<Self> {
+        if let Topic::TestResource(test_resource) = topic {
+            return Some(test_resource);
+        }
+        return None;
+    }
+}
+
+impl WatchListItem for TestResource {}

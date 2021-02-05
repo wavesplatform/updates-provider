@@ -1,6 +1,7 @@
 pub mod configs;
 pub mod requester;
 pub mod states;
+pub mod test_resources;
 pub mod watchlist;
 
 use crate::error::Error;

@@ -34,6 +34,12 @@ struct FlatStatesUpdaterConfig {
     pub polling_delay: u64,
 }
 
+#[derive(Deserialize)]
+struct FlatTestResourcesUpdaterConfig {
+    pub test_resources_base_url: String,
+    pub polling_delay: u64,
+}
+
 pub fn load_redis() -> Result<RedisConfig, Error> {
     envy::prefixed("REDIS__")
         .from_env::<RedisConfig>()
@@ -64,6 +70,16 @@ pub fn load_states_updater() -> Result<providers::states::Config, Error> {
 
     Ok(providers::states::Config {
         base_url: flat_config.base_url,
+        polling_delay: std::time::Duration::from_secs(flat_config.polling_delay),
+    })
+}
+
+pub fn load_test_resources_updater() -> Result<providers::test_resources::Config, Error> {
+    let flat_config =
+        envy::prefixed("TEST_RESOURCES_UPDATER__").from_env::<FlatTestResourcesUpdaterConfig>()?;
+
+    Ok(providers::test_resources::Config {
+        test_resources_base_url: flat_config.test_resources_base_url,
         polling_delay: std::time::Duration::from_secs(flat_config.polling_delay),
     })
 }

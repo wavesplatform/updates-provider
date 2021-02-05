@@ -19,6 +19,7 @@ async fn main() -> Result<(), Error> {
     let subscriptions_config = config::load_subscriptions()?;
     let configs_updater_config = config::load_configs_updater()?;
     let states_updater_config = config::load_states_updater()?;
+    let test_resources_config = config::load_test_resources_updater()?;
 
     let subscriptions_updates_observers: SubscriptionsUpdatesObservers =
         SubscriptionsUpdatesObservers::default();
@@ -33,7 +34,7 @@ async fn main() -> Result<(), Error> {
     let resources_repo = resources::repo::ResourcesRepoImpl::new(redis_pool.clone());
     let resources_repo = Arc::new(resources_repo);
 
-    // configs
+    // Configs
     let configs_requester = Box::new(providers::configs::ConfigRequester::new(
         configs_updater_config.clone(),
     ));
@@ -48,14 +49,14 @@ async fn main() -> Result<(), Error> {
         .await
         .push(configs_subscriptions_updates_sender);
 
-    // states
+    // States
     let states_requester = Box::new(providers::states::StateRequester::new(
         states_updater_config.base_url,
     ));
     let states_updates_provider = providers::Provider::new(
         states_requester,
         states_updater_config.polling_delay,
-        resources_repo,
+        resources_repo.clone(),
     );
     let states_subscriptions_updates_sender = states_updates_provider.fetch_updates().await?;
 
@@ -63,6 +64,24 @@ async fn main() -> Result<(), Error> {
         .write()
         .await
         .push(states_subscriptions_updates_sender);
+
+    // Test Resources
+    let test_resources_requester =
+        Box::new(providers::test_resources::TestResourcesRequester::new(
+            test_resources_config.test_resources_base_url,
+        ));
+    let test_resources_updates_provider = providers::Provider::new(
+        test_resources_requester,
+        test_resources_config.polling_delay,
+        resources_repo,
+    );
+    let test_resources_subscriptions_updates_sender =
+        test_resources_updates_provider.fetch_updates().await?;
+
+    subscriptions_updates_observers
+        .write()
+        .await
+        .push(test_resources_subscriptions_updates_sender);
 
     let subscriptions_repo = subscriptions::repo::SubscriptionsRepoImpl::new(
         redis_pool.clone(),
