@@ -26,4 +26,6 @@ pub enum Error {
     InvalidTopic(String),
     #[error("InvalidConfigPath: {0}")]
     InvalidConfigPath(String),
+    #[error("InvalidStatePath: {0}")]
+    InvalidStatePath(String),
 }

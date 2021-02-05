@@ -1,4 +1,5 @@
 use crate::error::Error;
+use crate::providers::watchlist::{MaybeToTopic, WatchListItem};
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 use url::Url;
@@ -7,6 +8,7 @@ use url::Url;
 #[serde(rename_all = "snake_case")]
 pub enum Topic {
     Config(ConfigFile),
+    State(State),
 }
 
 impl TryFrom<&str> for Topic {
@@ -20,7 +22,11 @@ impl TryFrom<&str> for Topic {
                 Some("config") => {
                     let config_file = ConfigFile::try_from(url.path())?;
                     Ok(Topic::Config(config_file))
-                },
+                }
+                Some("state") => {
+                    let state = State::try_from(url.path())?;
+                    Ok(Topic::State(state))
+                }
                 _ => Err(Error::InvalidTopic(s.to_owned())),
             },
             _ => Err(Error::InvalidTopic(s.to_owned())),
@@ -36,7 +42,12 @@ impl ToString for Topic {
                 url.set_host(Some("config")).unwrap();
                 url.set_path(&cf.path);
                 url.as_str().to_owned()
-            },
+            }
+            Topic::State(state) => {
+                url.set_host(Some("state")).unwrap();
+                url.set_path(state.to_string().as_str());
+                url.as_str().to_owned()
+            }
         }
     }
 }
@@ -63,3 +74,68 @@ impl TryFrom<&str> for ConfigFile {
         Ok(ConfigFile { path: p.to_owned() })
     }
 }
+
+impl From<ConfigFile> for Topic {
+    fn from(config_file: ConfigFile) -> Self {
+        Self::Config(config_file)
+    }
+}
+
+impl MaybeToTopic for ConfigFile {
+    fn maybe_item(topic: Topic) -> Option<Self> {
+        if let Topic::Config(config_file) = topic {
+            return Some(config_file);
+        }
+        return None;
+    }
+}
+
+impl WatchListItem for ConfigFile {}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub struct State {
+    address: String,
+    key: String,
+}
+
+impl ToString for State {
+    fn to_string(&self) -> String {
+        format!("{}/{}", self.address, self.key)
+    }
+}
+
+impl TryFrom<&str> for State {
+    type Error = Error;
+
+    fn try_from(s: &str) -> Result<Self, Self::Error> {
+        let parts = s
+            .trim_start_matches("/")
+            .split("/")
+            .take(2)
+            .collect::<Vec<_>>();
+        if parts.len() == 2 {
+            let address = parts[0].to_string();
+            let key = parts[1].to_string();
+            Ok(State { address, key })
+        } else {
+            Err(Error::InvalidStatePath(s.to_owned()))
+        }
+    }
+}
+
+impl From<State> for Topic {
+    fn from(state: State) -> Self {
+        Self::State(state)
+    }
+}
+
+impl MaybeToTopic for State {
+    fn maybe_item(topic: Topic) -> Option<Self> {
+        if let Topic::State(state) = topic {
+            return Some(state);
+        }
+        return None;
+    }
+}
+
+impl WatchListItem for State {}

@@ -28,6 +28,12 @@ struct FlatConfigsUpdaterConfig {
     pub gitlab_configs_branch: String,
 }
 
+#[derive(Deserialize)]
+struct FlatStatesUpdaterConfig {
+    pub base_url: String,
+    pub polling_delay: u64,
+}
+
 pub fn load_redis() -> Result<RedisConfig, Error> {
     envy::prefixed("REDIS__")
         .from_env::<RedisConfig>()
@@ -43,13 +49,21 @@ pub fn load_subscriptions() -> Result<subscriptions::Config, Error> {
 }
 
 pub fn load_configs_updater() -> Result<providers::configs::Config, Error> {
-    let flat_config = envy::prefixed("CONFIGS_UPDATER__")
-        .from_env::<FlatConfigsUpdaterConfig>()?;
+    let flat_config = envy::prefixed("CONFIGS_UPDATER__").from_env::<FlatConfigsUpdaterConfig>()?;
 
     Ok(providers::configs::Config {
         configs_base_url: flat_config.configs_base_url,
         polling_delay: std::time::Duration::from_secs(flat_config.polling_delay),
         gitlab_private_token: flat_config.gitlab_private_token,
         gitlab_configs_branch: flat_config.gitlab_configs_branch,
+    })
+}
+
+pub fn load_states_updater() -> Result<providers::states::Config, Error> {
+    let flat_config = envy::prefixed("STATES_UPDATER__").from_env::<FlatStatesUpdaterConfig>()?;
+
+    Ok(providers::states::Config {
+        base_url: flat_config.base_url,
+        polling_delay: std::time::Duration::from_secs(flat_config.polling_delay),
     })
 }
