@@ -1,39 +1,49 @@
-use super::ConfigsRepo;
+use super::watchlist_process;
+use super::Requester;
+use super::{TSResourcesRepoImpl, TSUpdatesProviderLastValues};
 use crate::error::Error;
 use crate::models::ConfigFile;
 use async_trait::async_trait;
 use reqwest::{Client, ClientBuilder};
+use std::collections::hash_set::Iter;
+use std::time::Duration;
 use wavesexchange_log::{debug, error};
 
-pub struct ConfigsRepoImpl {
-    configs_base_url: String,
+#[async_trait]
+pub trait ConfigsRepo {
+    async fn get(&self, config_file: ConfigFile) -> Result<String, Error>;
+}
+
+#[derive(Clone, Debug)]
+pub struct Config {
+    pub configs_base_url: String,
+    pub polling_delay: Duration,
+    pub gitlab_private_token: String,
+    pub gitlab_configs_branch: String,
+}
+
+pub struct ConfigRequester {
     gitlab_private_token: String,
     gitlab_configs_branch: String,
+    base_url: String,
     http_client: Client,
 }
 
-impl ConfigsRepoImpl {
-    pub fn new(
-        configs_base_url: impl AsRef<str>,
-        private_token: impl AsRef<str>,
-        configs_branch: impl AsRef<str>,
-    ) -> Self {
+impl ConfigRequester {
+    pub fn new(config: Config) -> Self {
         Self {
-            configs_base_url: configs_base_url.as_ref().to_owned(),
-            gitlab_private_token: private_token.as_ref().to_owned(),
-            gitlab_configs_branch: configs_branch.as_ref().to_owned(),
+            base_url: config.configs_base_url.to_owned(),
             http_client: ClientBuilder::new()
                 .timeout(std::time::Duration::from_secs(30))
                 .connect_timeout(std::time::Duration::from_secs(30))
                 .build()
                 .unwrap(),
+            gitlab_private_token: config.gitlab_private_token.clone(),
+            gitlab_configs_branch: config.gitlab_private_token,
         }
     }
-}
 
-#[async_trait]
-impl ConfigsRepo for ConfigsRepoImpl {
-    async fn get(&self, config_file: ConfigFile) -> Result<String, Error> {
+    async fn get(&self, config_file: &ConfigFile) -> Result<String, Error> {
         let config_file_path = config_file.to_string();
         let config_file_path = config_file_path.trim_start_matches("/");
         let config_file_path = percent_encoding::percent_encode(
@@ -45,7 +55,7 @@ impl ConfigsRepo for ConfigsRepoImpl {
         let config_file_url = reqwest::Url::parse(
             format!(
                 "{}/{}/raw?ref={}",
-                self.configs_base_url, config_file_path, self.gitlab_configs_branch
+                self.base_url, config_file_path, self.gitlab_configs_branch
             )
             .as_ref(),
         )?;
@@ -68,5 +78,26 @@ impl ConfigsRepo for ConfigsRepoImpl {
             );
             Err(Error::ResourceFetchingError(config_file_path.to_owned()))
         }
+    }
+}
+
+#[async_trait]
+impl Requester<ConfigFile> for ConfigRequester {
+    async fn process<'a>(
+        &self,
+        items_iter: Iter<'a, ConfigFile>,
+        resources_repo: &TSResourcesRepoImpl,
+        last_values: &TSUpdatesProviderLastValues,
+    ) -> Result<(), Error> {
+        let watchlist_processing = items_iter
+            .map(|config_file| async move {
+                let current_value = self.get(config_file).await?;
+                watchlist_process(config_file, current_value, resources_repo, last_values).await?;
+                Ok::<(), Error>(())
+            })
+            .collect::<Vec<_>>();
+
+        futures::future::try_join_all(watchlist_processing).await?;
+        Ok(())
     }
 }
