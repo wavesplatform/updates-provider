@@ -1,5 +1,5 @@
 use crate::error::Error;
-use crate::providers::watchlist::{MaybeToTopic, WatchListItem};
+use crate::providers::watchlist::{MaybeFromTopic, WatchListItem};
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 use url::Url;
@@ -94,7 +94,7 @@ impl From<ConfigFile> for Topic {
     }
 }
 
-impl MaybeToTopic for ConfigFile {
+impl MaybeFromTopic for ConfigFile {
     fn maybe_item(topic: Topic) -> Option<Self> {
         if let Topic::Config(config_file) = topic {
             return Some(config_file);
@@ -142,7 +142,7 @@ impl From<State> for Topic {
     }
 }
 
-impl MaybeToTopic for State {
+impl MaybeFromTopic for State {
     fn maybe_item(topic: Topic) -> Option<Self> {
         if let Topic::State(state) = topic {
             return Some(state);
@@ -186,7 +186,7 @@ impl From<TestResource> for Topic {
     }
 }
 
-impl MaybeToTopic for TestResource {
+impl MaybeFromTopic for TestResource {
     fn maybe_item(topic: Topic) -> Option<Self> {
         if let Topic::TestResource(test_resource) = topic {
             return Some(test_resource);

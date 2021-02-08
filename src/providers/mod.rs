@@ -40,12 +40,17 @@ impl<T: WatchListItem> Provider<T> {
         polling_delay: Duration,
         resources_repo: TSResourcesRepoImpl,
     ) -> Self {
+        let last_values = Arc::new(RwLock::new(HashMap::new()));
+        let watchlist = Arc::new(RwLock::new(WatchList::new(
+            resources_repo.clone(),
+            last_values.clone(),
+        )));
         Self {
             requester,
             polling_delay,
             resources_repo,
-            watchlist: TSWatchList::default(),
-            last_values: Arc::new(RwLock::new(HashMap::new())),
+            watchlist,
+            last_values,
         }
     }
 }
@@ -63,7 +68,7 @@ where
         tokio::task::spawn(async move {
             info!("starting subscriptions updates handler");
             while let Some(upd) = subscriptions_updates_receiver.recv().await {
-                if let Err(err) = watchlist.write().await.on_update(upd) {
+                if let Err(err) = watchlist.write().await.on_update(upd).await {
                     error!("error while updating watchlist: {:?}", err);
                 }
             }
@@ -98,7 +103,7 @@ impl<T: WatchListItem> Provider<T> {
 }
 
 // function used in implementations of provider
-pub async fn watchlist_process<T: WatchListItem + Clone + ToString + Into<Topic>>(
+pub async fn watchlist_process<T: WatchListItem + Clone>(
     data: &T,
     current_value: String,
     resources_repo: &TSResourcesRepoImpl,

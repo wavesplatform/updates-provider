@@ -38,7 +38,7 @@ impl ConfigRequester {
                 .connect_timeout(std::time::Duration::from_secs(30))
                 .build()
                 .unwrap(),
-            gitlab_private_token: config.gitlab_private_token.clone(),
+            gitlab_private_token: config.gitlab_private_token,
             gitlab_configs_branch: config.gitlab_configs_branch,
         }
     }
