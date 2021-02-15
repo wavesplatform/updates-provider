@@ -9,7 +9,7 @@ use crate::models::Topic;
 use crate::resources::{repo::ResourcesRepoImpl, ResourcesRepo};
 use crate::subscriptions::SubscriptionUpdate;
 use async_trait::async_trait;
-use requester::Requester;
+use requester::{ErasedRequester, Requester};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -27,7 +27,7 @@ type TSUpdatesProviderLastValues = Arc<RwLock<HashMap<String, String>>>;
 type TSWatchList<T> = Arc<RwLock<WatchList<T>>>;
 
 pub struct Provider<T: WatchListItem> {
-    requester: Box<dyn Requester<T>>,
+    requester: Box<dyn ErasedRequester<T>>,
     resources_repo: TSResourcesRepoImpl,
     polling_delay: Duration,
     watchlist: TSWatchList<T>,
@@ -36,14 +36,16 @@ pub struct Provider<T: WatchListItem> {
 
 impl<T: WatchListItem> Provider<T> {
     pub fn new(
-        requester: Box<dyn Requester<T>>,
+        requester: Box<(dyn ErasedRequester<T>)>,
         polling_delay: Duration,
+        delete_timeout: Duration,
         resources_repo: TSResourcesRepoImpl,
     ) -> Self {
         let last_values = Arc::new(RwLock::new(HashMap::new()));
         let watchlist = Arc::new(RwLock::new(WatchList::new(
             resources_repo.clone(),
             last_values.clone(),
+            delete_timeout,
         )));
         Self {
             requester,
@@ -84,14 +86,15 @@ where
     }
 }
 
-impl<T: WatchListItem> Provider<T> {
+impl<T: WatchListItem + Send + Sync + 'static> Provider<T> {
     async fn run(self) {
         loop {
-            let watchlist = self.watchlist.read().await;
-            let items_iter = watchlist.items.iter();
+            let mut watchlist = self.watchlist.write().await;
+            watchlist.delete_old().await;
+            let mut items = watchlist.items.iter().map(|(item, _on_delete)| item);
             if let Err(error) = self
                 .requester
-                .process(items_iter, &self.resources_repo, &self.last_values)
+                .process(&mut items, &self.resources_repo, &self.last_values)
                 .await
             {
                 error!("error occured while watchlist processing: {:?}", error);

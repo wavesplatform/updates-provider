@@ -5,13 +5,14 @@ use crate::models::State;
 use async_trait::async_trait;
 use reqwest::{Client, ClientBuilder};
 use serde::{Deserialize, Serialize};
-use std::{collections::hash_set::Iter, time::Duration};
+use std::time::Duration;
 use wavesexchange_log::error;
 
 #[derive(Debug)]
 pub struct Config {
     pub base_url: String,
     pub polling_delay: Duration,
+    pub delete_timeout: Duration,
 }
 
 pub struct StateRequester {
@@ -53,13 +54,13 @@ impl StateRequester {
 
 #[async_trait]
 impl Requester<State> for StateRequester {
-    async fn process<'a>(
+    async fn process<'a, I: Iterator<Item = &'a State> + Send + Sync>(
         &self,
-        items_iter: Iter<'a, State>,
+        items: I,
         resources_repo: &TSResourcesRepoImpl,
         last_values: &TSUpdatesProviderLastValues,
     ) -> Result<(), Error> {
-        let states = group_states(items_iter);
+        let states = group_states(items);
         let fs = states
             .iter()
             .map(|address_key_pairs| async move {
@@ -70,10 +71,7 @@ impl Requester<State> for StateRequester {
                     return Err(Error::ResourceFetchingError(err));
                 };
                 for (state, value) in address_key_pairs.iter().zip(response.entries.iter()) {
-                    if value.is_none() {
-                        continue;
-                    }
-                    let current_value = serde_json::to_string(&value)?;
+                    let current_value = serde_json::to_string(value)?;
                     super::watchlist_process(state, current_value, resources_repo, last_values)
                         .await?;
                 }
@@ -85,8 +83,8 @@ impl Requester<State> for StateRequester {
     }
 }
 
-fn group_states(items_iter: Iter<State>) -> Vec<Vec<State>> {
-    items_iter.fold(vec![], |mut acc, state| {
+fn group_states<'a>(items: impl Iterator<Item = &'a State>) -> Vec<Vec<State>> {
+    items.fold(vec![], |mut acc, state| {
         if let Some(last) = acc.last_mut() {
             if last.len() == 10 {
                 acc.push(vec![state.to_owned()])
