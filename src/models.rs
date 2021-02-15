@@ -39,6 +39,30 @@ impl TryFrom<&str> for Topic {
     }
 }
 
+#[test]
+fn string_to_topic() {
+    let s = "topic://config/asd/qwe";
+    if let Topic::Config(config) = Topic::try_from(s).unwrap() {
+        assert_eq!(config.path, "/asd/qwe".to_string());
+    } else {
+        panic!("not config")
+    }
+    let s = "topic://state/asd/qwe";
+    if let Topic::State(state) = Topic::try_from(s).unwrap() {
+        assert_eq!(state.address, "asd".to_string());
+        assert_eq!(state.key, "qwe".to_string());
+    } else {
+        panic!("not state")
+    }
+    let s = "topic://test.resource/asd/qwe?a=b";
+    if let Topic::TestResource(test_resource) = Topic::try_from(s).unwrap() {
+        assert_eq!(test_resource.path, "/asd/qwe".to_string());
+        assert_eq!(test_resource.query, Some("a=b".to_string()));
+    } else {
+        panic!("not test_resource")
+    }
+}
+
 impl ToString for Topic {
     fn to_string(&self) -> String {
         let mut url = Url::parse("topic://").unwrap();
@@ -63,6 +87,27 @@ impl ToString for Topic {
             }
         }
     }
+}
+
+#[test]
+fn topic_to_string_test() {
+    let t = Topic::Config(ConfigFile {
+        path: "asd/qwe".to_string(),
+    });
+    assert_eq!(t.to_string(), "topic://config/asd/qwe".to_string());
+    let t = Topic::State(State {
+        address: "asd".to_string(),
+        key: "qwe".to_string(),
+    });
+    assert_eq!(t.to_string(), "topic://state/asd/qwe".to_string());
+    let t = Topic::TestResource(TestResource {
+        path: "asd/qwe".to_string(),
+        query: Some("a=b".to_string()),
+    });
+    assert_eq!(
+        t.to_string(),
+        "topic://test.resource/asd/qwe?a=b".to_string()
+    );
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]

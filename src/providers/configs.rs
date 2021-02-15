@@ -1,11 +1,10 @@
+use super::requester::Requester;
 use super::watchlist_process;
-use super::Requester;
 use super::{TSResourcesRepoImpl, TSUpdatesProviderLastValues};
 use crate::error::Error;
 use crate::models::ConfigFile;
 use async_trait::async_trait;
 use reqwest::{Client, ClientBuilder};
-use std::collections::hash_set::Iter;
 use std::time::Duration;
 use wavesexchange_log::{debug, error};
 
@@ -20,6 +19,7 @@ pub struct Config {
     pub polling_delay: Duration,
     pub gitlab_private_token: String,
     pub gitlab_configs_branch: String,
+    pub delete_timeout: Duration,
 }
 
 pub struct ConfigRequester {
@@ -71,6 +71,8 @@ impl ConfigRequester {
         debug!("url = {}, status = {}", config_file_url, status);
         if status.is_success() {
             Ok(text.to_owned())
+        } else if status == reqwest::StatusCode::NOT_FOUND {
+            Ok("null".to_string())
         } else {
             error!(
                 "error occured while fetching config file: {}",
@@ -83,13 +85,14 @@ impl ConfigRequester {
 
 #[async_trait]
 impl Requester<ConfigFile> for ConfigRequester {
-    async fn process<'a>(
+    async fn process<'a, I: Iterator<Item = &'a ConfigFile> + Send + Sync>(
         &self,
-        items_iter: Iter<'a, ConfigFile>,
+        items: I,
         resources_repo: &TSResourcesRepoImpl,
         last_values: &TSUpdatesProviderLastValues,
     ) -> Result<(), Error> {
-        let watchlist_processing = items_iter
+        let watchlist_processing = items
+            .into_iter()
             .map(|config_file| async move {
                 let current_value = self.get(config_file).await?;
                 watchlist_process(config_file, current_value, resources_repo, last_values).await?;

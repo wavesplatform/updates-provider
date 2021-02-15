@@ -1,11 +1,10 @@
+use super::requester::Requester;
 use super::watchlist_process;
-use super::Requester;
 use super::{TSResourcesRepoImpl, TSUpdatesProviderLastValues};
 use crate::error::Error;
 use crate::models::TestResource;
 use async_trait::async_trait;
 use reqwest::{Client, ClientBuilder};
-use std::collections::hash_set::Iter;
 use std::time::Duration;
 use wavesexchange_log::error;
 
@@ -18,6 +17,7 @@ pub trait ConfigsRepo {
 pub struct Config {
     pub test_resources_base_url: String,
     pub polling_delay: Duration,
+    pub delete_timeout: Duration,
 }
 
 pub struct TestResourcesRequester {
@@ -57,6 +57,8 @@ impl TestResourcesRequester {
 
         if status.is_success() {
             Ok(text.to_owned())
+        } else if status == reqwest::StatusCode::NOT_FOUND {
+            Ok("null".to_string())
         } else {
             error!(
                 "error occured while fetching test resource: {}",
@@ -69,13 +71,14 @@ impl TestResourcesRequester {
 
 #[async_trait]
 impl Requester<TestResource> for TestResourcesRequester {
-    async fn process<'a>(
+    async fn process<'a, I: Iterator<Item = &'a TestResource> + Send + Sync>(
         &self,
-        items_iter: Iter<'a, TestResource>,
+        items: I,
         resources_repo: &TSResourcesRepoImpl,
         last_values: &TSUpdatesProviderLastValues,
     ) -> Result<(), Error> {
-        let watchlist_processing = items_iter
+        let watchlist_processing = items
+            .into_iter()
             .map(|test_resource| async move {
                 let current_value = self.get(test_resource).await?;
                 watchlist_process(test_resource, current_value, resources_repo, last_values)

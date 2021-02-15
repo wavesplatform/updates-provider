@@ -41,6 +41,7 @@ async fn main() -> Result<(), Error> {
     let configs_updates_provider = providers::Provider::new(
         configs_requester,
         configs_updater_config.polling_delay,
+        configs_updater_config.delete_timeout,
         resources_repo.clone(),
     );
     let configs_subscriptions_updates_sender = configs_updates_provider.fetch_updates().await?;
@@ -56,6 +57,7 @@ async fn main() -> Result<(), Error> {
     let states_updates_provider = providers::Provider::new(
         states_requester,
         states_updater_config.polling_delay,
+        states_updater_config.delete_timeout,
         resources_repo.clone(),
     );
     let states_subscriptions_updates_sender = states_updates_provider.fetch_updates().await?;
@@ -73,6 +75,7 @@ async fn main() -> Result<(), Error> {
     let test_resources_updates_provider = providers::Provider::new(
         test_resources_requester,
         test_resources_config.polling_delay,
+        test_resources_config.delete_timeout,
         resources_repo,
     );
     let test_resources_subscriptions_updates_sender =
