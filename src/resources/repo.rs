@@ -5,6 +5,7 @@ use r2d2::Pool;
 use r2d2_redis::redis::Commands;
 use r2d2_redis::RedisConnectionManager;
 
+#[derive(Debug)]
 pub struct ResourcesRepoImpl {
     pool: Pool<RedisConnectionManager>,
 }
@@ -26,6 +27,12 @@ impl ResourcesRepo for ResourcesRepoImpl {
     fn set(&self, resource: Topic, value: String) -> Result<(), Error> {
         let mut con = self.pool.get()?;
         con.set(resource.to_string(), value)
+            .map_err(|err| Error::from(err))
+    }
+
+    fn del(&self, resource: Topic) -> Result<(), Error> {
+        let mut con = self.pool.get()?;
+        con.del(resource.to_string())
             .map_err(|err| Error::from(err))
     }
 }

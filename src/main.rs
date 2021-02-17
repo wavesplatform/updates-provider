@@ -18,6 +18,8 @@ async fn main() -> Result<(), Error> {
     let redis_config = config::load_redis()?;
     let subscriptions_config = config::load_subscriptions()?;
     let configs_updater_config = config::load_configs_updater()?;
+    let states_updater_config = config::load_states_updater()?;
+    let test_resources_config = config::load_test_resources_updater()?;
 
     let subscriptions_updates_observers: SubscriptionsUpdatesObservers =
         SubscriptionsUpdatesObservers::default();
@@ -32,24 +34,57 @@ async fn main() -> Result<(), Error> {
     let resources_repo = resources::repo::ResourcesRepoImpl::new(redis_pool.clone());
     let resources_repo = Arc::new(resources_repo);
 
-    let configs_repo = providers::configs::repo::ConfigsRepoImpl::new(
-        configs_updater_config.configs_base_url,
-        configs_updater_config.gitlab_private_token,
-        configs_updater_config.gitlab_configs_branch,
-    );
-
-    let config_updates_provider = providers::configs::configs_updater::ConfigsUpdaterImpl::new(
-        configs_repo,
-        resources_repo.clone(),
+    // Configs
+    let configs_requester = Box::new(providers::configs::ConfigRequester::new(
+        configs_updater_config.clone(),
+    ));
+    let configs_updates_provider = providers::Provider::new(
+        configs_requester,
         configs_updater_config.polling_delay,
+        configs_updater_config.delete_timeout,
+        resources_repo.clone(),
     );
-
-    let configs_subscriptions_updates_sender = config_updates_provider.fetch_updates().await?;
-
+    let configs_subscriptions_updates_sender = configs_updates_provider.fetch_updates().await?;
     subscriptions_updates_observers
         .write()
         .await
         .push(configs_subscriptions_updates_sender);
+
+    // States
+    let states_requester = Box::new(providers::states::StateRequester::new(
+        states_updater_config.base_url,
+    ));
+    let states_updates_provider = providers::Provider::new(
+        states_requester,
+        states_updater_config.polling_delay,
+        states_updater_config.delete_timeout,
+        resources_repo.clone(),
+    );
+    let states_subscriptions_updates_sender = states_updates_provider.fetch_updates().await?;
+
+    subscriptions_updates_observers
+        .write()
+        .await
+        .push(states_subscriptions_updates_sender);
+
+    // Test Resources
+    let test_resources_requester =
+        Box::new(providers::test_resources::TestResourcesRequester::new(
+            test_resources_config.test_resources_base_url,
+        ));
+    let test_resources_updates_provider = providers::Provider::new(
+        test_resources_requester,
+        test_resources_config.polling_delay,
+        test_resources_config.delete_timeout,
+        resources_repo,
+    );
+    let test_resources_subscriptions_updates_sender =
+        test_resources_updates_provider.fetch_updates().await?;
+
+    subscriptions_updates_observers
+        .write()
+        .await
+        .push(test_resources_subscriptions_updates_sender);
 
     let subscriptions_repo = subscriptions::repo::SubscriptionsRepoImpl::new(
         redis_pool.clone(),
