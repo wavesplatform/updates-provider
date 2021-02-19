@@ -119,8 +119,8 @@ pub async fn watchlist_process<T: WatchListItem + Clone>(
     match last_value {
         Some(last_value) => {
             if current_value != last_value {
-                resources_repo.set(resource.clone(), current_value.clone())?;
-
+                info!("insert new value {:?}", resource);
+                resources_repo.set(resource, current_value.clone())?;
                 last_values.write().await.insert(data_key, current_value);
             }
         }
@@ -133,10 +133,12 @@ pub async fn watchlist_process<T: WatchListItem + Clone>(
             match resources_repo.get(&resource)? {
                 Some(last_updated_value) => {
                     if current_value != last_updated_value {
+                        info!("update value {:?}", resource);
                         resources_repo.set(resource, current_value)?;
                     }
                 }
                 None => {
+                    info!("update value {:?}", resource);
                     resources_repo.set(resource, current_value)?;
                 }
             }
