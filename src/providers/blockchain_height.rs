@@ -43,14 +43,15 @@ impl Provider {
             .get_current_height(())
             .await?;
         let current_height = response.into_inner() as i32;
-        let raw_last_value = if current_height != redis_height {
-            LastValue::new(current_height, true)
+        let mut last_value = if current_height != redis_height {
+            self.resources_repo
+                .set(Topic::BlockchainHeight, current_height.to_string())?;
+            current_height
         } else {
-            LastValue::new(redis_height, false)
+            redis_height
         };
-        let last_value = Arc::new(Mutex::new(raw_last_value));
         let request = tonic::Request::new(SubscribeRequest {
-            from_height: current_height,
+            from_height: last_value,
             to_height: 0,
         });
 
@@ -60,54 +61,18 @@ impl Provider {
                 .await?
                 .into_inner();
 
-        let mut interval = tokio::time::interval(Duration::from_secs(5));
-
-        loop {
-            tokio::select! {
-                msg = stream.message() => {
-                    if let Some(SubscribeEvent { update }) = msg? {
-                        if let Some(BlockchainUpdated { height, .. }) = update {
-                            last_value.clone().lock().await.update_value(height);
-                        }
-                    } else {
-                        break
-                    }
-                }
-                _ = interval.tick() => {
-                    let last_value = last_value.clone();
-                    let mut v = last_value.lock().await;
-                    if v.changed {
-                        self.resources_repo.set(Topic::BlockchainHeight, v.value.to_string())?;
-                        v.not_changed();
-                    }
+        while let Some(SubscribeEvent { update }) = stream.message().await? {
+            if let Some(BlockchainUpdated { height, .. }) = update {
+                if last_value != height {
+                    println!("new height: {:?}", height);
+                    self.resources_repo
+                        .set(Topic::BlockchainHeight, height.to_string())?;
+                    last_value = height;
                 }
             }
         }
 
         Ok(())
-    }
-}
-
-#[derive(Debug)]
-struct LastValue {
-    value: i32,
-    changed: bool,
-}
-
-impl LastValue {
-    fn new(value: i32, changed: bool) -> Self {
-        Self { value, changed }
-    }
-
-    fn update_value(&mut self, value: i32) {
-        if value != self.value {
-            self.value = value;
-            self.changed = true;
-        }
-    }
-
-    fn not_changed(&mut self) {
-        self.changed = false;
     }
 }
 
