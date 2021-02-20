@@ -53,8 +53,8 @@ struct FlatTestResourcesUpdaterConfig {
 
 #[derive(Deserialize)]
 struct FlatBlockchainHeightUpdaterConfig {
-    pub updates_url: String,
-    pub node_url: String,
+    pub blockchain_updates_node_url: String,
+    pub grpc_node_url: String,
 }
 
 pub fn load_redis() -> Result<RedisConfig, Error> {
@@ -109,7 +109,7 @@ pub fn load_blockchain_height() -> Result<providers::blockchain_height::Config, 
         envy::prefixed("NODE_UPDATER__").from_env::<FlatBlockchainHeightUpdaterConfig>()?;
 
     Ok(providers::blockchain_height::Config {
-        updates_url: flat_config.updates_url,
-        node_url: flat_config.node_url,
+        updates_url: flat_config.blockchain_updates_node_url,
+        node_url: flat_config.grpc_node_url,
     })
 }
