@@ -51,6 +51,12 @@ struct FlatTestResourcesUpdaterConfig {
     pub delete_timeout_secs: u64,
 }
 
+#[derive(Deserialize)]
+struct FlatBlockchainHeightUpdaterConfig {
+    pub updates_url: String,
+    pub node_url: String,
+}
+
 pub fn load_redis() -> Result<RedisConfig, Error> {
     envy::prefixed("REDIS__")
         .from_env::<RedisConfig>()
@@ -65,10 +71,10 @@ pub fn load_subscriptions() -> Result<subscriptions::Config, Error> {
     })
 }
 
-pub fn load_configs_updater() -> Result<providers::configs::Config, Error> {
+pub fn load_configs_updater() -> Result<providers::polling::configs::Config, Error> {
     let flat_config = envy::prefixed("CONFIGS_UPDATER__").from_env::<FlatConfigsUpdaterConfig>()?;
 
-    Ok(providers::configs::Config {
+    Ok(providers::polling::configs::Config {
         configs_base_url: flat_config.configs_base_url,
         polling_delay: Duration::from_secs(flat_config.polling_delay),
         gitlab_private_token: flat_config.gitlab_private_token,
@@ -77,23 +83,33 @@ pub fn load_configs_updater() -> Result<providers::configs::Config, Error> {
     })
 }
 
-pub fn load_states_updater() -> Result<providers::states::Config, Error> {
+pub fn load_states_updater() -> Result<providers::polling::states::Config, Error> {
     let flat_config = envy::prefixed("STATES_UPDATER__").from_env::<FlatStatesUpdaterConfig>()?;
 
-    Ok(providers::states::Config {
+    Ok(providers::polling::states::Config {
         base_url: flat_config.base_url,
         polling_delay: Duration::from_secs(flat_config.polling_delay),
         delete_timeout: Duration::from_secs(flat_config.delete_timeout_secs),
     })
 }
 
-pub fn load_test_resources_updater() -> Result<providers::test_resources::Config, Error> {
+pub fn load_test_resources_updater() -> Result<providers::polling::test_resources::Config, Error> {
     let flat_config =
         envy::prefixed("TEST_RESOURCES_UPDATER__").from_env::<FlatTestResourcesUpdaterConfig>()?;
 
-    Ok(providers::test_resources::Config {
+    Ok(providers::polling::test_resources::Config {
         test_resources_base_url: flat_config.test_resources_base_url,
         polling_delay: Duration::from_secs(flat_config.polling_delay),
         delete_timeout: Duration::from_secs(flat_config.delete_timeout_secs),
+    })
+}
+
+pub fn load_blockchain_height() -> Result<providers::blockchain_height::Config, Error> {
+    let flat_config =
+        envy::prefixed("NODE_UPDATER__").from_env::<FlatBlockchainHeightUpdaterConfig>()?;
+
+    Ok(providers::blockchain_height::Config {
+        updates_url: flat_config.updates_url,
+        node_url: flat_config.node_url,
     })
 }
