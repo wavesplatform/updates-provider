@@ -43,7 +43,7 @@ impl Provider {
             .get_current_height(())
             .await?;
         let current_height = response.into_inner() as i32;
-        let mut last_value = if current_height != redis_height {
+        let mut last_height = if current_height != redis_height {
             self.resources_repo
                 .set(Topic::BlockchainHeight, current_height.to_string())?;
             current_height
@@ -51,7 +51,7 @@ impl Provider {
             redis_height
         };
         let request = tonic::Request::new(SubscribeRequest {
-            from_height: last_value,
+            from_height: last_height,
             to_height: 0,
         });
 
@@ -63,11 +63,11 @@ impl Provider {
 
         while let Some(SubscribeEvent { update }) = stream.message().await? {
             if let Some(BlockchainUpdated { height, .. }) = update {
-                if last_value != height {
+                if last_height != height {
                     println!("new height: {:?}", height);
                     self.resources_repo
                         .set(Topic::BlockchainHeight, height.to_string())?;
-                    last_value = height;
+                    last_height = height;
                 }
             }
         }
