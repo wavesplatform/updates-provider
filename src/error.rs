@@ -28,4 +28,10 @@ pub enum Error {
     InvalidConfigPath(String),
     #[error("InvalidStatePath: {0}")]
     InvalidStatePath(String),
+    #[error("GRPCConnectionError: {0}")]
+    GRPCConnectionError(#[from] tonic::transport::Error),
+    #[error("GRPCUriError: {0}")]
+    GRPCUriError(String),
+    #[error("GRPCError: {0}")]
+    GRPCError(#[from] tonic::Status),
 }

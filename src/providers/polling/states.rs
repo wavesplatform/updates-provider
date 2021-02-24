@@ -1,3 +1,4 @@
+use super::super::watchlist_process;
 use super::requester::Requester;
 use super::{TSResourcesRepoImpl, TSUpdatesProviderLastValues};
 use crate::error::Error;
@@ -72,8 +73,7 @@ impl Requester<State> for StateRequester {
                 };
                 for (state, value) in address_key_pairs.iter().zip(response.entries.iter()) {
                     let current_value = serde_json::to_string(value)?;
-                    super::watchlist_process(state, current_value, resources_repo, last_values)
-                        .await?;
+                    watchlist_process(state, current_value, resources_repo, last_values).await?;
                 }
                 Ok(())
             })

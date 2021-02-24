@@ -18,7 +18,7 @@ impl PullerImpl {
         subscriptions_key: String,
     ) -> Self {
         return Self {
-            subscriptions_repo: subscriptions_repo,
+            subscriptions_repo,
             redis_client,
             subscriptions_key,
         };

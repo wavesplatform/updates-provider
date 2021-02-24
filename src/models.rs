@@ -10,6 +10,7 @@ pub enum Topic {
     Config(ConfigFile),
     State(State),
     TestResource(TestResource),
+    BlockchainHeight,
 }
 
 impl TryFrom<&str> for Topic {
@@ -32,6 +33,7 @@ impl TryFrom<&str> for Topic {
                     let ps = TestResource::try_from(&url)?;
                     Ok(Topic::TestResource(ps))
                 }
+                Some("blockchain_height") => Ok(Topic::BlockchainHeight),
                 _ => Err(Error::InvalidTopic(s.to_owned())),
             },
             _ => Err(Error::InvalidTopic(s.to_owned())),
@@ -61,6 +63,11 @@ fn string_to_topic() {
     } else {
         panic!("not test_resource")
     }
+    let s = "topic://blockchain_height";
+    if let Topic::BlockchainHeight = Topic::try_from(s).unwrap() {
+    } else {
+        panic!("not blockchain_height")
+    }
 }
 
 impl ToString for Topic {
@@ -83,6 +90,10 @@ impl ToString for Topic {
                 if let Some(query) = ps.query.clone() {
                     url.set_query(Some(query.as_str()));
                 }
+                url.as_str().to_owned()
+            }
+            Topic::BlockchainHeight => {
+                url.set_host(Some("blockchain_height")).unwrap();
                 url.as_str().to_owned()
             }
         }
@@ -108,6 +119,8 @@ fn topic_to_string_test() {
         t.to_string(),
         "topic://test.resource/asd/qwe?a=b".to_string()
     );
+    let t = Topic::BlockchainHeight;
+    assert_eq!(t.to_string(), "topic://blockchain_height".to_string());
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -241,3 +254,37 @@ impl MaybeFromTopic for TestResource {
 }
 
 impl WatchListItem for TestResource {}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub struct BlockchainHeight {}
+
+impl ToString for BlockchainHeight {
+    fn to_string(&self) -> String {
+        "".to_string()
+    }
+}
+
+impl TryFrom<&url::Url> for BlockchainHeight {
+    type Error = Error;
+
+    fn try_from(_u: &url::Url) -> Result<Self, Self::Error> {
+        Ok(Self {})
+    }
+}
+
+impl From<BlockchainHeight> for Topic {
+    fn from(_blockchain_height: BlockchainHeight) -> Self {
+        Self::BlockchainHeight
+    }
+}
+
+impl MaybeFromTopic for BlockchainHeight {
+    fn maybe_item(topic: Topic) -> Option<Self> {
+        if let Topic::BlockchainHeight = topic {
+            return Some(Self {});
+        }
+        return None;
+    }
+}
+
+impl WatchListItem for BlockchainHeight {}

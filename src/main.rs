@@ -13,13 +13,19 @@ use std::sync::Arc;
 use subscriptions::SubscriptionsUpdatesObservers;
 use wavesexchange_log::{error, info};
 
-#[tokio::main]
-async fn main() -> Result<(), Error> {
+fn main() -> Result<(), Error> {
+    let mut rt = tokio::runtime::Runtime::new().unwrap();
+    let _ = rt.block_on(tokio_main());
+    Ok(rt.shutdown_timeout(std::time::Duration::from_millis(1)))
+}
+
+async fn tokio_main() -> Result<(), Error> {
     let redis_config = config::load_redis()?;
     let subscriptions_config = config::load_subscriptions()?;
     let configs_updater_config = config::load_configs_updater()?;
     let states_updater_config = config::load_states_updater()?;
     let test_resources_config = config::load_test_resources_updater()?;
+    let blockchain_height_config = config::load_blockchain_height()?;
 
     let subscriptions_updates_observers: SubscriptionsUpdatesObservers =
         SubscriptionsUpdatesObservers::default();
@@ -35,10 +41,10 @@ async fn main() -> Result<(), Error> {
     let resources_repo = Arc::new(resources_repo);
 
     // Configs
-    let configs_requester = Box::new(providers::configs::ConfigRequester::new(
+    let configs_requester = Box::new(providers::polling::configs::ConfigRequester::new(
         configs_updater_config.clone(),
     ));
-    let configs_updates_provider = providers::Provider::new(
+    let configs_updates_provider = providers::polling::PollProvider::new(
         configs_requester,
         configs_updater_config.polling_delay,
         configs_updater_config.delete_timeout,
@@ -51,10 +57,10 @@ async fn main() -> Result<(), Error> {
         .push(configs_subscriptions_updates_sender);
 
     // States
-    let states_requester = Box::new(providers::states::StateRequester::new(
+    let states_requester = Box::new(providers::polling::states::StateRequester::new(
         states_updater_config.base_url,
     ));
-    let states_updates_provider = providers::Provider::new(
+    let states_updates_provider = providers::polling::PollProvider::new(
         states_requester,
         states_updater_config.polling_delay,
         states_updater_config.delete_timeout,
@@ -68,15 +74,16 @@ async fn main() -> Result<(), Error> {
         .push(states_subscriptions_updates_sender);
 
     // Test Resources
-    let test_resources_requester =
-        Box::new(providers::test_resources::TestResourcesRequester::new(
+    let test_resources_requester = Box::new(
+        providers::polling::test_resources::TestResourcesRequester::new(
             test_resources_config.test_resources_base_url,
-        ));
-    let test_resources_updates_provider = providers::Provider::new(
+        ),
+    );
+    let test_resources_updates_provider = providers::polling::PollProvider::new(
         test_resources_requester,
         test_resources_config.polling_delay,
         test_resources_config.delete_timeout,
-        resources_repo,
+        resources_repo.clone(),
     );
     let test_resources_subscriptions_updates_sender =
         test_resources_updates_provider.fetch_updates().await?;
@@ -85,6 +92,17 @@ async fn main() -> Result<(), Error> {
         .write()
         .await
         .push(test_resources_subscriptions_updates_sender);
+
+    // Blockchain height
+    let blockchain_height_updates_provider = providers::blockchain_height::Provider::new(
+        blockchain_height_config,
+        resources_repo.clone(),
+    )
+    .await?;
+    let blockchain_height_handle = tokio::task::spawn(async move {
+        info!("starting blockchain height updater");
+        blockchain_height_updates_provider.run().await
+    });
 
     let subscriptions_repo = subscriptions::repo::SubscriptionsRepoImpl::new(
         redis_pool.clone(),
@@ -112,10 +130,21 @@ async fn main() -> Result<(), Error> {
         subscriptions_updates_pusher.run().await
     });
 
-    if let Err(e) = tokio::try_join!(subscriptions_updates_pusher_handle) {
-        let err = Error::from(e);
-        error!("subscriptions updates pusher error: {}", err);
-        return Err(err);
+    tokio::select! {
+        result = blockchain_height_handle => {
+            if let Err(e) = result? {
+                let error = Error::from(e);
+                error!("blockchain height return error: {:?}", error);
+                return Err(error);
+            }
+        }
+        result = subscriptions_updates_pusher_handle => {
+            if let Err(e) = result? {
+                let error = Error::from(e);
+                error!("subscriptions updates pusher error: {}", error);
+                return Err(error);
+            }
+        }
     }
 
     Ok(())

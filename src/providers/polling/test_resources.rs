@@ -1,5 +1,5 @@
+use super::super::watchlist_process;
 use super::requester::Requester;
-use super::watchlist_process;
 use super::{TSResourcesRepoImpl, TSUpdatesProviderLastValues};
 use crate::error::Error;
 use crate::models::TestResource;

@@ -13,14 +13,16 @@ envy = "0.4"
 futures = "0.3"
 r2d2 = "0.8"
 r2d2_redis = "0.13"
-reqwest = "0.11"
+reqwest = "=0.10.10"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "1.0"
-tokio = { version = "1.0", features = ["full"] }
+tokio = { version = "=0.2.24", features = ["full"] }
 url = "2.2"
 wavesexchange_log = { git = "https://github.com/waves-exchange/wavesexchange-rs", version = "0.1" }
 percent-encoding = "2.1"
+waves-protobuf-schemas = { git = "https://github.com/wavesplatform/protobuf-schemas", branch = "blockchain-updates-from-1.2.6" }
+tonic = "0.2"
 
 [[bin]]
 name = "service"
