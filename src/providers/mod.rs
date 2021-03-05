@@ -1,4 +1,4 @@
-pub mod blockchain_height;
+pub mod blockchain;
 pub mod polling;
 pub mod watchlist;
 

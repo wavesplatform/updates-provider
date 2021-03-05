@@ -1,16 +1,23 @@
+#[macro_use]
+extern crate diesel;
+
 mod config;
+mod db;
 mod error;
 mod models;
 mod providers;
 mod resources;
+mod schema;
 mod subscriptions;
+mod transactions;
 
 use error::Error;
-use providers::UpdatesProvider;
+use providers::{blockchain, UpdatesProvider};
 use r2d2::Pool;
 use r2d2_redis::{r2d2, redis, RedisConnectionManager};
 use std::sync::Arc;
 use subscriptions::SubscriptionsUpdatesObservers;
+use transactions::repo::TransactionsRepoImpl;
 use wavesexchange_log::{error, info};
 
 fn main() -> Result<(), Error> {
@@ -22,6 +29,7 @@ fn main() -> Result<(), Error> {
 
 async fn tokio_main() -> Result<(), Error> {
     let redis_config = config::load_redis()?;
+    let postgres_config = config::load_postgres()?;
     let subscriptions_config = config::load_subscriptions()?;
     let configs_updater_config = config::load_configs_updater()?;
     let states_updater_config = config::load_states_updater()?;
@@ -40,6 +48,9 @@ async fn tokio_main() -> Result<(), Error> {
 
     let resources_repo = resources::repo::ResourcesRepoImpl::new(redis_pool.clone());
     let resources_repo = Arc::new(resources_repo);
+
+    let conn = db::new(&postgres_config)?;
+    let transactions_repo = Arc::new(TransactionsRepoImpl::new(conn));
 
     // Configs
     let configs_requester = Box::new(providers::polling::configs::ConfigRequester::new(
@@ -94,15 +105,43 @@ async fn tokio_main() -> Result<(), Error> {
         .await
         .push(test_resources_subscriptions_updates_sender);
 
-    // Blockchain height
-    let blockchain_height_updates_provider = providers::blockchain_height::Provider::new(
-        blockchain_height_config,
+    // Blockchain
+    let mut blockchain_puller =
+        blockchain::updates::Puller::new(blockchain_height_config.updates_url).await?;
+
+    let blockchain::height::ProviderReturn {
+        last_height,
+        tx,
+        mut provider,
+    } = blockchain::height::Provider::new(
+        blockchain_height_config.node_url,
         resources_repo.clone(),
     )
     .await?;
-    let blockchain_height_handle = tokio::task::spawn(async move {
+
+    blockchain_puller.subscribe(tx);
+    blockchain_puller.set_last_height(last_height);
+
+    tokio::task::spawn(async move {
         info!("starting blockchain height updater");
-        blockchain_height_updates_provider.run().await
+        provider.run().await
+    });
+
+    let (tx, mut provider) = blockchain::transactions::Provider::new(
+        resources_repo.clone(),
+        blockchain_height_config.transaction_delete_timeout,
+    );
+
+    blockchain_puller.subscribe(tx);
+
+    tokio::task::spawn(async move {
+        info!("starting blockchain transaction updater");
+        provider.run().await
+    });
+
+    let blockchain_height_handle = tokio::task::spawn(async move {
+        info!("starting blockchain puller");
+        blockchain_puller.run().await
     });
 
     let subscriptions_repo = subscriptions::repo::SubscriptionsRepoImpl::new(

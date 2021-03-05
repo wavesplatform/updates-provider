@@ -1,3 +1,9 @@
+use std::sync::Arc;
+use tokio::sync::mpsc;
+use waves_protobuf_schemas::waves::events::BlockchainUpdated;
+
+pub type Result<T> = std::result::Result<T, Error>;
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("ConfigLoadError: {0}")]
@@ -34,4 +40,26 @@ pub enum Error {
     GRPCUriError(String),
     #[error("GRPCError: {0}")]
     GRPCError(#[from] tonic::Status),
+    #[error("SendErrorBlockchainUpdate: {0}")]
+    SendErrorBlockchainUpdate(#[from] mpsc::error::SendError<Arc<BlockchainUpdated>>),
+    #[error("InvalidTransactionType: {0}")]
+    InvalidTransactionType(String),
+    #[error("InvalidTransactionQuery: {0}")]
+    InvalidTransactionQuery(ErrorQuery),
+    #[error("PostgresConnectionError: {0}")]
+    PostgresConnectionError(#[from] diesel::ConnectionError),
+    #[error("DbError: {0}")]
+    DbError(#[from] diesel::result::Error),
+}
+
+#[derive(Debug)]
+pub struct ErrorQuery(pub Option<String>);
+
+impl std::fmt::Display for ErrorQuery {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.0.as_ref() {
+            None => write!(f, "None"),
+            Some(s) => write!(f, "{}", s.to_owned()),
+        }
+    }
 }

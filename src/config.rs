@@ -20,6 +20,20 @@ pub struct RedisConfig {
     pub password: String,
 }
 
+fn default_pgport() -> u16 {
+    5432
+}
+
+#[derive(Deserialize)]
+pub struct PostgresConfig {
+    pub host: String,
+    #[serde(default = "default_pgport")]
+    pub port: u16,
+    pub database: String,
+    pub user: String,
+    pub password: String,
+}
+
 #[derive(Deserialize)]
 struct FlatSubscriptionsConfig {
     pub key: String,
@@ -55,11 +69,19 @@ struct FlatTestResourcesUpdaterConfig {
 struct FlatBlockchainHeightUpdaterConfig {
     pub blockchain_updates_node_url: String,
     pub grpc_node_url: String,
+    #[serde(default = "default_delete_timeout")]
+    pub transaction_delete_timeout: u64,
 }
 
 pub fn load_redis() -> Result<RedisConfig, Error> {
     envy::prefixed("REDIS__")
         .from_env::<RedisConfig>()
+        .map_err(|err| Error::from(err))
+}
+
+pub fn load_postgres() -> Result<PostgresConfig, Error> {
+    envy::prefixed("POSTGRES__")
+        .from_env::<PostgresConfig>()
         .map_err(|err| Error::from(err))
 }
 
@@ -104,12 +126,13 @@ pub fn load_test_resources_updater() -> Result<providers::polling::test_resource
     })
 }
 
-pub fn load_blockchain_height() -> Result<providers::blockchain_height::Config, Error> {
+pub fn load_blockchain_height() -> Result<providers::blockchain::Config, Error> {
     let flat_config =
         envy::prefixed("NODE_UPDATER__").from_env::<FlatBlockchainHeightUpdaterConfig>()?;
 
-    Ok(providers::blockchain_height::Config {
+    Ok(providers::blockchain::Config {
         updates_url: flat_config.blockchain_updates_node_url,
         node_url: flat_config.grpc_node_url,
+        transaction_delete_timeout: Duration::from_secs(flat_config.transaction_delete_timeout),
     })
 }
