@@ -66,7 +66,7 @@ struct FlatTestResourcesUpdaterConfig {
 }
 
 #[derive(Deserialize)]
-struct FlatBlockchainHeightUpdaterConfig {
+struct FlatBlockchainUpdaterConfig {
     pub blockchain_updates_node_url: String,
     pub grpc_node_url: String,
     #[serde(default = "default_delete_timeout")]
@@ -126,9 +126,8 @@ pub fn load_test_resources_updater() -> Result<providers::polling::test_resource
     })
 }
 
-pub fn load_blockchain_height() -> Result<providers::blockchain::Config, Error> {
-    let flat_config =
-        envy::prefixed("NODE_UPDATER__").from_env::<FlatBlockchainHeightUpdaterConfig>()?;
+pub fn load_blockchain() -> Result<providers::blockchain::Config, Error> {
+    let flat_config = envy::prefixed("NODE_UPDATER__").from_env::<FlatBlockchainUpdaterConfig>()?;
 
     Ok(providers::blockchain::Config {
         updates_url: flat_config.blockchain_updates_node_url,

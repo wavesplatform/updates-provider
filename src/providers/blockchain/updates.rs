@@ -23,7 +23,7 @@ impl Puller {
             .await?;
         Ok(Self {
             channel,
-            last_height: 0,
+            last_height: 1,
             subscribers: vec![],
         })
     }

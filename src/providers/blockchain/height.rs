@@ -13,7 +13,6 @@ pub struct Provider {
 
 pub struct ProviderReturn {
     pub tx: mpsc::Sender<Arc<BlockchainUpdated>>,
-    pub last_height: i32,
     pub provider: Provider,
 }
 
@@ -38,7 +37,6 @@ impl Provider {
 
         Ok(ProviderReturn {
             tx,
-            last_height,
             provider: Self {
                 resources_repo,
                 last_height,

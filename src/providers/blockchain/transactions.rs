@@ -1,119 +1,175 @@
-use super::super::watchlist::{WatchList, WatchListItem};
-use super::super::{TSResourcesRepoImpl, TSUpdatesProviderLastValues};
-use crate::error::Error;
-use crate::models::{Topic, TransactionByAddress, TransactionType};
-use std::collections::HashMap;
+use super::super::watchlist::WatchList;
+use super::super::{TSResourcesRepoImpl, TSUpdatesProviderLastValues, UpdatesProvider};
+use crate::models::{TransactionByAddress, TransactionType};
+use crate::transactions::repo::TransactionsRepoImpl;
+use crate::transactions::BlockMicroblockAppend;
+use crate::transactions::BlockchainUpdate;
+use crate::{
+    error::Result,
+    transactions::{Address, TransactionUpdate, TransactionsRepo},
+};
+use async_trait::async_trait;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
+use std::{collections::HashMap, convert::TryFrom};
 use tokio::sync::mpsc;
+use tokio::sync::Mutex;
 use tokio::sync::RwLock;
-use waves_protobuf_schemas::waves::events::blockchain_updated::{
-    append::Body, Append, Rollback, Update,
-};
 use waves_protobuf_schemas::waves::events::BlockchainUpdated;
-// use waves_protobuf_schemas::waves::node::grpc::blocks_api_client::BlocksApiClient;
-use waves_protobuf_schemas::waves::transaction;
-use waves_protobuf_schemas::waves::{
-    self, Block, MicroBlock, Recipient, SignedMicroBlock, SignedTransaction, Transaction,
-};
+use wavesexchange_log::{debug, error, info};
+
+const BUFFER: usize = 20;
+const TX_CHUNK_SIZE: usize = 65535 / 3;
+const ADDRESSES_CHUNK_SIZE: usize = 65535 / 2;
 
 pub struct Provider {
-    watchlist: WatchList<TransactionByAddress>,
+    watchlist: Arc<RwLock<WatchList<TransactionByAddress>>>,
     rx: mpsc::Receiver<Arc<BlockchainUpdated>>,
     resources_repo: TSResourcesRepoImpl,
     last_values: TSUpdatesProviderLastValues,
+    transactions_repo: Arc<Mutex<TransactionsRepoImpl>>,
+}
+
+pub struct ProviderReturn {
+    pub last_height: i32,
+    pub tx: mpsc::Sender<Arc<BlockchainUpdated>>,
+    pub provider: Provider,
 }
 
 impl Provider {
-    pub fn new(
+    pub async fn new(
         resources_repo: TSResourcesRepoImpl,
-        delete_timeout: std::time::Duration,
-    ) -> (mpsc::Sender<Arc<BlockchainUpdated>>, Self) {
+        delete_timeout: Duration,
+        transactions_repo: Arc<Mutex<TransactionsRepoImpl>>,
+    ) -> Result<ProviderReturn> {
         let last_values = Arc::new(RwLock::new(HashMap::new()));
-        let watchlist = WatchList::new(resources_repo.clone(), last_values.clone(), delete_timeout);
-        let (tx, rx) = mpsc::channel(20);
+        let watchlist = Arc::new(RwLock::new(WatchList::new(
+            resources_repo.clone(),
+            last_values.clone(),
+            delete_timeout,
+        )));
+        let (tx, rx) = mpsc::channel(100);
+        let last_height = {
+            let conn = &*transactions_repo.lock().await;
+            match conn.get_prev_handled_height()? {
+                Some(prev_handled_height) => {
+                    rollback(conn, prev_handled_height.uid)?;
+                    prev_handled_height.height as i32 + 1
+                }
+                None => 1i32,
+            }
+        };
         let provider = Self {
             watchlist,
             rx,
             resources_repo,
             last_values,
+            transactions_repo,
         };
-        (tx, provider)
+        Ok(ProviderReturn {
+            last_height,
+            tx,
+            provider,
+        })
     }
 
-    pub async fn run(&mut self) -> Result<(), Error> {
-        while let Some(update) = self.rx.recv().await {
-            match &update.update {
-                Some(Update::Append(Append {
-                    body: Some(body),
-                    transaction_ids,
-                    ..
-                })) => match body {
-                    Body::Block(block) => {
-                        if let Some(Block { transactions, .. }) = block.block.as_ref() {
-                            self.parse_transactions(transactions, transaction_ids)
-                                .await?
-                        }
-                    }
-                    Body::MicroBlock(micro_block) => {
-                        if let Some(SignedMicroBlock {
-                            micro_block: Some(MicroBlock { transactions, .. }),
-                            ..
-                        }) = micro_block.micro_block.as_ref()
-                        {
-                            self.parse_transactions(transactions, transaction_ids)
-                                .await?
-                        }
-                    }
-                },
-                Some(Update::Rollback(rollback)) => println!("rollback: {:?}", rollback),
-                _ => (),
-            }
-        }
-
-        Ok(())
-    }
-
-    async fn parse_transactions(
-        &mut self,
-        transactions: &Vec<SignedTransaction>,
-        transaction_ids: &Vec<Vec<u8>>,
-    ) -> Result<(), Error> {
-        for (tx_id, tx) in transaction_ids.iter().zip(transactions.iter()) {
-            if let Some(ref transaction) = tx.transaction {
-                let sender_public_key = &transaction.sender_public_key;
-                let sender = address_from_public_key(sender_public_key, transaction.chain_id as u8);
-                if let Some(data) = &transaction.data {
-                    let tx_type = TransactionType::from(data);
-                    let mut tx = Tx {
-                        sender,
-                        tx_type,
-                        id: bs58::encode(tx_id).into_string(),
-                        recipients: vec![],
-                    };
-                    maybe_add_recipients(data, transaction.chain_id, &mut tx.recipients);
-                    self.check_transaction(tx).await?;
+    pub async fn run(&mut self) -> Result<()> {
+        'a: loop {
+            self.watchlist.write().await.delete_old().await;
+            let mut buffer = Vec::with_capacity(BUFFER);
+            if let Some(event) = self.rx.recv().await {
+                let update = BlockchainUpdate::try_from(event)?;
+                buffer.push(update);
+                if let Some(BlockchainUpdate::Rollback(_)) = buffer.last() {
+                    self.process_updates(buffer).await?;
+                    continue;
                 }
+                let mut delay = tokio::time::delay_for(Duration::from_secs(10));
+                loop {
+                    tokio::select! {
+                        _ = &mut delay => {
+                            self.process_updates(buffer).await?;
+                            break;
+                        }
+                        maybe_event = self.rx.recv() => {
+                            if let Some(event) = maybe_event {
+                                let update = BlockchainUpdate::try_from(event)?;
+                                buffer.push(update);
+                                if let Some(BlockchainUpdate::Rollback(_)) = buffer.last() {
+                                    self.process_updates(buffer).await?;
+                                    break;
+                                }
+                                if buffer.len() == BUFFER {
+                                    self.process_updates(buffer).await?;
+                                    break;
+                                }
+                            } else {
+                                self.process_updates(buffer).await?;
+                                break 'a;
+                            }
+                        }
+                    }
+                }
+            } else {
+                break;
             }
         }
 
         Ok(())
     }
 
-    async fn check_transaction(&mut self, tx: Tx) -> Result<(), Error> {
-        let data = TransactionByAddress {
-            address: tx.sender.0.clone(),
-            tx_type: tx.tx_type.clone(),
-        };
-        self.inner_check_transaction(data, tx.id.clone()).await?;
-        let data = TransactionByAddress {
-            address: tx.sender.0,
-            tx_type: TransactionType::All,
-        };
-        self.inner_check_transaction(data, tx.id.clone()).await?;
-        for address in tx.recipients {
+    async fn process_updates(&mut self, blockchain_updates: Vec<BlockchainUpdate>) -> Result<()> {
+        let start = Instant::now();
+        {
+            let conn = &*self.transactions_repo.lock().await;
+            insert_blockchain_updates(conn, blockchain_updates.iter())?;
+        }
+        debug!(
+            "process updates {:?} elements in {} ms",
+            blockchain_updates.len(),
+            start.elapsed().as_millis()
+        );
+        self.announce_updates(blockchain_updates).await?;
+
+        Ok(())
+    }
+
+    async fn announce_updates(&mut self, blockchain_updates: Vec<BlockchainUpdate>) -> Result<()> {
+        for blockchain_update in blockchain_updates {
+            self.announce_update(blockchain_update).await?
+        }
+
+        Ok(())
+    }
+
+    async fn announce_update(&mut self, blockchain_update: BlockchainUpdate) -> Result<()> {
+        match blockchain_update {
+            BlockchainUpdate::Block(BlockMicroblockAppend { transactions, .. }) => {
+                self.check_transactions(transactions).await?
+            }
+            BlockchainUpdate::Microblock(BlockMicroblockAppend { transactions, .. }) => {
+                self.check_transactions(transactions).await?
+            }
+            BlockchainUpdate::Rollback(_) => (),
+        }
+
+        Ok(())
+    }
+
+    async fn check_transactions(&mut self, tx_updates: Vec<TransactionUpdate>) -> Result<()> {
+        for tx_update in tx_updates.into_iter() {
+            let tx = tx_update.into();
+            self.check_transaction(tx).await?
+        }
+
+        Ok(())
+    }
+
+    async fn check_transaction(&mut self, tx: Tx) -> Result<()> {
+        for address in tx.addresses {
             let data = TransactionByAddress {
                 address: address.0.clone(),
-                tx_type: tx.tx_type.clone(),
+                tx_type: tx.tx_type.into(),
             };
             self.inner_check_transaction(data, tx.id.clone()).await?;
             let data = TransactionByAddress {
@@ -130,8 +186,11 @@ impl Provider {
         &mut self,
         data: TransactionByAddress,
         current_value: String,
-    ) -> Result<(), Error> {
-        if self.watchlist.items.contains_key(&data) {
+    ) -> Result<()> {
+        if data.address == "2Psvur9ZzfNPQtTCnZWDEKTiPcFb" {
+            println!("data: {:?}", data);
+        }
+        if self.watchlist.read().await.items.contains_key(&data) {
             super::super::watchlist_process(
                 &data,
                 current_value,
@@ -145,102 +204,165 @@ impl Provider {
     }
 }
 
-struct Tx {
-    id: String,
-    sender: Address,
-    tx_type: TransactionType,
-    recipients: Vec<Address>,
-}
+#[async_trait]
+impl UpdatesProvider for Provider {
+    async fn fetch_updates(
+        mut self,
+    ) -> Result<mpsc::UnboundedSender<crate::subscriptions::SubscriptionUpdate>> {
+        let (subscriptions_updates_sender, mut subscriptions_updates_receiver) =
+            mpsc::unbounded_channel::<crate::subscriptions::SubscriptionUpdate>();
 
-struct Address(String);
+        let watchlist = self.watchlist.clone();
+        tokio::task::spawn(async move {
+            info!("starting transactions subscriptions updates handler");
+            while let Some(upd) = subscriptions_updates_receiver.recv().await {
+                if let Err(err) = watchlist.write().await.on_update(upd).await {
+                    error!("error while updating watchlist: {:?}", err);
+                }
+            }
+        });
 
-fn address_from_public_key(pk: &Vec<u8>, chain_id: u8) -> Address {
-    let pkh = &keccak256(&blake2b256(&pk))[..20];
-    address_from_public_key_hash(&pkh.to_vec(), chain_id)
-}
+        tokio::task::spawn(async move {
+            info!("starting transactions updater");
+            if let Err(error) = self.run().await {
+                error!("transaction updater return error: {:?}", error);
+            }
+        });
 
-fn address_from_public_key_hash(pkh: &Vec<u8>, chain_id: u8) -> Address {
-    let mut addr = [0u8, 26];
-    addr[0] = 1;
-    addr[1] = chain_id;
-    for i in 0..20 {
-        addr[i + 2] = pkh[i]
+        Ok(subscriptions_updates_sender)
     }
-    let chks = &keccak256(&blake2b256(&addr[..22]))[..4];
-    for (i, v) in chks.into_iter().enumerate() {
-        addr[i + 23] = *v
-    }
-    Address(bs58::encode(addr).into_string())
 }
 
-use sha3::Digest;
-
-fn keccak256(message: &[u8]) -> [u8; 32] {
-    let mut hasher = sha3::Keccak256::new();
-    hasher.input(message);
-    hasher.result().into()
-}
-
-fn blake2b256(message: &[u8]) -> [u8; 32] {
-    use blake2::digest::{Input, VariableOutput};
-    use std::convert::TryInto;
-    let mut hasher = blake2::VarBlake2b::new(32).unwrap();
-    hasher.input(message);
-    let mut arr = [0u8; 32];
-    hasher.variable_result(|res| arr = res.try_into().unwrap());
-    arr
-}
-
-fn maybe_add_recipients(data: &transaction::Data, chain_id: i32, recipients: &mut Vec<Address>) {
-    match data {
-        transaction::Data::Genesis(data) => {
-            let address = Address(bs58::encode(data.recipient_address.clone()).into_string());
-            recipients.push(address);
-        }
-        transaction::Data::Payment(data) => {
-            let address = Address(bs58::encode(data.recipient_address.clone()).into_string());
-            recipients.push(address);
-        }
-        transaction::Data::Transfer(data) => {
-            maybe_address_from_recipient(&data.recipient, chain_id, recipients);
-        }
-        transaction::Data::Lease(data) => {
-            maybe_address_from_recipient(&data.recipient, chain_id, recipients);
-        }
-        transaction::Data::InvokeScript(data) => {
-            maybe_address_from_recipient(&data.d_app, chain_id, recipients);
-        }
-        transaction::Data::MassTransfer(data) => {
-            for transfer in data.transfers.iter() {
-                maybe_address_from_recipient(&transfer.recipient, chain_id, recipients);
+fn insert_blockchain_updates<'a>(
+    conn: &TransactionsRepoImpl,
+    mut blockchain_updates: impl Iterator<Item = &'a BlockchainUpdate>,
+) -> Result<()> {
+    conn.transaction(|| {
+        loop {
+            let mut blocks = vec![];
+            let mut rollback_block_uid = None;
+            while let Some(update) = blockchain_updates.next() {
+                match update {
+                    BlockchainUpdate::Block(block) => blocks.push(block),
+                    BlockchainUpdate::Microblock(block) => blocks.push(block),
+                    BlockchainUpdate::Rollback(block_id) => {
+                        let block_uid = conn.get_block_uid(&block_id)?;
+                        rollback_block_uid = Some(block_uid);
+                    }
+                }
+            }
+            if let Some(block_uid) = rollback_block_uid {
+                if blocks.len() > 0 {
+                    insert_blocks(conn, blocks)?
+                };
+                rollback(conn, block_uid)?;
+            } else {
+                if blocks.len() > 0 {
+                    insert_blocks(conn, blocks)?
+                };
+                break;
             }
         }
-        // TODO:
-        transaction::Data::Exchange(data) => {}
 
-        transaction::Data::Issue(_data) => (),
-        transaction::Data::Reissue(_data) => (),
-        transaction::Data::Burn(_data) => (),
-        transaction::Data::LeaseCancel(_data) => (),
-        transaction::Data::CreateAlias(_data) => (),
-        transaction::Data::DataTransaction(_data) => (),
-        transaction::Data::SetScript(_data) => (),
-        transaction::Data::SponsorFee(_data) => (),
-        transaction::Data::SetAssetScript(_data) => (),
-        transaction::Data::UpdateAssetInfo(_data) => (),
-    }
+        Ok(())
+    })?;
+
+    Ok(())
 }
 
-fn maybe_address_from_recipient(
-    recipient: &Option<Recipient>,
-    chain_id: i32,
-    recipients: &mut Vec<Address>,
-) {
-    if let Some(Recipient {
-        recipient: Some(waves::recipient::Recipient::PublicKeyHash(pkh)),
-    }) = recipient
-    {
-        let address = address_from_public_key_hash(pkh, chain_id as u8);
-        recipients.push(address)
+fn insert_blocks(
+    conn: &TransactionsRepoImpl,
+    blocks_updates: Vec<&BlockMicroblockAppend>,
+) -> Result<()> {
+    let h = blocks_updates.last().unwrap().height;
+    let blocks = blocks_updates.iter().map(|b| b.clone().into()).collect();
+    let start = Instant::now();
+    let block_ids = conn.insert_blocks_or_microblocks(&blocks)?;
+    debug!(
+        "insert {} blocks in {} ms",
+        blocks.len(),
+        start.elapsed().as_millis()
+    );
+    let transaction_updates = blocks_updates
+        .iter()
+        .map(|block| block.transactions.iter().map(|tx| tx));
+    let transactions_chunks = block_ids
+        .into_iter()
+        .zip(transaction_updates.clone())
+        .flat_map(|(block_uid, txs)| txs.map(move |tx| (block_uid, tx).into()))
+        .fold(vec![Vec::with_capacity(TX_CHUNK_SIZE)], |mut acc, tx| {
+            let last = acc.last_mut().unwrap();
+            if last.len() == TX_CHUNK_SIZE {
+                let mut new_last = Vec::with_capacity(TX_CHUNK_SIZE);
+                new_last.push(tx);
+                acc.push(new_last)
+            } else {
+                last.push(tx)
+            }
+            acc
+        });
+    for transactions in transactions_chunks {
+        let start = Instant::now();
+        conn.insert_transactions(&transactions)?;
+        debug!(
+            "insert {} txs in {} ms",
+            transactions.len(),
+            start.elapsed().as_millis()
+        );
+    }
+    let addresses_hashset = transaction_updates
+        .flat_map(|txs| {
+            txs.flat_map(|tx| {
+                tx.addresses
+                    .iter()
+                    .map(move |address| (tx.id.clone(), address).into())
+            })
+        })
+        .collect::<std::collections::HashSet<_>>();
+    let addresses_chunks = addresses_hashset.into_iter().fold(
+        vec![Vec::with_capacity(ADDRESSES_CHUNK_SIZE)],
+        |mut acc, address| {
+            let last = acc.last_mut().unwrap();
+            if last.len() == ADDRESSES_CHUNK_SIZE {
+                let mut new_last = Vec::with_capacity(ADDRESSES_CHUNK_SIZE);
+                new_last.push(address);
+                acc.push(new_last)
+            } else {
+                last.push(address)
+            }
+            acc
+        },
+    );
+    for addresses in addresses_chunks {
+        let start = Instant::now();
+        conn.insert_associated_addresses(&addresses)?;
+        debug!(
+            "insert {} addresses in {} ms",
+            addresses.len(),
+            start.elapsed().as_millis()
+        );
+    }
+    info!("inserted {:?} block", h);
+    Ok(())
+}
+
+fn rollback(conn: &TransactionsRepoImpl, block_uid: i64) -> Result<()> {
+    conn.rollback_blocks_microblocks(&block_uid)?;
+    Ok(())
+}
+
+struct Tx {
+    id: String,
+    tx_type: crate::transactions::TransactionType,
+    addresses: Vec<Address>,
+}
+
+impl From<TransactionUpdate> for Tx {
+    fn from(value: TransactionUpdate) -> Self {
+        Self {
+            id: value.id,
+            tx_type: value.tx_type,
+            addresses: value.addresses,
+        }
     }
 }

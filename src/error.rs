@@ -50,6 +50,8 @@ pub enum Error {
     PostgresConnectionError(#[from] diesel::ConnectionError),
     #[error("DbError: {0}")]
     DbError(#[from] diesel::result::Error),
+    #[error("GRPCBodyError: {0}")]
+    GRPCBodyError(String),
 }
 
 #[derive(Debug)]
