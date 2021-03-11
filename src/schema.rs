@@ -11,12 +11,12 @@ table! {
     transactions (id) {
         block_uid -> BigInt,
         id -> Varchar,
+        tx_type -> SmallInt,
     }
 }
 
 table! {
-    recipients (uid) {
-        uid -> BigInt,
+    associated_addresses (address, transaction_id) {
         address -> Varchar,
         transaction_id -> Varchar,
     }

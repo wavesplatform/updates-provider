@@ -36,3 +36,4 @@ CREATE TABLE IF NOT EXISTS associated_addresses (
 );
 
 CREATE INDEX IF NOT EXISTS associated_addresses_address_idx ON associated_addresses (address);
+CREATE INDEX IF NOT EXISTS associated_addresses_transaction_id_idx ON associated_addresses (transaction_id);

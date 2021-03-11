@@ -82,9 +82,9 @@ where
 impl<T: WatchListItem + Send + Sync + 'static> PollProvider<T> {
     async fn run(self) {
         loop {
-            let mut watchlist = self.watchlist.write().await;
-            watchlist.delete_old().await;
-            let mut items = watchlist.items.iter().map(|(item, _on_delete)| item);
+            let mut watchlist_guard = self.watchlist.write().await;
+            watchlist_guard.delete_old().await;
+            let mut items = watchlist_guard.items.iter().map(|(item, _on_delete)| item);
             if let Err(error) = self
                 .requester
                 .process(&mut items, &self.resources_repo, &self.last_values)
@@ -92,7 +92,7 @@ impl<T: WatchListItem + Send + Sync + 'static> PollProvider<T> {
             {
                 error!("error occured while watchlist processing: {:?}", error);
             }
-            drop(watchlist);
+            drop(watchlist_guard);
             tokio::time::delay_for(self.polling_delay).await;
         }
     }

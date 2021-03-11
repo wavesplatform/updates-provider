@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 use std::str::FromStr;
 use url::Url;
-use waves_protobuf_schemas::waves::transaction::Data;
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -106,7 +105,9 @@ impl ToString for Topic {
             Topic::Transaction(transaction) => {
                 url.set_host(Some("transaction")).unwrap();
                 url.set_path(&transaction.tx_type.to_string());
-                url.set_query(Some("asd=qwe"));
+                url.set_query(Some(
+                    format!("address={}", transaction.address.clone()).as_str(),
+                ));
                 url.as_str().to_owned()
             }
         }
@@ -418,26 +419,26 @@ impl FromStr for TransactionType {
     }
 }
 
-impl From<&Data> for TransactionType {
-    fn from(value: &Data) -> Self {
+impl From<crate::transactions::TransactionType> for TransactionType {
+    fn from(value: crate::transactions::TransactionType) -> Self {
         match value {
-            Data::Genesis(_) => TransactionType::Genesis,
-            Data::Payment(_) => TransactionType::Payment,
-            Data::Transfer(_) => TransactionType::Transfer,
-            Data::Exchange(_) => TransactionType::Exchange,
-            Data::Lease(_) => TransactionType::Lease,
-            Data::MassTransfer(_) => TransactionType::MassTransfer,
-            Data::InvokeScript(_) => TransactionType::InvokeScript,
-            Data::Issue(_) => TransactionType::Issue,
-            Data::Reissue(_) => TransactionType::Reissue,
-            Data::Burn(_) => TransactionType::Burn,
-            Data::LeaseCancel(_) => TransactionType::LeaseCancel,
-            Data::CreateAlias(_) => TransactionType::CreateAlias,
-            Data::DataTransaction(_) => TransactionType::DataTransaction,
-            Data::SetScript(_) => TransactionType::SetScript,
-            Data::SponsorFee(_) => TransactionType::SponsorFee,
-            Data::SetAssetScript(_) => TransactionType::SetAssetScript,
-            Data::UpdateAssetInfo(_) => TransactionType::UpdateAssetInfo,
+            crate::transactions::TransactionType::Genesis => Self::Genesis,
+            crate::transactions::TransactionType::Payment => Self::Payment,
+            crate::transactions::TransactionType::Issue => Self::Issue,
+            crate::transactions::TransactionType::Transfer => Self::Transfer,
+            crate::transactions::TransactionType::Reissue => Self::Reissue,
+            crate::transactions::TransactionType::Burn => Self::Burn,
+            crate::transactions::TransactionType::Exchange => Self::Exchange,
+            crate::transactions::TransactionType::Lease => Self::Lease,
+            crate::transactions::TransactionType::LeaseCancel => Self::LeaseCancel,
+            crate::transactions::TransactionType::CreateAlias => Self::CreateAlias,
+            crate::transactions::TransactionType::MassTransfer => Self::MassTransfer,
+            crate::transactions::TransactionType::DataTransaction => Self::DataTransaction,
+            crate::transactions::TransactionType::SetScript => Self::SetScript,
+            crate::transactions::TransactionType::SponsorFee => Self::SponsorFee,
+            crate::transactions::TransactionType::SetAssetScript => Self::SetAssetScript,
+            crate::transactions::TransactionType::InvokeScript => Self::InvokeScript,
+            crate::transactions::TransactionType::UpdateAssetInfo => Self::UpdateAssetInfo,
         }
     }
 }

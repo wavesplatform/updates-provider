@@ -1,8 +1,7 @@
-use super::{BlockMicroblock, PrevHandledHeight, TransactionsRepo};
+use super::{AssociatedAddress, BlockMicroblock, PrevHandledHeight, Transaction, TransactionsRepo};
 use crate::error::Result;
-use crate::schema::blocks_microblocks;
 use crate::schema::blocks_microblocks::dsl::*;
-use crate::schema::transactions;
+use crate::schema::{associated_addresses, blocks_microblocks, transactions};
 use diesel::prelude::*;
 use diesel::PgConnection;
 
@@ -70,6 +69,23 @@ impl TransactionsRepo for TransactionsRepoImpl {
             .values(blocks)
             .returning(blocks_microblocks::uid)
             .get_results(&self.conn)?)
+    }
+
+    fn insert_transactions(&self, transactions: &Vec<Transaction>) -> Result<()> {
+        diesel::insert_into(transactions::table)
+            .values(transactions)
+            .execute(&self.conn)?;
+        Ok(())
+    }
+
+    fn insert_associated_addresses(
+        &self,
+        associated_addresses: &Vec<AssociatedAddress>,
+    ) -> Result<()> {
+        diesel::insert_into(associated_addresses::table)
+            .values(associated_addresses)
+            .execute(&self.conn)?;
+        Ok(())
     }
 
     // fn insert_data_entries(&self, entries: &Vec<InsertableDataEntry>) -> Result<()> {
