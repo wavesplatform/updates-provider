@@ -187,9 +187,6 @@ impl Provider {
         data: TransactionByAddress,
         current_value: String,
     ) -> Result<()> {
-        if data.address == "2Psvur9ZzfNPQtTCnZWDEKTiPcFb" {
-            println!("data: {:?}", data);
-        }
         if self.watchlist.read().await.items.contains_key(&data) {
             super::super::watchlist_process(
                 &data,
