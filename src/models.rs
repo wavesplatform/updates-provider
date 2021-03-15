@@ -1,5 +1,6 @@
 use crate::error::{self, Error};
 use crate::providers::watchlist::{MaybeFromTopic, WatchListItem};
+use crate::transactions::TransactionType;
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 use std::str::FromStr;
@@ -305,7 +306,7 @@ impl WatchListItem for BlockchainHeight {}
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct TransactionByAddress {
-    pub tx_type: TransactionType,
+    pub tx_type: Type,
     pub address: String,
 }
 
@@ -343,7 +344,7 @@ fn get_address(value: &Url) -> Result<String, Error> {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
-pub enum TransactionType {
+pub enum Type {
     All,
     Genesis,
     Payment,
@@ -364,7 +365,7 @@ pub enum TransactionType {
     UpdateAssetInfo,
 }
 
-impl ToString for TransactionType {
+impl ToString for Type {
     fn to_string(&self) -> String {
         let s = match self {
             Self::All => "all",
@@ -390,7 +391,7 @@ impl ToString for TransactionType {
     }
 }
 
-impl FromStr for TransactionType {
+impl FromStr for Type {
     type Err = Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -419,26 +420,26 @@ impl FromStr for TransactionType {
     }
 }
 
-impl From<crate::transactions::TransactionType> for TransactionType {
-    fn from(value: crate::transactions::TransactionType) -> Self {
+impl From<TransactionType> for Type {
+    fn from(value: TransactionType) -> Self {
         match value {
-            crate::transactions::TransactionType::Genesis => Self::Genesis,
-            crate::transactions::TransactionType::Payment => Self::Payment,
-            crate::transactions::TransactionType::Issue => Self::Issue,
-            crate::transactions::TransactionType::Transfer => Self::Transfer,
-            crate::transactions::TransactionType::Reissue => Self::Reissue,
-            crate::transactions::TransactionType::Burn => Self::Burn,
-            crate::transactions::TransactionType::Exchange => Self::Exchange,
-            crate::transactions::TransactionType::Lease => Self::Lease,
-            crate::transactions::TransactionType::LeaseCancel => Self::LeaseCancel,
-            crate::transactions::TransactionType::CreateAlias => Self::CreateAlias,
-            crate::transactions::TransactionType::MassTransfer => Self::MassTransfer,
-            crate::transactions::TransactionType::DataTransaction => Self::DataTransaction,
-            crate::transactions::TransactionType::SetScript => Self::SetScript,
-            crate::transactions::TransactionType::SponsorFee => Self::SponsorFee,
-            crate::transactions::TransactionType::SetAssetScript => Self::SetAssetScript,
-            crate::transactions::TransactionType::InvokeScript => Self::InvokeScript,
-            crate::transactions::TransactionType::UpdateAssetInfo => Self::UpdateAssetInfo,
+            TransactionType::Genesis => Self::Genesis,
+            TransactionType::Payment => Self::Payment,
+            TransactionType::Issue => Self::Issue,
+            TransactionType::Transfer => Self::Transfer,
+            TransactionType::Reissue => Self::Reissue,
+            TransactionType::Burn => Self::Burn,
+            TransactionType::Exchange => Self::Exchange,
+            TransactionType::Lease => Self::Lease,
+            TransactionType::LeaseCancel => Self::LeaseCancel,
+            TransactionType::CreateAlias => Self::CreateAlias,
+            TransactionType::MassTransfer => Self::MassTransfer,
+            TransactionType::DataTransaction => Self::DataTransaction,
+            TransactionType::SetScript => Self::SetScript,
+            TransactionType::SponsorFee => Self::SponsorFee,
+            TransactionType::SetAssetScript => Self::SetAssetScript,
+            TransactionType::InvokeScript => Self::InvokeScript,
+            TransactionType::UpdateAssetInfo => Self::UpdateAssetInfo,
         }
     }
 }

@@ -110,9 +110,8 @@ async fn tokio_main() -> Result<(), Error> {
     let mut blockchain_puller =
         blockchain::updates::Puller::new(blockchain_config.updates_url).await?;
 
-    let blockchain::height::ProviderReturn { tx, mut provider } =
-        blockchain::height::Provider::new(blockchain_config.node_url, resources_repo.clone())
-            .await?;
+    let blockchain::height::ProviderWithUpdatesSender { tx, mut provider } =
+        blockchain::height::Provider::new(resources_repo.clone()).await?;
 
     blockchain_puller.subscribe(tx);
 

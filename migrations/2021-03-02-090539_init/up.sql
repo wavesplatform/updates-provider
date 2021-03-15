@@ -22,18 +22,18 @@ CREATE TABLE IF NOT EXISTS transactions (
             REFERENCES blocks_microblocks (uid)
                 ON DELETE CASCADE,
     id VARCHAR CONSTRAINT transactions_id_key PRIMARY KEY,
-    tx_type INT NOT NULL
+    tx_type SMALLINT NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS transactions_tx_type_idx ON transactions (tx_type);
+CREATE INDEX IF NOT EXISTS transactions_block_uid_idx ON transactions (block_uid);
 
 CREATE TABLE IF NOT EXISTS associated_addresses (
     address VARCHAR,
     transaction_id VARCHAR NOT NULL REFERENCES transactions (id)
         ON DELETE CASCADE,
     CONSTRAINT associated_addresses_pkey
-        PRIMARY KEY (address, transaction_id)
+        PRIMARY KEY (transaction_id, address)
 );
 
 CREATE INDEX IF NOT EXISTS associated_addresses_address_idx ON associated_addresses (address);
-CREATE INDEX IF NOT EXISTS associated_addresses_transaction_id_idx ON associated_addresses (transaction_id);

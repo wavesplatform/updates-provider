@@ -1,12 +1,16 @@
 use super::super::watchlist::WatchList;
 use super::super::{TSResourcesRepoImpl, TSUpdatesProviderLastValues, UpdatesProvider};
-use crate::models::{TransactionByAddress, TransactionType};
+use crate::providers::watchlist::MaybeFromTopic;
+use crate::subscriptions::SubscriptionUpdate;
 use crate::transactions::repo::TransactionsRepoImpl;
-use crate::transactions::BlockMicroblockAppend;
-use crate::transactions::BlockchainUpdate;
+use crate::transactions::{BlockMicroblockAppend, BlockchainUpdate, Transaction};
 use crate::{
     error::Result,
     transactions::{Address, TransactionUpdate, TransactionsRepo},
+};
+use crate::{
+    models::{TransactionByAddress, Type},
+    resources::ResourcesRepo,
 };
 use async_trait::async_trait;
 use std::sync::Arc;
@@ -18,7 +22,7 @@ use tokio::sync::RwLock;
 use waves_protobuf_schemas::waves::events::BlockchainUpdated;
 use wavesexchange_log::{debug, error, info};
 
-const BUFFER: usize = 20;
+const UPDATES_BUFFER_SIZE: usize = 10;
 const TX_CHUNK_SIZE: usize = 65535 / 3;
 const ADDRESSES_CHUNK_SIZE: usize = 65535 / 2;
 
@@ -48,7 +52,7 @@ impl Provider {
             last_values.clone(),
             delete_timeout,
         )));
-        let (tx, rx) = mpsc::channel(100);
+        let (tx, rx) = mpsc::channel(UPDATES_BUFFER_SIZE);
         let last_height = {
             let conn = &*transactions_repo.lock().await;
             match conn.get_prev_handled_height()? {
@@ -76,7 +80,7 @@ impl Provider {
     pub async fn run(&mut self) -> Result<()> {
         'a: loop {
             self.watchlist.write().await.delete_old().await;
-            let mut buffer = Vec::with_capacity(BUFFER);
+            let mut buffer = Vec::with_capacity(UPDATES_BUFFER_SIZE);
             if let Some(event) = self.rx.recv().await {
                 let update = BlockchainUpdate::try_from(event)?;
                 buffer.push(update);
@@ -99,7 +103,7 @@ impl Provider {
                                     self.process_updates(buffer).await?;
                                     break;
                                 }
-                                if buffer.len() == BUFFER {
+                                if buffer.len() == UPDATES_BUFFER_SIZE {
                                     self.process_updates(buffer).await?;
                                     break;
                                 }
@@ -174,7 +178,7 @@ impl Provider {
             self.inner_check_transaction(data, tx.id.clone()).await?;
             let data = TransactionByAddress {
                 address: address.0,
-                tx_type: TransactionType::All,
+                tx_type: Type::All,
             };
             self.inner_check_transaction(data, tx.id.clone()).await?;
         }
@@ -203,18 +207,31 @@ impl Provider {
 
 #[async_trait]
 impl UpdatesProvider for Provider {
-    async fn fetch_updates(
-        mut self,
-    ) -> Result<mpsc::UnboundedSender<crate::subscriptions::SubscriptionUpdate>> {
+    async fn fetch_updates(mut self) -> Result<mpsc::UnboundedSender<SubscriptionUpdate>> {
         let (subscriptions_updates_sender, mut subscriptions_updates_receiver) =
-            mpsc::unbounded_channel::<crate::subscriptions::SubscriptionUpdate>();
+            mpsc::unbounded_channel::<SubscriptionUpdate>();
 
         let watchlist = self.watchlist.clone();
+        let resources_repo = self.resources_repo.clone();
+        let transactions_repo = self.transactions_repo.clone();
         tokio::task::spawn(async move {
             info!("starting transactions subscriptions updates handler");
             while let Some(upd) = subscriptions_updates_receiver.recv().await {
-                if let Err(err) = watchlist.write().await.on_update(upd).await {
+                if let Err(err) = watchlist.write().await.on_update(upd.clone()).await {
                     error!("error while updating watchlist: {:?}", err);
+                }
+                if let SubscriptionUpdate::New { topic } = upd {
+                    if let Some(value) = TransactionByAddress::maybe_item(topic) {
+                        if let Err(err) = check_and_maybe_insert(
+                            resources_repo.clone(),
+                            transactions_repo.clone(),
+                            value,
+                        )
+                        .await
+                        {
+                            error!("error while updating value: {:?}", err);
+                        }
+                    }
                 }
             }
         });
@@ -228,6 +245,27 @@ impl UpdatesProvider for Provider {
 
         Ok(subscriptions_updates_sender)
     }
+}
+
+async fn check_and_maybe_insert(
+    resources_repo: TSResourcesRepoImpl,
+    transactions_repo: Arc<Mutex<TransactionsRepoImpl>>,
+    value: TransactionByAddress,
+) -> Result<()> {
+    let topic = value.clone().into();
+    if let None = resources_repo.get(&topic)? {
+        if let Some(Transaction { id, .. }) = transactions_repo
+            .lock()
+            .await
+            .last_transaction_by_address(value.address)?
+        {
+            resources_repo.set(topic, id)?
+        } else {
+            resources_repo.set(topic, "null".into())?
+        }
+    }
+
+    Ok(())
 }
 
 fn insert_blockchain_updates<'a>(

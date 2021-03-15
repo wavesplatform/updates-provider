@@ -1,11 +1,12 @@
 use crate::error::{Error, Result};
 use crate::schema::{associated_addresses, blocks_microblocks, transactions};
 use diesel::{
+    deserialize::FromSql,
     serialize::{Output, ToSql},
     sql_types::*,
     Insertable, Queryable,
 };
-use std::convert::TryFrom;
+use std::convert::{TryFrom, TryInto};
 use waves_protobuf_schemas::waves;
 use waves_protobuf_schemas::waves::events::blockchain_updated::append::{
     BlockAppend, Body, MicroBlockAppend,
@@ -31,7 +32,7 @@ pub struct BlockMicroblock {
     pub height: i32,
 }
 
-#[derive(Clone, Debug, Insertable, QueryableByName)]
+#[derive(Clone, Debug, Insertable, QueryableByName, Queryable)]
 #[table_name = "transactions"]
 pub struct Transaction {
     pub id: String,
@@ -40,7 +41,7 @@ pub struct Transaction {
 }
 
 #[repr(i16)]
-#[derive(Clone, Debug, Copy, AsExpression)]
+#[derive(Clone, Debug, Copy, AsExpression, FromSqlRow)]
 #[sql_type = "SmallInt"]
 pub enum TransactionType {
     Genesis = 1,
@@ -62,6 +63,35 @@ pub enum TransactionType {
     UpdateAssetInfo = 17,
 }
 
+impl TryFrom<i16> for TransactionType {
+    type Error = Error;
+
+    fn try_from(value: i16) -> core::result::Result<Self, Self::Error> {
+        match value {
+            1 => Ok(TransactionType::Genesis),
+            2 => Ok(TransactionType::Payment),
+            3 => Ok(TransactionType::Issue),
+            4 => Ok(TransactionType::Transfer),
+            5 => Ok(TransactionType::Reissue),
+            6 => Ok(TransactionType::Burn),
+            7 => Ok(TransactionType::Exchange),
+            8 => Ok(TransactionType::Lease),
+            9 => Ok(TransactionType::LeaseCancel),
+            10 => Ok(TransactionType::CreateAlias),
+            11 => Ok(TransactionType::MassTransfer),
+            12 => Ok(TransactionType::DataTransaction),
+            13 => Ok(TransactionType::SetScript),
+            14 => Ok(TransactionType::SponsorFee),
+            15 => Ok(TransactionType::SetAssetScript),
+            16 => Ok(TransactionType::InvokeScript),
+            17 => Ok(TransactionType::UpdateAssetInfo),
+            _ => Err(Error::InvalidTransactionType(
+                "unknown transaction type".into(),
+            )),
+        }
+    }
+}
+
 impl<DB> ToSql<SmallInt, DB> for TransactionType
 where
     DB: diesel::backend::Backend,
@@ -69,6 +99,16 @@ where
 {
     fn to_sql<W: std::io::Write>(&self, out: &mut Output<W, DB>) -> diesel::serialize::Result {
         (*self as i16).to_sql(out)
+    }
+}
+
+impl<DB> FromSql<SmallInt, DB> for TransactionType
+where
+    DB: diesel::backend::Backend,
+    i16: FromSql<SmallInt, DB>,
+{
+    fn from_sql(bytes: Option<&DB::RawValue>) -> diesel::deserialize::Result<Self> {
+        Ok(i16::from_sql(bytes)?.try_into()?)
     }
 }
 
@@ -180,6 +220,8 @@ pub trait TransactionsRepo {
     fn rollback_blocks_microblocks(&self, block_uid: &i64) -> Result<()>;
 
     // fn rollback_data_entries(&self, block_uid: &i64) -> Result<Vec<DeletedDataEntry>>;
+
+    fn last_transaction_by_address(&self, address: String) -> Result<Option<Transaction>>;
 }
 
 impl TryFrom<std::sync::Arc<BlockchainUpdated>> for BlockchainUpdate {
@@ -349,7 +391,6 @@ fn keccak256(message: &[u8]) -> [u8; 32] {
 
 fn blake2b256(message: &[u8]) -> [u8; 32] {
     use blake2::digest::{Input, VariableOutput};
-    use std::convert::TryInto;
     let mut hasher = blake2::VarBlake2b::new(32).unwrap();
     hasher.input(message);
     let mut arr = [0u8; 32];

@@ -9,15 +9,18 @@ table! {
 
 table! {
     transactions (id) {
-        block_uid -> BigInt,
         id -> Varchar,
+        block_uid -> BigInt,
         tx_type -> SmallInt,
     }
 }
 
 table! {
-    associated_addresses (address, transaction_id) {
+    associated_addresses (transaction_id, address) {
         address -> Varchar,
         transaction_id -> Varchar,
     }
 }
+
+joinable!(associated_addresses -> transactions (transaction_id));
+allow_tables_to_appear_in_same_query!(blocks_microblocks, transactions, associated_addresses);

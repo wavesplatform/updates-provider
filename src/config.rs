@@ -68,7 +68,6 @@ struct FlatTestResourcesUpdaterConfig {
 #[derive(Deserialize)]
 struct FlatBlockchainUpdaterConfig {
     pub blockchain_updates_node_url: String,
-    pub grpc_node_url: String,
     #[serde(default = "default_delete_timeout")]
     pub transaction_delete_timeout: u64,
 }
@@ -131,7 +130,6 @@ pub fn load_blockchain() -> Result<providers::blockchain::Config, Error> {
 
     Ok(providers::blockchain::Config {
         updates_url: flat_config.blockchain_updates_node_url,
-        node_url: flat_config.grpc_node_url,
         transaction_delete_timeout: Duration::from_secs(flat_config.transaction_delete_timeout),
     })
 }

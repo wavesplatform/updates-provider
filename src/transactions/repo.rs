@@ -190,4 +190,13 @@ impl TransactionsRepo for TransactionsRepoImpl {
     //         })
     //         .map_err(|err| Error::new(AppError::DbError(err)))
     // }
+
+    fn last_transaction_by_address(&self, address: String) -> Result<Option<Transaction>> {
+        Ok(associated_addresses::table
+            .left_join(transactions::table)
+            .filter(associated_addresses::address.eq(address))
+            .select(transactions::all_columns.nullable())
+            .order(transactions::block_uid.desc())
+            .first::<Option<Transaction>>(&self.conn)?)
+    }
 }

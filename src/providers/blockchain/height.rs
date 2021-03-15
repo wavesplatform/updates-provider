@@ -3,7 +3,6 @@ use crate::{error::Error, models::Topic, resources::ResourcesRepo};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use waves_protobuf_schemas::waves::events::BlockchainUpdated;
-use waves_protobuf_schemas::waves::node::grpc::blocks_api_client::BlocksApiClient;
 
 pub struct Provider {
     resources_repo: TSResourcesRepoImpl,
@@ -11,31 +10,19 @@ pub struct Provider {
     rx: mpsc::Receiver<Arc<BlockchainUpdated>>,
 }
 
-pub struct ProviderReturn {
+pub struct ProviderWithUpdatesSender {
     pub tx: mpsc::Sender<Arc<BlockchainUpdated>>,
     pub provider: Provider,
 }
 
 impl Provider {
     pub async fn new(
-        node_url: String,
         resources_repo: TSResourcesRepoImpl,
-    ) -> Result<ProviderReturn, Error> {
-        let redis_height = get_last_height(resources_repo.clone())?;
-        let response = BlocksApiClient::connect(node_url)
-            .await?
-            .get_current_height(())
-            .await?;
-        let current_height = response.into_inner() as i32;
-        let last_height = if current_height != redis_height {
-            resources_repo.set(Topic::BlockchainHeight, current_height.to_string())?;
-            current_height
-        } else {
-            redis_height
-        };
+    ) -> Result<ProviderWithUpdatesSender, Error> {
+        let last_height = get_last_height(resources_repo.clone())?;
         let (tx, rx) = mpsc::channel(20);
 
-        Ok(ProviderReturn {
+        Ok(ProviderWithUpdatesSender {
             tx,
             provider: Self {
                 resources_repo,
