@@ -1,4 +1,7 @@
-use super::{AssociatedAddress, BlockMicroblock, PrevHandledHeight, Transaction, TransactionsRepo};
+use super::{
+    AssociatedAddress, BlockMicroblock, PrevHandledHeight, Transaction, TransactionType,
+    TransactionsRepo,
+};
 use crate::error::Result;
 use crate::schema::blocks_microblocks::dsl::*;
 use crate::schema::{associated_addresses, blocks_microblocks, transactions};
@@ -197,6 +200,20 @@ impl TransactionsRepo for TransactionsRepoImpl {
         Ok(associated_addresses::table
             .left_join(transactions::table)
             .filter(associated_addresses::address.eq(address))
+            .select(transactions::all_columns.nullable())
+            .order(transactions::block_uid.desc())
+            .first::<Option<Transaction>>(&self.conn)?)
+    }
+
+    fn last_transaction_by_address_and_type(
+        &self,
+        address: String,
+        transaction_type: TransactionType,
+    ) -> Result<Option<Transaction>> {
+        Ok(associated_addresses::table
+            .left_join(transactions::table)
+            .filter(associated_addresses::address.eq(address))
+            .filter(transactions::tx_type.eq(transaction_type))
             .select(transactions::all_columns.nullable())
             .order(transactions::block_uid.desc())
             .first::<Option<Transaction>>(&self.conn)?)

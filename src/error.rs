@@ -52,6 +52,8 @@ pub enum Error {
     DbError(#[from] diesel::result::Error),
     #[error("GRPCBodyError: {0}")]
     GRPCBodyError(String),
+    #[error("InvalidDBTransactionType: {0}")]
+    InvalidDBTransactionType(String),
 }
 
 #[derive(Debug)]

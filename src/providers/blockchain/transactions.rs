@@ -3,7 +3,7 @@ use super::super::{TSResourcesRepoImpl, TSUpdatesProviderLastValues, UpdatesProv
 use crate::providers::watchlist::MaybeFromTopic;
 use crate::subscriptions::SubscriptionUpdate;
 use crate::transactions::repo::TransactionsRepoImpl;
-use crate::transactions::{BlockMicroblockAppend, BlockchainUpdate, Transaction};
+use crate::transactions::{BlockMicroblockAppend, BlockchainUpdate, Transaction, TransactionType};
 use crate::{
     error::Result,
     transactions::{Address, TransactionUpdate, TransactionsRepo},
@@ -254,15 +254,35 @@ async fn check_and_maybe_insert(
 ) -> Result<()> {
     let topic = value.clone().into();
     if let None = resources_repo.get(&topic)? {
-        if let Some(Transaction { id, .. }) = transactions_repo
-            .lock()
-            .await
-            .last_transaction_by_address(value.address)?
-        {
-            resources_repo.set(topic, id)?
-        } else {
-            resources_repo.set(topic, "null".into())?
-        }
+        let new_value = match value {
+            TransactionByAddress {
+                tx_type: Type::All,
+                address,
+            } => {
+                if let Some(Transaction { id, .. }) = transactions_repo
+                    .lock()
+                    .await
+                    .last_transaction_by_address(address)?
+                {
+                    Some(id)
+                } else {
+                    None
+                }
+            }
+            TransactionByAddress { tx_type, address } => {
+                let transaction_type = TransactionType::try_from(tx_type)?;
+                if let Some(Transaction { id, .. }) = transactions_repo
+                    .lock()
+                    .await
+                    .last_transaction_by_address_and_type(address, transaction_type)?
+                {
+                    Some(id)
+                } else {
+                    None
+                }
+            }
+        };
+        resources_repo.set(topic, serde_json::to_string(&new_value)?)?;
     }
 
     Ok(())
@@ -388,7 +408,7 @@ fn rollback(conn: &TransactionsRepoImpl, block_uid: i64) -> Result<()> {
 
 struct Tx {
     id: String,
-    tx_type: crate::transactions::TransactionType,
+    tx_type: TransactionType,
     addresses: Vec<Address>,
 }
 

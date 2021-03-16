@@ -136,6 +136,33 @@ impl From<&Data> for TransactionType {
     }
 }
 
+impl TryFrom<crate::models::Type> for TransactionType {
+    type Error = Error;
+
+    fn try_from(value: crate::models::Type) -> core::result::Result<Self, Self::Error> {
+        match value {
+            crate::models::Type::All => Err(Error::InvalidDBTransactionType(value.to_string())),
+            crate::models::Type::Genesis => Ok(Self::Genesis),
+            crate::models::Type::Payment => Ok(Self::Payment),
+            crate::models::Type::Issue => Ok(Self::Issue),
+            crate::models::Type::Transfer => Ok(Self::Transfer),
+            crate::models::Type::Reissue => Ok(Self::Reissue),
+            crate::models::Type::Burn => Ok(Self::Burn),
+            crate::models::Type::Exchange => Ok(Self::Exchange),
+            crate::models::Type::Lease => Ok(Self::Lease),
+            crate::models::Type::LeaseCancel => Ok(Self::LeaseCancel),
+            crate::models::Type::CreateAlias => Ok(Self::CreateAlias),
+            crate::models::Type::MassTransfer => Ok(Self::MassTransfer),
+            crate::models::Type::DataTransaction => Ok(Self::DataTransaction),
+            crate::models::Type::SetScript => Ok(Self::SetScript),
+            crate::models::Type::SponsorFee => Ok(Self::SponsorFee),
+            crate::models::Type::SetAssetScript => Ok(Self::SetAssetScript),
+            crate::models::Type::InvokeScript => Ok(Self::InvokeScript),
+            crate::models::Type::UpdateAssetInfo => Ok(Self::UpdateAssetInfo),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Insertable, QueryableByName, PartialEq, Eq, Hash)]
 #[table_name = "associated_addresses"]
 pub struct AssociatedAddress {
@@ -222,6 +249,12 @@ pub trait TransactionsRepo {
     // fn rollback_data_entries(&self, block_uid: &i64) -> Result<Vec<DeletedDataEntry>>;
 
     fn last_transaction_by_address(&self, address: String) -> Result<Option<Transaction>>;
+
+    fn last_transaction_by_address_and_type(
+        &self,
+        address: String,
+        transaction_type: TransactionType,
+    ) -> Result<Option<Transaction>>;
 }
 
 impl TryFrom<std::sync::Arc<BlockchainUpdated>> for BlockchainUpdate {
