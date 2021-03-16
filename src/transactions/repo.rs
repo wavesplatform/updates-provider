@@ -74,6 +74,7 @@ impl TransactionsRepo for TransactionsRepoImpl {
     fn insert_transactions(&self, transactions: &Vec<Transaction>) -> Result<()> {
         diesel::insert_into(transactions::table)
             .values(transactions)
+            .on_conflict_do_nothing()
             .execute(&self.conn)?;
         Ok(())
     }
@@ -84,6 +85,7 @@ impl TransactionsRepo for TransactionsRepoImpl {
     ) -> Result<()> {
         diesel::insert_into(associated_addresses::table)
             .values(associated_addresses)
+            .on_conflict_do_nothing()
             .execute(&self.conn)?;
         Ok(())
     }
