@@ -333,7 +333,7 @@ fn insert_blocks(
     let blocks = blocks_updates.iter().map(|b| b.clone().into()).collect();
     let start = Instant::now();
     let block_ids = conn.insert_blocks_or_microblocks(&blocks)?;
-    debug!(
+    info!(
         "insert {} blocks in {} ms",
         blocks.len(),
         start.elapsed().as_millis()
@@ -359,7 +359,7 @@ fn insert_blocks(
     for transactions in transactions_chunks {
         let start = Instant::now();
         conn.insert_transactions(&transactions)?;
-        debug!(
+        info!(
             "insert {} txs in {} ms",
             transactions.len(),
             start.elapsed().as_millis()
@@ -391,7 +391,7 @@ fn insert_blocks(
     for addresses in addresses_chunks {
         let start = Instant::now();
         conn.insert_associated_addresses(&addresses)?;
-        debug!(
+        info!(
             "insert {} addresses in {} ms",
             addresses.len(),
             start.elapsed().as_millis()
