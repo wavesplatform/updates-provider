@@ -1,5 +1,5 @@
 use crate::error::{Error, Result};
-use crate::schema::{associated_addresses, blocks_microblocks, transactions};
+use crate::schema::{associated_addresses, blocks_microblocks, exchanges, transactions};
 use diesel::{
     deserialize::FromSql,
     serialize::{Output, ToSql},
@@ -15,6 +15,7 @@ use waves_protobuf_schemas::waves::events::blockchain_updated::{Append, Update};
 use waves_protobuf_schemas::waves::events::BlockchainUpdated;
 use waves_protobuf_schemas::waves::transaction::Data;
 
+pub mod exchange;
 pub mod repo;
 
 #[derive(Debug, Clone)]
@@ -38,6 +39,7 @@ pub struct Transaction {
     pub id: String,
     pub block_uid: i64,
     pub tx_type: TransactionType,
+    pub body: Option<serde_json::Value>,
 }
 
 #[repr(i16)]
@@ -170,6 +172,14 @@ pub struct AssociatedAddress {
     pub transaction_id: String,
 }
 
+#[derive(Clone, Debug, Insertable, QueryableByName, PartialEq)]
+#[table_name = "exchanges"]
+pub struct Exchange {
+    pub transaction_id: String,
+    pub amount_asset: String,
+    pub price_asset: String,
+}
+
 #[derive(Clone, Debug)]
 pub struct BlockMicroblockAppend {
     id: String,
@@ -184,9 +194,23 @@ pub struct TransactionUpdate {
     pub tx_type: TransactionType,
     pub block_uid: String,
     pub addresses: Vec<Address>,
+    pub data: Data,
+    pub sender: Address,
+    pub sender_public_key: String,
+    pub fee: Option<Amount>,
+    pub timestamp: i64,
+    pub version: i32,
+    pub proofs: Vec<String>,
+    pub height: i32,
 }
 
 #[derive(Debug, Clone)]
+pub struct Amount {
+    pub asset_id: String,
+    pub amount: i64,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct Address(pub String);
 
 #[derive(Clone, Debug)]
@@ -255,6 +279,8 @@ pub trait TransactionsRepo {
         address: String,
         transaction_type: TransactionType,
     ) -> Result<Option<Transaction>>;
+
+    fn insert_exchanges(&self, exchanges: &Vec<Exchange>) -> Result<()>;
 }
 
 impl TryFrom<std::sync::Arc<BlockchainUpdated>> for BlockchainUpdate {
@@ -275,6 +301,7 @@ impl TryFrom<std::sync::Arc<BlockchainUpdated>> for BlockchainUpdate {
                         let raw_transactions = &block.as_ref().unwrap().transactions;
                         let transactions = parse_transactions(
                             block_uid.clone(),
+                            height,
                             raw_transactions,
                             &transaction_ids,
                         );
@@ -302,6 +329,7 @@ impl TryFrom<std::sync::Arc<BlockchainUpdated>> for BlockchainUpdate {
                             .transactions;
                         let transactions = parse_transactions(
                             block_uid.clone(),
+                            height,
                             raw_transactions,
                             &transaction_ids,
                         );
@@ -325,6 +353,30 @@ impl TryFrom<std::sync::Arc<BlockchainUpdated>> for BlockchainUpdate {
     }
 }
 
+impl TryFrom<&TransactionUpdate> for Exchange {
+    type Error = Error;
+
+    fn try_from(value: &TransactionUpdate) -> Result<Self> {
+        match &value.data {
+            Data::Exchange(exchange_data) => {
+                let asset_pair = exchange_data
+                    .orders
+                    .get(0)
+                    .unwrap()
+                    .asset_pair
+                    .as_ref()
+                    .unwrap();
+                Ok(Self {
+                    transaction_id: value.id.to_owned(),
+                    price_asset: bs58::encode(&asset_pair.price_asset_id).into_string(),
+                    amount_asset: bs58::encode(&asset_pair.amount_asset_id).into_string(),
+                })
+            }
+            _ => Err(Error::InvalidExchangeData(value.data.to_owned())),
+        }
+    }
+}
+
 impl From<&BlockMicroblockAppend> for BlockMicroblock {
     fn from(value: &BlockMicroblockAppend) -> Self {
         Self {
@@ -335,13 +387,23 @@ impl From<&BlockMicroblockAppend> for BlockMicroblock {
     }
 }
 
-impl From<(i64, &TransactionUpdate)> for Transaction {
-    fn from(value: (i64, &TransactionUpdate)) -> Self {
-        Self {
+impl TryFrom<(i64, &TransactionUpdate)> for Transaction {
+    type Error = Error;
+
+    fn try_from(value: (i64, &TransactionUpdate)) -> Result<Self> {
+        let body = match value.1.tx_type {
+            TransactionType::Exchange => {
+                let data = exchange::ExchangeData::try_from(value.1)?;
+                Some(serde_json::to_value(data)?)
+            }
+            _ => None,
+        };
+        Ok(Self {
             id: value.1.id.clone(),
             tx_type: value.1.tx_type,
             block_uid: value.0,
-        }
+            body,
+        })
     }
 }
 
@@ -356,6 +418,7 @@ impl From<(String, &Address)> for AssociatedAddress {
 
 fn parse_transactions(
     block_uid: String,
+    height: i32,
     raw_transactions: &Vec<waves::SignedTransaction>,
     transaction_ids: &Vec<Vec<u8>>,
 ) -> Vec<TransactionUpdate> {
@@ -365,27 +428,51 @@ fn parse_transactions(
         .map(|(tx_id, tx)| {
             let transaction = tx.transaction.as_ref().unwrap();
             let sender_public_key = &transaction.sender_public_key;
-            let addresses = if sender_public_key.len() == 0 {
+            let mut addresses = if sender_public_key.len() == 0 {
                 vec![]
             } else {
                 let sender = address_from_public_key(sender_public_key, transaction.chain_id as u8);
                 vec![sender]
             };
-            let data = transaction.data.as_ref().unwrap();
-            let tx_type = TransactionType::from(data);
-            let mut tx = TransactionUpdate {
+            let data = transaction.data.clone().unwrap();
+            maybe_add_addresses(&data, transaction.chain_id as u8, &mut addresses);
+            let tx_type = TransactionType::from(&data);
+            let tx = TransactionUpdate {
                 tx_type,
+                data,
+                height,
                 block_uid: block_uid.clone(),
                 id: bs58::encode(tx_id).into_string(),
                 addresses,
+                sender: address_from_public_key(
+                    &transaction.sender_public_key,
+                    transaction.chain_id as u8,
+                ),
+                sender_public_key: bs58::encode(&transaction.sender_public_key).into_string(),
+                fee: transaction.fee.as_ref().map(Into::into),
+                timestamp: transaction.timestamp,
+                version: transaction.version,
+                proofs: tx
+                    .proofs
+                    .iter()
+                    .map(|proof| bs58::encode(proof).into_string())
+                    .collect(),
             };
-            maybe_add_addresses(data, transaction.chain_id as u8, &mut tx.addresses);
             tx
         })
         .collect()
 }
 
-fn address_from_public_key(pk: &Vec<u8>, chain_id: u8) -> Address {
+impl From<&waves_protobuf_schemas::waves::Amount> for Amount {
+    fn from(value: &waves_protobuf_schemas::waves::Amount) -> Self {
+        Self {
+            asset_id: bs58::encode(&value.asset_id).into_string(),
+            amount: value.amount,
+        }
+    }
+}
+
+pub fn address_from_public_key(pk: &Vec<u8>, chain_id: u8) -> Address {
     let pkh = &keccak256(&blake2b256(&pk))[..20];
     address_from_public_key_hash(&pkh.to_vec(), chain_id)
 }
@@ -457,14 +544,10 @@ fn maybe_add_addresses(data: &Data, chain_id: u8, addresses: &mut Vec<Address>) 
         }
         Data::Exchange(data) => {
             for waves::Order {
-                sender_public_key,
-                matcher_public_key,
-                ..
+                sender_public_key, ..
             } in data.orders.iter()
             {
                 let address = address_from_public_key(sender_public_key, chain_id);
-                addresses.push(address);
-                let address = address_from_public_key(matcher_public_key, chain_id);
                 addresses.push(address);
             }
         }

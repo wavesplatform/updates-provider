@@ -12,6 +12,7 @@ table! {
         id -> Varchar,
         block_uid -> BigInt,
         tx_type -> SmallInt,
+        body -> Nullable<Jsonb>,
     }
 }
 
@@ -22,5 +23,15 @@ table! {
     }
 }
 
+table! {
+    exchanges (transaction_id) {
+        transaction_id -> Varchar,
+        amount_asset -> Varchar,
+        price_asset -> Varchar,
+    }
+}
+
 joinable!(associated_addresses -> transactions (transaction_id));
 allow_tables_to_appear_in_same_query!(blocks_microblocks, transactions, associated_addresses);
+joinable!(exchanges -> transactions (transaction_id));
+allow_tables_to_appear_in_same_query!(transactions, exchanges);

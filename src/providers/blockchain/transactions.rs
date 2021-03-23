@@ -3,13 +3,15 @@ use super::super::{TSResourcesRepoImpl, TSUpdatesProviderLastValues, UpdatesProv
 use crate::providers::watchlist::MaybeFromTopic;
 use crate::subscriptions::SubscriptionUpdate;
 use crate::transactions::repo::TransactionsRepoImpl;
-use crate::transactions::{BlockMicroblockAppend, BlockchainUpdate, Transaction, TransactionType};
-use crate::{
-    error::Result,
-    transactions::{Address, TransactionUpdate, TransactionsRepo},
+use crate::transactions::{
+    BlockMicroblockAppend, BlockchainUpdate, Exchange, Transaction, TransactionType,
 };
 use crate::{
-    models::{TransactionByAddress, Type},
+    error::Result,
+    transactions::{exchange::ExchangeData, Address, TransactionUpdate, TransactionsRepo},
+};
+use crate::{
+    models::{self, TransactionByAddress, TransactionExchange, Type},
     resources::ResourcesRepo,
 };
 use async_trait::async_trait;
@@ -27,7 +29,7 @@ const TX_CHUNK_SIZE: usize = 65535 / 3;
 const ADDRESSES_CHUNK_SIZE: usize = 65535 / 2;
 
 pub struct Provider {
-    watchlist: Arc<RwLock<WatchList<TransactionByAddress>>>,
+    watchlist: Arc<RwLock<WatchList<models::Transaction>>>,
     rx: mpsc::Receiver<Arc<BlockchainUpdated>>,
     resources_repo: TSResourcesRepoImpl,
     last_values: TSUpdatesProviderLastValues,
@@ -162,33 +164,65 @@ impl Provider {
 
     async fn check_transactions(&mut self, tx_updates: Vec<TransactionUpdate>) -> Result<()> {
         for tx_update in tx_updates.into_iter() {
+            if let TransactionType::Exchange = tx_update.tx_type {
+                let exchange_data = ExchangeData::try_from(&tx_update)?;
+                self.check_transaction_exchange(exchange_data).await?
+            }
             let tx = tx_update.into();
-            self.check_transaction(tx).await?
+            self.check_transaction_by_address(tx).await?
         }
 
         Ok(())
     }
 
-    async fn check_transaction(&mut self, tx: Tx) -> Result<()> {
+    async fn check_transaction_by_address(&mut self, tx: Tx) -> Result<()> {
         for address in tx.addresses {
             let data = TransactionByAddress {
                 address: address.0.clone(),
                 tx_type: tx.tx_type.into(),
             };
-            self.inner_check_transaction(data, tx.id.clone()).await?;
+            self.inner_check_transaction(models::Transaction::ByAddress(data), tx.id.clone())
+                .await?;
             let data = TransactionByAddress {
                 address: address.0,
                 tx_type: Type::All,
             };
-            self.inner_check_transaction(data, tx.id.clone()).await?;
+            self.inner_check_transaction(models::Transaction::ByAddress(data), tx.id.clone())
+                .await?;
         }
 
         Ok(())
     }
 
+    async fn check_transaction_exchange(&mut self, exchange_data: ExchangeData) -> Result<()> {
+        let amount_asset = exchange_data
+            .order1
+            .asset_pair
+            .amount_asset
+            .as_ref()
+            .map(|x| x.to_owned())
+            .or(Some("WAVES".to_string()))
+            .unwrap();
+        let price_asset = exchange_data
+            .order1
+            .asset_pair
+            .price_asset
+            .as_ref()
+            .map(|x| x.to_owned())
+            .or(Some("WAVES".to_string()))
+            .unwrap();
+        let data = models::Transaction::Exchange(TransactionExchange {
+            amount_asset,
+            price_asset,
+        });
+        let current_value = serde_json::to_string(&exchange_data)?;
+        self.inner_check_transaction(data, current_value).await?;
+        Ok(())
+    }
+
     async fn inner_check_transaction(
         &mut self,
-        data: TransactionByAddress,
+        data: models::Transaction,
         current_value: String,
     ) -> Result<()> {
         if self.watchlist.read().await.items.contains_key(&data) {
@@ -341,21 +375,27 @@ fn insert_blocks(
     let transaction_updates = blocks_updates
         .iter()
         .map(|block| block.transactions.iter().map(|tx| tx));
-    let transactions_chunks = block_ids
+    let transactions_chunks: Vec<Vec<Transaction>> = block_ids
         .into_iter()
         .zip(transaction_updates.clone())
-        .flat_map(|(block_uid, txs)| txs.map(move |tx| (block_uid, tx).into()))
-        .fold(vec![Vec::with_capacity(TX_CHUNK_SIZE)], |mut acc, tx| {
-            let last = acc.last_mut().unwrap();
-            if last.len() == TX_CHUNK_SIZE {
-                let mut new_last = Vec::with_capacity(TX_CHUNK_SIZE);
-                new_last.push(tx);
-                acc.push(new_last)
-            } else {
-                last.push(tx)
-            }
-            acc
-        });
+        .flat_map(|(block_uid, txs)| txs.map(move |tx| (block_uid, tx)))
+        .try_fold(
+            vec![Vec::with_capacity(TX_CHUNK_SIZE)],
+            |mut acc, tx| match Transaction::try_from(tx) {
+                Ok(tx) => {
+                    let last = acc.last_mut().unwrap();
+                    if last.len() == TX_CHUNK_SIZE {
+                        let mut new_last = Vec::with_capacity(TX_CHUNK_SIZE);
+                        new_last.push(tx);
+                        acc.push(new_last)
+                    } else {
+                        last.push(tx)
+                    }
+                    Ok(acc)
+                }
+                Err(error) => Err(error),
+            },
+        )?;
     for transactions in transactions_chunks {
         let start = Instant::now();
         conn.insert_transactions(&transactions)?;
@@ -365,7 +405,8 @@ fn insert_blocks(
             start.elapsed().as_millis()
         );
     }
-    let addresses_hashset = transaction_updates
+    let addresses_chunks = transaction_updates
+        .clone()
         .flat_map(|txs| {
             txs.flat_map(|tx| {
                 tx.addresses
@@ -373,21 +414,22 @@ fn insert_blocks(
                     .map(move |address| (tx.id.clone(), address).into())
             })
         })
-        .collect::<std::collections::HashSet<_>>();
-    let addresses_chunks = addresses_hashset.into_iter().fold(
-        vec![Vec::with_capacity(ADDRESSES_CHUNK_SIZE)],
-        |mut acc, address| {
-            let last = acc.last_mut().unwrap();
-            if last.len() == ADDRESSES_CHUNK_SIZE {
-                let mut new_last = Vec::with_capacity(ADDRESSES_CHUNK_SIZE);
-                new_last.push(address);
-                acc.push(new_last)
-            } else {
-                last.push(address)
-            }
-            acc
-        },
-    );
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .fold(
+            vec![Vec::with_capacity(ADDRESSES_CHUNK_SIZE)],
+            |mut acc, address| {
+                let last = acc.last_mut().unwrap();
+                if last.len() == ADDRESSES_CHUNK_SIZE {
+                    let mut new_last = Vec::with_capacity(ADDRESSES_CHUNK_SIZE);
+                    new_last.push(address);
+                    acc.push(new_last)
+                } else {
+                    last.push(address)
+                }
+                acc
+            },
+        );
     for addresses in addresses_chunks {
         let start = Instant::now();
         conn.insert_associated_addresses(&addresses)?;
@@ -397,6 +439,25 @@ fn insert_blocks(
             start.elapsed().as_millis()
         );
     }
+    let exchanges = transaction_updates
+        .flat_map(|txs| {
+            txs.filter(|tx| {
+                if let TransactionType::Exchange = tx.tx_type {
+                    true
+                } else {
+                    false
+                }
+            })
+            .map(|tx| Exchange::try_from(tx).unwrap())
+        })
+        .collect::<Vec<_>>();
+    let start = Instant::now();
+    conn.insert_exchanges(&exchanges)?;
+    debug!(
+        "insert {} exchanges in {} ms",
+        exchanges.len(),
+        start.elapsed().as_millis()
+    );
     info!("inserted {:?} block", h);
     Ok(())
 }

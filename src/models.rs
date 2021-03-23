@@ -13,7 +13,7 @@ pub enum Topic {
     State(State),
     TestResource(TestResource),
     BlockchainHeight,
-    Transaction(TransactionByAddress),
+    Transaction(Transaction),
 }
 
 impl TryFrom<&str> for Topic {
@@ -38,7 +38,7 @@ impl TryFrom<&str> for Topic {
                 }
                 Some("blockchain_height") => Ok(Topic::BlockchainHeight),
                 Some("transaction") => {
-                    let transaction = TransactionByAddress::try_from(url)?;
+                    let transaction = Transaction::try_from(url)?;
                     Ok(Topic::Transaction(transaction))
                 }
                 _ => Err(Error::InvalidTopic(s.to_owned())),
@@ -103,11 +103,21 @@ impl ToString for Topic {
                 url.set_host(Some("blockchain_height")).unwrap();
                 url.as_str().to_owned()
             }
-            Topic::Transaction(transaction) => {
+            Topic::Transaction(Transaction::ByAddress(transaction)) => {
                 url.set_host(Some("transaction")).unwrap();
                 url.set_path(&transaction.tx_type.to_string());
+                url.set_query(Some(format!("address={}", &transaction.address).as_str()));
+                url.as_str().to_owned()
+            }
+            Topic::Transaction(Transaction::Exchange(transaction)) => {
+                url.set_host(Some("transaction")).unwrap();
+                url.set_path(Type::Exchange.to_string().as_str());
                 url.set_query(Some(
-                    format!("address={}", transaction.address.clone()).as_str(),
+                    format!(
+                        "amount_asset={}&price_asset={}",
+                        &transaction.amount_asset, &transaction.price_asset
+                    )
+                    .as_str(),
                 ));
                 url.as_str().to_owned()
             }
@@ -304,10 +314,46 @@ impl MaybeFromTopic for BlockchainHeight {
 
 impl WatchListItem for BlockchainHeight {}
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub enum Transaction {
+    ByAddress(TransactionByAddress),
+    Exchange(TransactionExchange),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub struct TransactionExchange {
+    pub amount_asset: String,
+    pub price_asset: String,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct TransactionByAddress {
     pub tx_type: Type,
     pub address: String,
+}
+
+impl TryFrom<Url> for Transaction {
+    type Error = Error;
+
+    fn try_from(value: Url) -> Result<Self, Self::Error> {
+        let tx_type: Type = FromStr::from_str(
+            &value
+                .path_segments()
+                .ok_or_else(|| Error::InvalidTransactionType(value.path().to_string()))?
+                .next()
+                .ok_or_else(|| Error::InvalidTransactionType(value.path().to_string()))?,
+        )?;
+        match tx_type {
+            Type::Exchange => {
+                if let Ok(tx) = TransactionExchange::try_from(value.clone()) {
+                    return Ok(Self::Exchange(tx));
+                }
+            }
+            _ => (),
+        }
+        let tx = TransactionByAddress::try_from(value)?;
+        Ok(Self::ByAddress(tx))
+    }
 }
 
 impl TryFrom<Url> for TransactionByAddress {
@@ -321,8 +367,17 @@ impl TryFrom<Url> for TransactionByAddress {
                 .next()
                 .ok_or_else(|| Error::InvalidTransactionType(value.path().to_string()))?,
         )?;
-        let address = get_address(&value)?;
+        let address = get_value_from_query(&value, "address")?;
         Ok(Self { address, tx_type })
+    }
+}
+
+impl ToString for TransactionExchange {
+    fn to_string(&self) -> String {
+        format!(
+            "exchange?amount_asset={}&price_asset={}",
+            self.amount_asset, self.price_asset
+        )
     }
 }
 
@@ -332,15 +387,79 @@ impl ToString for TransactionByAddress {
     }
 }
 
-fn get_address(value: &Url) -> Result<String, Error> {
+impl ToString for Transaction {
+    fn to_string(&self) -> String {
+        match self {
+            Self::ByAddress(tx) => tx.to_string(),
+            Self::Exchange(tx) => tx.to_string(),
+        }
+    }
+}
+
+impl TryFrom<Url> for TransactionExchange {
+    type Error = Error;
+
+    fn try_from(value: Url) -> Result<Self, Self::Error> {
+        let price_asset = get_value_from_query(&value, "price_asset")?;
+        let amount_asset = get_value_from_query(&value, "amount_asset")?;
+        Ok(Self {
+            price_asset,
+            amount_asset,
+        })
+    }
+}
+
+fn get_value_from_query(value: &Url, key: &str) -> Result<String, Error> {
     for (k, v) in value.query_pairs() {
-        if k.to_string() == "address".to_string() {
+        if k == key {
             return Ok(v.to_string());
         }
     }
     return Err(Error::InvalidTransactionQuery(error::ErrorQuery(
         value.query().map(ToString::to_string),
     )));
+}
+
+#[test]
+fn transaction_topic_test() {
+    let url = Url::parse("topic://transaction/all?address=some_address").unwrap();
+    if let Transaction::ByAddress(transaction) = Transaction::try_from(url).unwrap() {
+        assert_eq!(transaction.tx_type.to_string(), "all".to_string());
+        assert_eq!(transaction.address, "some_address".to_string());
+        assert_eq!(
+            "topic://transaction/all?address=some_address".to_string(),
+            Topic::Transaction(Transaction::ByAddress(transaction)).to_string()
+        );
+    } else {
+        panic!("wrong transaction")
+    }
+    let url = Url::parse("topic://transaction/issue?address=some_other_address").unwrap();
+    if let Transaction::ByAddress(transaction) = Transaction::try_from(url).unwrap() {
+        assert_eq!(transaction.tx_type.to_string(), "issue".to_string());
+        assert_eq!(transaction.address, "some_other_address".to_string());
+        assert_eq!(
+            "topic://transaction/issue?address=some_other_address".to_string(),
+            Topic::Transaction(Transaction::ByAddress(transaction)).to_string()
+        );
+    }
+    let url = Url::parse("topic://transaction/exchange").unwrap();
+    let error = Transaction::try_from(url);
+    assert!(error.is_err());
+    assert_eq!(
+        format!("{}", error.unwrap_err()),
+        "InvalidTransactionQuery: None".to_string()
+    );
+    let url = Url::parse("topic://transaction/exchange?amount_asset=asd&price_asset=qwe").unwrap();
+    if let Transaction::Exchange(transaction) = Transaction::try_from(url).unwrap() {
+        assert_eq!(transaction.amount_asset, "asd".to_string());
+        assert_eq!(transaction.price_asset, "qwe".to_string());
+        assert_eq!(
+            "topic://transaction/exchange?amount_asset=asd&price_asset=qwe".to_string(),
+            Topic::Transaction(Transaction::Exchange(transaction)).to_string()
+        );
+    } else {
+        panic!("wrong exchange transaction")
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -446,11 +565,41 @@ impl From<TransactionType> for Type {
 
 impl From<TransactionByAddress> for Topic {
     fn from(transaction: TransactionByAddress) -> Self {
+        Self::Transaction(Transaction::ByAddress(transaction))
+    }
+}
+
+impl From<TransactionExchange> for Topic {
+    fn from(transaction: TransactionExchange) -> Self {
+        Self::Transaction(Transaction::Exchange(transaction))
+    }
+}
+
+impl From<Transaction> for Topic {
+    fn from(transaction: Transaction) -> Self {
         Self::Transaction(transaction)
     }
 }
 
 impl MaybeFromTopic for TransactionByAddress {
+    fn maybe_item(topic: Topic) -> Option<Self> {
+        if let Topic::Transaction(Transaction::ByAddress(transaction)) = topic {
+            return Some(transaction);
+        }
+        return None;
+    }
+}
+
+impl MaybeFromTopic for TransactionExchange {
+    fn maybe_item(topic: Topic) -> Option<Self> {
+        if let Topic::Transaction(Transaction::Exchange(transaction)) = topic {
+            return Some(transaction);
+        }
+        return None;
+    }
+}
+
+impl MaybeFromTopic for Transaction {
     fn maybe_item(topic: Topic) -> Option<Self> {
         if let Topic::Transaction(transaction) = topic {
             return Some(transaction);
@@ -460,3 +609,5 @@ impl MaybeFromTopic for TransactionByAddress {
 }
 
 impl WatchListItem for TransactionByAddress {}
+impl WatchListItem for TransactionExchange {}
+impl WatchListItem for Transaction {}

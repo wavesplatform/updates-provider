@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use waves_protobuf_schemas::waves::events::BlockchainUpdated;
+use waves_protobuf_schemas::waves::transaction::Data;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -54,6 +55,10 @@ pub enum Error {
     GRPCBodyError(String),
     #[error("InvalidDBTransactionType: {0}")]
     InvalidDBTransactionType(String),
+    #[error("InvalidExchangeData: {0:?}")]
+    InvalidExchangeData(Data),
+    #[error("InvalidOrderType: {0}")]
+    InvalidOrderType(i32),
 }
 
 #[derive(Debug)]

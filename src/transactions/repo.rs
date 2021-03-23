@@ -1,10 +1,10 @@
 use super::{
-    AssociatedAddress, BlockMicroblock, PrevHandledHeight, Transaction, TransactionType,
+    AssociatedAddress, BlockMicroblock, Exchange, PrevHandledHeight, Transaction, TransactionType,
     TransactionsRepo,
 };
 use crate::error::Result;
 use crate::schema::blocks_microblocks::dsl::*;
-use crate::schema::{associated_addresses, blocks_microblocks, transactions};
+use crate::schema::{associated_addresses, blocks_microblocks, exchanges, transactions};
 use diesel::prelude::*;
 use diesel::PgConnection;
 
@@ -217,5 +217,12 @@ impl TransactionsRepo for TransactionsRepoImpl {
             .select(transactions::all_columns.nullable())
             .order(transactions::block_uid.desc())
             .first::<Option<Transaction>>(&self.conn)?)
+    }
+
+    fn insert_exchanges(&self, exchanges: &Vec<Exchange>) -> Result<()> {
+        diesel::insert_into(exchanges::table)
+            .values(exchanges)
+            .execute(&self.conn)?;
+        Ok(())
     }
 }
