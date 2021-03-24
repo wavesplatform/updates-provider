@@ -25,7 +25,7 @@ use waves_protobuf_schemas::waves::events::BlockchainUpdated;
 use wavesexchange_log::{debug, error, info};
 
 const UPDATES_BUFFER_SIZE: usize = 10;
-const TX_CHUNK_SIZE: usize = 65535 / 3;
+const TX_CHUNK_SIZE: usize = 65535 / 4;
 const ADDRESSES_CHUNK_SIZE: usize = 65535 / 2;
 
 pub struct Provider {
