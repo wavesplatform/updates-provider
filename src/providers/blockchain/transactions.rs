@@ -59,7 +59,6 @@ impl Provider {
             let conn = &*transactions_repo.lock().await;
             match conn.get_prev_handled_height()? {
                 Some(prev_handled_height) => {
-                    rollback(conn, prev_handled_height.uid)?;
                     prev_handled_height.height as i32 + 1
                 }
                 None => 1i32,
