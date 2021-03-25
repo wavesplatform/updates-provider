@@ -27,6 +27,8 @@ use wavesexchange_log::{debug, error, info};
 const UPDATES_BUFFER_SIZE: usize = 10;
 const TX_CHUNK_SIZE: usize = 65535 / 4;
 const ADDRESSES_CHUNK_SIZE: usize = 65535 / 2;
+const TRANSACTIONS_COUNT_THRESHOLD: usize = 10000;
+const ASSOCIATED_ADDRESSES_COUNT_THRESHOLD: usize = 10000;
 
 pub struct Provider {
     watchlist: Arc<RwLock<WatchList<models::Transaction>>>,
@@ -103,8 +105,11 @@ impl Provider {
                                 if let Some(BlockchainUpdate::Rollback(_)) = buffer.last() {
                                     self.process_updates(buffer).await?;
                                     break;
-                                }
-                                if buffer.len() == UPDATES_BUFFER_SIZE {
+                                };
+                                let (txs_count, addresses_count) = count_txs_addresses(&buffer);
+                                if buffer.len() == UPDATES_BUFFER_SIZE
+                                || txs_count >= TRANSACTIONS_COUNT_THRESHOLD
+                                || addresses_count >= ASSOCIATED_ADDRESSES_COUNT_THRESHOLD {
                                     self.process_updates(buffer).await?;
                                     break;
                                 }
@@ -480,4 +485,26 @@ impl From<TransactionUpdate> for Tx {
             addresses: value.addresses,
         }
     }
+}
+
+fn count_txs_addresses(buffer: &Vec<BlockchainUpdate>) -> (usize, usize) {
+    buffer
+        .iter()
+        .fold((0, 0), |(txs, addresses), block| match block {
+            BlockchainUpdate::Block(b) => {
+                let new_txs = txs + b.transactions.len();
+                let addresses_count: usize =
+                    b.transactions.iter().map(|tx| tx.addresses.len()).sum();
+                let new_addresses = addresses + addresses_count;
+                (new_txs, new_addresses)
+            }
+            BlockchainUpdate::Microblock(b) => {
+                let new_txs = txs + b.transactions.len();
+                let addresses_count: usize =
+                    b.transactions.iter().map(|tx| tx.addresses.len()).sum();
+                let new_addresses = addresses + addresses_count;
+                (new_txs, new_addresses)
+            }
+            BlockchainUpdate::Rollback(_) => (txs, addresses),
+        })
 }
