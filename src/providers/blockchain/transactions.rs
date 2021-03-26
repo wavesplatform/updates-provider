@@ -27,8 +27,8 @@ use wavesexchange_log::{debug, error, info};
 const UPDATES_BUFFER_SIZE: usize = 10;
 const TX_CHUNK_SIZE: usize = 65535 / 4;
 const ADDRESSES_CHUNK_SIZE: usize = 65535 / 2;
-const TRANSACTIONS_COUNT_THRESHOLD: usize = 10000;
-const ASSOCIATED_ADDRESSES_COUNT_THRESHOLD: usize = 10000;
+const TRANSACTIONS_COUNT_THRESHOLD: usize = 5000;
+const ASSOCIATED_ADDRESSES_COUNT_THRESHOLD: usize = 5000;
 
 pub struct Provider {
     watchlist: Arc<RwLock<WatchList<models::Transaction>>>,
