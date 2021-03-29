@@ -60,9 +60,7 @@ impl Provider {
         let last_height = {
             let conn = &*transactions_repo.lock().await;
             match conn.get_prev_handled_height()? {
-                Some(prev_handled_height) => {
-                    prev_handled_height.height as i32 + 1
-                }
+                Some(prev_handled_height) => prev_handled_height.height as i32 + 1,
                 None => 1i32,
             }
         };
@@ -139,28 +137,22 @@ impl Provider {
             blockchain_updates.len(),
             start.elapsed().as_millis()
         );
-        self.announce_updates(blockchain_updates).await?;
+        self.maybe_insert_in_redis(blockchain_updates).await?;
 
         Ok(())
     }
 
-    async fn announce_updates(&mut self, blockchain_updates: Vec<BlockchainUpdate>) -> Result<()> {
+    async fn maybe_insert_in_redis(&mut self, blockchain_updates: Vec<BlockchainUpdate>) -> Result<()> {
         for blockchain_update in blockchain_updates {
-            self.announce_update(blockchain_update).await?
-        }
-
-        Ok(())
-    }
-
-    async fn announce_update(&mut self, blockchain_update: BlockchainUpdate) -> Result<()> {
-        match blockchain_update {
-            BlockchainUpdate::Block(BlockMicroblockAppend { transactions, .. }) => {
-                self.check_transactions(transactions).await?
+            match blockchain_update {
+                BlockchainUpdate::Block(BlockMicroblockAppend { transactions, .. }) => {
+                    self.check_transactions(transactions).await?
+                }
+                BlockchainUpdate::Microblock(BlockMicroblockAppend { transactions, .. }) => {
+                    self.check_transactions(transactions).await?
+                }
+                BlockchainUpdate::Rollback(_) => (),
             }
-            BlockchainUpdate::Microblock(BlockMicroblockAppend { transactions, .. }) => {
-                self.check_transactions(transactions).await?
-            }
-            BlockchainUpdate::Rollback(_) => (),
         }
 
         Ok(())
@@ -185,13 +177,13 @@ impl Provider {
                 address: address.0.clone(),
                 tx_type: tx.tx_type.into(),
             };
-            self.inner_check_transaction(models::Transaction::ByAddress(data), tx.id.clone())
+            self.check_in_watchlist(models::Transaction::ByAddress(data), tx.id.clone())
                 .await?;
             let data = TransactionByAddress {
                 address: address.0,
                 tx_type: Type::All,
             };
-            self.inner_check_transaction(models::Transaction::ByAddress(data), tx.id.clone())
+            self.check_in_watchlist(models::Transaction::ByAddress(data), tx.id.clone())
                 .await?;
         }
 
@@ -220,11 +212,11 @@ impl Provider {
             price_asset,
         });
         let current_value = serde_json::to_string(&exchange_data)?;
-        self.inner_check_transaction(data, current_value).await?;
+        self.check_in_watchlist(data, current_value).await?;
         Ok(())
     }
 
-    async fn inner_check_transaction(
+    async fn check_in_watchlist(
         &mut self,
         data: models::Transaction,
         current_value: String,
@@ -457,7 +449,7 @@ fn insert_blocks(
         .collect::<Vec<_>>();
     let start = Instant::now();
     conn.insert_exchanges(&exchanges)?;
-    debug!(
+    info!(
         "insert {} exchanges in {} ms",
         exchanges.len(),
         start.elapsed().as_millis()
