@@ -24,7 +24,6 @@ use tokio::sync::RwLock;
 use waves_protobuf_schemas::waves::events::BlockchainUpdated;
 use wavesexchange_log::{debug, error, info};
 
-const UPDATES_BUFFER_SIZE: usize = 10;
 const TX_CHUNK_SIZE: usize = 65535 / 4;
 const ADDRESSES_CHUNK_SIZE: usize = 65535 / 2;
 const TRANSACTIONS_COUNT_THRESHOLD: usize = 1000;
@@ -36,6 +35,7 @@ pub struct Provider {
     resources_repo: TSResourcesRepoImpl,
     last_values: TSUpdatesProviderLastValues,
     transactions_repo: Arc<Mutex<TransactionsRepoImpl>>,
+    updates_buffer_size: usize,
 }
 
 pub struct ProviderReturn {
@@ -49,6 +49,7 @@ impl Provider {
         resources_repo: TSResourcesRepoImpl,
         delete_timeout: Duration,
         transactions_repo: Arc<Mutex<TransactionsRepoImpl>>,
+        updates_buffer_size: usize,
     ) -> Result<ProviderReturn> {
         let last_values = Arc::new(RwLock::new(HashMap::new()));
         let watchlist = Arc::new(RwLock::new(WatchList::new(
@@ -56,7 +57,7 @@ impl Provider {
             last_values.clone(),
             delete_timeout,
         )));
-        let (tx, rx) = mpsc::channel(UPDATES_BUFFER_SIZE);
+        let (tx, rx) = mpsc::channel(updates_buffer_size.clone());
         let last_height = {
             let conn = &*transactions_repo.lock().await;
             match conn.get_prev_handled_height()? {
@@ -70,6 +71,7 @@ impl Provider {
             resources_repo,
             last_values,
             transactions_repo,
+            updates_buffer_size,
         };
         Ok(ProviderReturn {
             last_height,
@@ -81,7 +83,7 @@ impl Provider {
     pub async fn run(&mut self) -> Result<()> {
         'a: loop {
             self.watchlist.write().await.delete_old().await;
-            let mut buffer = Vec::with_capacity(UPDATES_BUFFER_SIZE);
+            let mut buffer = Vec::with_capacity(self.updates_buffer_size);
             if let Some(event) = self.rx.recv().await {
                 let update = BlockchainUpdate::try_from(event)?;
                 buffer.push(update);
@@ -105,7 +107,7 @@ impl Provider {
                                     break;
                                 };
                                 let (txs_count, addresses_count) = count_txs_addresses(&buffer);
-                                if buffer.len() == UPDATES_BUFFER_SIZE
+                                if buffer.len() == self.updates_buffer_size
                                 || txs_count >= TRANSACTIONS_COUNT_THRESHOLD
                                 || addresses_count >= ASSOCIATED_ADDRESSES_COUNT_THRESHOLD {
                                     self.process_updates(buffer).await?;
@@ -142,7 +144,10 @@ impl Provider {
         Ok(())
     }
 
-    async fn maybe_insert_in_redis(&mut self, blockchain_updates: Vec<BlockchainUpdate>) -> Result<()> {
+    async fn maybe_insert_in_redis(
+        &mut self,
+        blockchain_updates: Vec<BlockchainUpdate>,
+    ) -> Result<()> {
         for blockchain_update in blockchain_updates {
             match blockchain_update {
                 BlockchainUpdate::Block(BlockMicroblockAppend { transactions, .. }) => {

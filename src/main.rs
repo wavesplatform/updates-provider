@@ -130,6 +130,7 @@ async fn tokio_main() -> Result<(), Error> {
         resources_repo.clone(),
         blockchain_config.transaction_delete_timeout,
         transactions_repo,
+        blockchain_config.updates_buffer_size
     )
     .await?;
 

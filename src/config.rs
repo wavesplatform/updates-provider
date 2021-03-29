@@ -11,6 +11,10 @@ fn default_delete_timeout() -> u64 {
     60
 }
 
+fn default_updates_buffer_size() -> usize {
+    10
+}
+
 #[derive(Deserialize)]
 pub struct RedisConfig {
     pub host: String,
@@ -70,6 +74,8 @@ struct FlatBlockchainUpdaterConfig {
     pub blockchain_updates_node_url: String,
     #[serde(default = "default_delete_timeout")]
     pub transaction_delete_timeout: u64,
+    #[serde(default = "default_updates_buffer_size")]
+    pub updates_buffer_size: usize,
 }
 
 pub fn load_redis() -> Result<RedisConfig, Error> {
@@ -131,5 +137,6 @@ pub fn load_blockchain() -> Result<providers::blockchain::Config, Error> {
     Ok(providers::blockchain::Config {
         updates_url: flat_config.blockchain_updates_node_url,
         transaction_delete_timeout: Duration::from_secs(flat_config.transaction_delete_timeout),
+        updates_buffer_size: flat_config.updates_buffer_size,
     })
 }
