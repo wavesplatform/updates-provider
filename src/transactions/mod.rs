@@ -281,6 +281,12 @@ pub trait TransactionsRepo {
     ) -> Result<Option<Transaction>>;
 
     fn insert_exchanges(&self, exchanges: &Vec<Exchange>) -> Result<()>;
+
+    fn last_exchange_transaction(
+        &self,
+        amount_asset: String,
+        price_asset: String,
+    ) -> Result<Option<Transaction>>;
 }
 
 impl TryFrom<std::sync::Arc<BlockchainUpdated>> for BlockchainUpdate {
@@ -368,12 +374,20 @@ impl TryFrom<&TransactionUpdate> for Exchange {
                     .unwrap();
                 Ok(Self {
                     transaction_id: value.id.to_owned(),
-                    price_asset: bs58::encode(&asset_pair.price_asset_id).into_string(),
-                    amount_asset: bs58::encode(&asset_pair.amount_asset_id).into_string(),
+                    price_asset: encode_asset(&asset_pair.price_asset_id),
+                    amount_asset: encode_asset(&asset_pair.amount_asset_id),
                 })
             }
             _ => Err(Error::InvalidExchangeData(value.data.to_owned())),
         }
+    }
+}
+
+fn encode_asset(asset: &Vec<u8>) -> String {
+    if asset.len() > 0 {
+        bs58::encode(asset).into_string()
+    } else {
+        "WAVES".to_string()
     }
 }
 

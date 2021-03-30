@@ -256,7 +256,7 @@ impl UpdatesProvider for Provider {
                     error!("error while updating watchlist: {:?}", err);
                 }
                 if let SubscriptionUpdate::New { topic } = upd {
-                    if let Some(value) = TransactionByAddress::maybe_item(topic) {
+                    if let Some(value) = models::Transaction::maybe_item(topic) {
                         if let Err(err) = check_and_maybe_insert(
                             resources_repo.clone(),
                             transactions_repo.clone(),
@@ -285,15 +285,15 @@ impl UpdatesProvider for Provider {
 async fn check_and_maybe_insert(
     resources_repo: TSResourcesRepoImpl,
     transactions_repo: Arc<Mutex<TransactionsRepoImpl>>,
-    value: TransactionByAddress,
+    value: models::Transaction,
 ) -> Result<()> {
     let topic = value.clone().into();
     if let None = resources_repo.get(&topic)? {
         let new_value = match value {
-            TransactionByAddress {
+            models::Transaction::ByAddress(TransactionByAddress {
                 tx_type: Type::All,
                 address,
-            } => {
+            }) => {
                 if let Some(Transaction { id, .. }) = transactions_repo
                     .lock()
                     .await
@@ -304,7 +304,7 @@ async fn check_and_maybe_insert(
                     None
                 }
             }
-            TransactionByAddress { tx_type, address } => {
+            models::Transaction::ByAddress(TransactionByAddress { tx_type, address }) => {
                 let transaction_type = TransactionType::try_from(tx_type)?;
                 if let Some(Transaction { id, .. }) = transactions_repo
                     .lock()
@@ -312,6 +312,23 @@ async fn check_and_maybe_insert(
                     .last_transaction_by_address_and_type(address, transaction_type)?
                 {
                     Some(id)
+                } else {
+                    None
+                }
+            }
+            models::Transaction::Exchange(TransactionExchange {
+                amount_asset,
+                price_asset,
+            }) => {
+                if let Some(Transaction {
+                    body: Some(body_value),
+                    ..
+                }) = transactions_repo
+                    .lock()
+                    .await
+                    .last_exchange_transaction(amount_asset, price_asset)?
+                {
+                    Some(serde_json::to_string(&body_value)?)
                 } else {
                     None
                 }

@@ -372,6 +372,19 @@ impl TryFrom<Url> for TransactionByAddress {
     }
 }
 
+impl TryFrom<Url> for TransactionExchange {
+    type Error = Error;
+
+    fn try_from(value: Url) -> Result<Self, Self::Error> {
+        let price_asset = get_value_from_query(&value, "price_asset")?;
+        let amount_asset = get_value_from_query(&value, "amount_asset")?;
+        Ok(Self {
+            price_asset,
+            amount_asset,
+        })
+    }
+}
+
 impl ToString for TransactionExchange {
     fn to_string(&self) -> String {
         format!(
@@ -396,22 +409,9 @@ impl ToString for Transaction {
     }
 }
 
-impl TryFrom<Url> for TransactionExchange {
-    type Error = Error;
-
-    fn try_from(value: Url) -> Result<Self, Self::Error> {
-        let price_asset = get_value_from_query(&value, "price_asset")?;
-        let amount_asset = get_value_from_query(&value, "amount_asset")?;
-        Ok(Self {
-            price_asset,
-            amount_asset,
-        })
-    }
-}
-
 fn get_value_from_query(value: &Url, key: &str) -> Result<String, Error> {
     for (k, v) in value.query_pairs() {
-        if k == key {
+        if k == key && !v.is_empty() {
             return Ok(v.to_string());
         }
     }
@@ -460,6 +460,9 @@ fn transaction_topic_test() {
     } else {
         panic!("wrong exchange transaction")
     }
+    let url = Url::parse("topic://transaction/exchange?amount_asset=asd&price_asset=").unwrap();
+    let error = Transaction::try_from(url);
+    assert!(error.is_err());
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]

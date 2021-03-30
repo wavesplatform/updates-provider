@@ -225,4 +225,18 @@ impl TransactionsRepo for TransactionsRepoImpl {
             .execute(&self.conn)?;
         Ok(())
     }
+
+    fn last_exchange_transaction(
+        &self,
+        amount_asset: String,
+        price_asset: String,
+    ) -> Result<Option<Transaction>> {
+        Ok(exchanges::table
+            .left_join(transactions::table)
+            .filter(exchanges::amount_asset.eq(amount_asset))
+            .filter(exchanges::price_asset.eq(price_asset))
+            .select(transactions::all_columns.nullable())
+            .order(transactions::block_uid.desc())
+            .first::<Option<Transaction>>(&self.conn)?)
+    }
 }
