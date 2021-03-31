@@ -202,7 +202,9 @@ impl TransactionsRepo for TransactionsRepoImpl {
             .filter(associated_addresses::address.eq(address))
             .select(transactions::all_columns.nullable())
             .order(transactions::block_uid.desc())
-            .first::<Option<Transaction>>(&self.conn)?)
+            .first::<Option<Transaction>>(&self.conn)
+            .optional()?
+            .flatten())
     }
 
     fn last_transaction_by_address_and_type(
@@ -216,7 +218,9 @@ impl TransactionsRepo for TransactionsRepoImpl {
             .filter(transactions::tx_type.eq(transaction_type))
             .select(transactions::all_columns.nullable())
             .order(transactions::block_uid.desc())
-            .first::<Option<Transaction>>(&self.conn)?)
+            .first::<Option<Transaction>>(&self.conn)
+            .optional()?
+            .flatten())
     }
 
     fn insert_exchanges(&self, exchanges: &Vec<Exchange>) -> Result<()> {
@@ -237,6 +241,8 @@ impl TransactionsRepo for TransactionsRepoImpl {
             .filter(exchanges::price_asset.eq(price_asset))
             .select(transactions::all_columns.nullable())
             .order(transactions::block_uid.desc())
-            .first::<Option<Transaction>>(&self.conn)?)
+            .first::<Option<Transaction>>(&self.conn)
+            .optional()?
+            .flatten())
     }
 }
