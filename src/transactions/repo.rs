@@ -198,7 +198,7 @@ impl TransactionsRepo for TransactionsRepoImpl {
 
     fn last_transaction_by_address(&self, address: String) -> Result<Option<Transaction>> {
         Ok(associated_addresses::table
-            .left_join(transactions::table)
+            .inner_join(transactions::table)
             .filter(associated_addresses::address.eq(address))
             .select(transactions::all_columns.nullable())
             .order(transactions::block_uid.desc())
@@ -213,7 +213,7 @@ impl TransactionsRepo for TransactionsRepoImpl {
         transaction_type: TransactionType,
     ) -> Result<Option<Transaction>> {
         Ok(associated_addresses::table
-            .left_join(transactions::table)
+            .inner_join(transactions::table)
             .filter(associated_addresses::address.eq(address))
             .filter(transactions::tx_type.eq(transaction_type))
             .select(transactions::all_columns.nullable())
@@ -236,7 +236,7 @@ impl TransactionsRepo for TransactionsRepoImpl {
         price_asset: String,
     ) -> Result<Option<Transaction>> {
         Ok(exchanges::table
-            .left_join(transactions::table)
+            .inner_join(transactions::table)
             .filter(exchanges::amount_asset.eq(amount_asset))
             .filter(exchanges::price_asset.eq(price_asset))
             .select(transactions::all_columns.nullable())
