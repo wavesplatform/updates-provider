@@ -24,7 +24,7 @@ fn default_associated_addresses_count_threshold() -> usize {
 }
 
 fn default_state_batch_size() -> usize {
-    30
+    100
 }
 
 #[derive(Deserialize)]
