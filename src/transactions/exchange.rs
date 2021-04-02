@@ -65,15 +65,21 @@ impl TryFrom<&TransactionUpdate> for ExchangeData {
             let order1 = Order::try_from(exchange_data.orders.get(0).unwrap())?;
             let order2 = Order::try_from(exchange_data.orders.get(1).unwrap())?;
             Ok(Self {
-                sender_public_key: bs58::encode(&value.sender_public_key).into_string(),
-                amount: 1,
+                sender_public_key: value.sender_public_key.clone(),
+                amount: exchange_data.amount,
                 fee: value.fee.as_ref().map(|x| x.amount),
-                r#type: 1,
+                r#type: 7,
                 version: value.version,
-                sell_matcher_fee: 1,
+                sell_matcher_fee: exchange_data.sell_matcher_fee,
                 sender: value.sender.to_owned(),
-                buy_matcher_fee: 2,
-                fee_asset_id: value.fee.as_ref().map(|x| x.asset_id.to_owned()),
+                buy_matcher_fee: exchange_data.buy_matcher_fee,
+                fee_asset_id: value.fee.as_ref().and_then(|amount| {
+                    if amount.asset_id.len() > 0 {
+                        Some(amount.asset_id.to_owned())
+                    } else {
+                        None
+                    }
+                }),
                 proofs: value.proofs.to_owned(),
                 price: exchange_data.price,
                 id: value.id.to_owned(),
