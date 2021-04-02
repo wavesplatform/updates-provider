@@ -131,6 +131,8 @@ async fn tokio_main() -> Result<(), Error> {
         blockchain_config.transaction_delete_timeout,
         transactions_repo,
         blockchain_config.updates_buffer_size,
+        blockchain_config.transactions_count_threshold,
+        blockchain_config.associated_addresses_count_threshold,
     )
     .await?;
 

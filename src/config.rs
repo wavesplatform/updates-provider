@@ -15,6 +15,14 @@ fn default_updates_buffer_size() -> usize {
     10
 }
 
+fn default_transactions_count_threshold() -> usize {
+    1000
+}
+
+fn default_associated_addresses_count_threshold() -> usize {
+    1000
+}
+
 #[derive(Deserialize)]
 pub struct RedisConfig {
     pub host: String,
@@ -76,6 +84,10 @@ struct FlatBlockchainUpdaterConfig {
     pub transaction_delete_timeout: u64,
     #[serde(default = "default_updates_buffer_size")]
     pub updates_buffer_size: usize,
+    #[serde(default = "default_transactions_count_threshold")]
+    pub transactions_count_threshold: usize,
+    #[serde(default = "default_associated_addresses_count_threshold")]
+    pub associated_addresses_count_threshold: usize,
 }
 
 pub fn load_redis() -> Result<RedisConfig, Error> {
@@ -138,5 +150,7 @@ pub fn load_blockchain() -> Result<providers::blockchain::Config, Error> {
         updates_url: flat_config.blockchain_updates_node_url,
         transaction_delete_timeout: Duration::from_secs(flat_config.transaction_delete_timeout),
         updates_buffer_size: flat_config.updates_buffer_size,
+        transactions_count_threshold: flat_config.transactions_count_threshold,
+        associated_addresses_count_threshold: flat_config.associated_addresses_count_threshold,
     })
 }

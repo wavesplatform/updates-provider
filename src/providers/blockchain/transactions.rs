@@ -26,8 +26,6 @@ use wavesexchange_log::{debug, error, info};
 
 const TX_CHUNK_SIZE: usize = 65535 / 4;
 const ADDRESSES_CHUNK_SIZE: usize = 65535 / 2;
-const TRANSACTIONS_COUNT_THRESHOLD: usize = 1000;
-const ASSOCIATED_ADDRESSES_COUNT_THRESHOLD: usize = 1000;
 
 pub struct Provider {
     watchlist: Arc<RwLock<WatchList<models::Transaction>>>,
@@ -36,6 +34,8 @@ pub struct Provider {
     last_values: TSUpdatesProviderLastValues,
     transactions_repo: Arc<Mutex<TransactionsRepoImpl>>,
     updates_buffer_size: usize,
+    transactions_count_threshold: usize,
+    associated_addresses_count_threshold: usize,
 }
 
 pub struct ProviderReturn {
@@ -50,6 +50,8 @@ impl Provider {
         delete_timeout: Duration,
         transactions_repo: Arc<Mutex<TransactionsRepoImpl>>,
         updates_buffer_size: usize,
+        transactions_count_threshold: usize,
+        associated_addresses_count_threshold: usize,
     ) -> Result<ProviderReturn> {
         let last_values = Arc::new(RwLock::new(HashMap::new()));
         let watchlist = Arc::new(RwLock::new(WatchList::new(
@@ -72,6 +74,8 @@ impl Provider {
             last_values,
             transactions_repo,
             updates_buffer_size,
+            transactions_count_threshold,
+            associated_addresses_count_threshold,
         };
         Ok(ProviderReturn {
             last_height,
@@ -108,8 +112,8 @@ impl Provider {
                                 };
                                 let (txs_count, addresses_count) = count_txs_addresses(&buffer);
                                 if buffer.len() == self.updates_buffer_size
-                                || txs_count >= TRANSACTIONS_COUNT_THRESHOLD
-                                || addresses_count >= ASSOCIATED_ADDRESSES_COUNT_THRESHOLD {
+                                || txs_count >= self.transactions_count_threshold
+                                || addresses_count >= self.associated_addresses_count_threshold {
                                     self.process_updates(buffer).await?;
                                     break;
                                 }
