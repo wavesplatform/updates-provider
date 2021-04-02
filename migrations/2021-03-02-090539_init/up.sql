@@ -37,4 +37,4 @@ CREATE TABLE IF NOT EXISTS associated_addresses (
         PRIMARY KEY (transaction_id, address)
 );
 
-CREATE INDEX IF NOT EXISTS associated_addresses_address_hash ON associated_addresses using hash (address);
+CREATE INDEX IF NOT EXISTS associated_addresses_address_idx ON associated_addresses (address);

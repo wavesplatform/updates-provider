@@ -14,16 +14,19 @@ pub struct Config {
     pub base_url: String,
     pub polling_delay: Duration,
     pub delete_timeout: Duration,
+    pub batch_size: usize,
 }
 
 pub struct StateRequester {
     base_url: String,
     http_client: Client,
+    batch_size: usize,
 }
 
 impl StateRequester {
-    pub fn new(base_url: impl AsRef<str>) -> Self {
+    pub fn new(base_url: impl AsRef<str>, batch_size: usize) -> Self {
         Self {
+            batch_size,
             base_url: base_url.as_ref().to_owned(),
             http_client: ClientBuilder::new()
                 .timeout(std::time::Duration::from_secs(30))
@@ -61,7 +64,7 @@ impl Requester<State> for StateRequester {
         resources_repo: &TSResourcesRepoImpl,
         last_values: &TSUpdatesProviderLastValues,
     ) -> Result<(), Error> {
-        let states = group_states(items);
+        let states = self.group_states(items);
         let fs = states
             .iter()
             .map(|address_key_pairs| async move {
@@ -83,20 +86,23 @@ impl Requester<State> for StateRequester {
     }
 }
 
-fn group_states<'a>(items: impl Iterator<Item = &'a State>) -> Vec<Vec<State>> {
-    items.fold(vec![], |mut acc, state| {
-        if let Some(last) = acc.last_mut() {
-            if last.len() == 10 {
-                acc.push(vec![state.to_owned()])
+impl StateRequester {
+    fn group_states<'a>(&self, items: impl Iterator<Item = &'a State>) -> Vec<Vec<State>> {
+        items.fold(vec![], |mut acc, state| {
+            if let Some(last) = acc.last_mut() {
+                if last.len() == self.batch_size {
+                    acc.push(vec![state.to_owned()])
+                } else {
+                    last.push(state.to_owned())
+                }
             } else {
-                last.push(state.to_owned())
+                acc.push(vec![state.to_owned()])
             }
-        } else {
-            acc.push(vec![state.to_owned()])
-        }
-        acc
-    })
+            acc
+        })
+    }
 }
+
 
 #[derive(Debug, Serialize)]
 pub struct Request {
