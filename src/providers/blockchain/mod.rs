@@ -9,4 +9,5 @@ pub struct Config {
     pub updates_buffer_size: usize,
     pub transactions_count_threshold: usize,
     pub associated_addresses_count_threshold: usize,
+    pub start_height: i32,
 }

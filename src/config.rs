@@ -27,6 +27,10 @@ fn default_state_batch_size() -> usize {
     100
 }
 
+fn default_start_height() -> i32 {
+    0
+}
+
 #[derive(Deserialize)]
 pub struct RedisConfig {
     pub host: String,
@@ -94,6 +98,8 @@ struct FlatBlockchainUpdaterConfig {
     pub transactions_count_threshold: usize,
     #[serde(default = "default_associated_addresses_count_threshold")]
     pub associated_addresses_count_threshold: usize,
+    #[serde(default = "default_start_height")]
+    pub start_height: i32,
 }
 
 pub fn load_redis() -> Result<RedisConfig, Error> {
@@ -159,5 +165,6 @@ pub fn load_blockchain() -> Result<providers::blockchain::Config, Error> {
         updates_buffer_size: flat_config.updates_buffer_size,
         transactions_count_threshold: flat_config.transactions_count_threshold,
         associated_addresses_count_threshold: flat_config.associated_addresses_count_threshold,
+        start_height:  flat_config.start_height,
     })
 }

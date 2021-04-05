@@ -138,7 +138,12 @@ async fn tokio_main() -> Result<(), Error> {
     .await?;
 
     blockchain_puller.subscribe(tx);
-    blockchain_puller.set_last_height(last_height);
+    let start_from = if last_height > blockchain_config.start_height {
+        last_height
+    } else {
+        blockchain_config.start_height
+    };
+    blockchain_puller.set_last_height(start_from);
 
     let transactions_subscriptions_updates_sender = provider.fetch_updates().await?;
 
