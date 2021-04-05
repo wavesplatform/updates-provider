@@ -59,6 +59,8 @@ pub enum Error {
     InvalidExchangeData(Data),
     #[error("InvalidOrderType: {0}")]
     InvalidOrderType(i32),
+    #[error("InvalidOrderVersion: {0}")]
+    InvalidOrderVersion(i32),
 }
 
 #[derive(Debug)]

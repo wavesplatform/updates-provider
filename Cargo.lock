@@ -2057,6 +2057,7 @@ dependencies = [
  "envy",
  "futures",
  "percent-encoding",
+ "prost",
  "r2d2",
  "r2d2_redis",
  "reqwest",

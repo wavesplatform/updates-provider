@@ -523,7 +523,7 @@ fn keccak256(message: &[u8]) -> [u8; 32] {
     hasher.result().into()
 }
 
-fn blake2b256(message: &[u8]) -> [u8; 32] {
+pub fn blake2b256(message: &[u8]) -> [u8; 32] {
     use blake2::digest::{Input, VariableOutput};
     let mut hasher = blake2::VarBlake2b::new(32).unwrap();
     hasher.input(message);
