@@ -165,6 +165,6 @@ pub fn load_blockchain() -> Result<providers::blockchain::Config, Error> {
         updates_buffer_size: flat_config.updates_buffer_size,
         transactions_count_threshold: flat_config.transactions_count_threshold,
         associated_addresses_count_threshold: flat_config.associated_addresses_count_threshold,
-        start_height:  flat_config.start_height,
+        start_height: flat_config.start_height,
     })
 }
