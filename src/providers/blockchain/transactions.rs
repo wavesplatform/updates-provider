@@ -354,21 +354,19 @@ fn insert_blockchain_updates<'a>(
     conn.transaction(|| {
         loop {
             let mut blocks = vec![];
-            let mut rollback_block_uid = None;
+            let mut rollback_block_id = None;
             while let Some(update) = blockchain_updates.next() {
                 match update {
                     BlockchainUpdate::Block(block) => blocks.push(block),
                     BlockchainUpdate::Microblock(block) => blocks.push(block),
-                    BlockchainUpdate::Rollback(block_id) => {
-                        let block_uid = conn.get_block_uid(&block_id)?;
-                        rollback_block_uid = Some(block_uid);
-                    }
+                    BlockchainUpdate::Rollback(block_id) => rollback_block_id = Some(block_id),
                 }
             }
-            if let Some(block_uid) = rollback_block_uid {
+            if let Some(block_id) = rollback_block_id {
                 if blocks.len() > 0 {
                     insert_blocks(conn, blocks)?
                 };
+                let block_uid = conn.get_block_uid(block_id)?;
                 rollback(conn, block_uid)?;
             } else {
                 if blocks.len() > 0 {
