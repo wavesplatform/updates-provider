@@ -44,8 +44,70 @@ pub struct Order {
     pub timestamp: i64,
     pub expiration: i64,
     pub matcher_fee: i64,
-    pub matcher_fee_asset_id: Option<String>,
+    #[serde(skip_serializing_if = "skip_matcher_fee")]
+    pub matcher_fee_asset_id: MatcherFeeAssetId,
     pub proofs: Vec<String>,
+}
+
+pub enum MatcherFeeAssetId {
+    NotExist,
+    Exist(Option<String>),
+}
+
+fn skip_matcher_fee(value: &MatcherFeeAssetId) -> bool {
+    if let MatcherFeeAssetId::NotExist = value {
+        true
+    } else {
+        false
+    }
+}
+
+impl serde::Serialize for MatcherFeeAssetId {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        if let MatcherFeeAssetId::Exist(v) = self {
+            serde::Serialize::serialize(&v, serializer)
+        } else {
+            serde::Serialize::serialize(&None::<String>, serializer)
+        }
+    }
+}
+
+impl
+    From<(
+        Option<&waves_protobuf_schemas::waves::Amount>,
+        &OrderVersion,
+    )> for MatcherFeeAssetId
+{
+    fn from(
+        value: (
+            Option<&waves_protobuf_schemas::waves::Amount>,
+            &OrderVersion,
+        ),
+    ) -> Self {
+        if let OrderVersion::V1 | OrderVersion::V2 = value.1 {
+            MatcherFeeAssetId::NotExist
+        } else {
+            let v = value
+                .0
+                .as_ref()
+                .map(|amount| encode_asset(&amount.asset_id))
+                .flatten();
+            MatcherFeeAssetId::Exist(v)
+        }
+    }
+}
+
+impl MatcherFeeAssetId {
+    fn to_bytes(&self) -> Vec<u8> {
+        if let MatcherFeeAssetId::Exist(v) = self {
+            asset_to_bytes(v.as_ref())
+        } else {
+            vec![]
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -111,10 +173,12 @@ impl TryFrom<&waves_protobuf_schemas::waves::Order> for Order {
 
     fn try_from(value: &waves_protobuf_schemas::waves::Order) -> Result<Self, Self::Error> {
         let sender = super::address_from_public_key(&value.sender_public_key, value.chain_id as u8);
+        let version = OrderVersion::try_from(value.version)?;
+        let matcher_fee_asset_id = MatcherFeeAssetId::from((value.matcher_fee.as_ref(), &version));
         let mut order = Self {
             id: "".to_string(),
             chain_id: value.chain_id as u8,
-            version: OrderVersion::try_from(value.version)?,
+            version,
             sender,
             sender_public_key: bs58::encode(&value.sender_public_key).into_string(),
             matcher_public_key: bs58::encode(&value.matcher_public_key).into_string(),
@@ -125,11 +189,7 @@ impl TryFrom<&waves_protobuf_schemas::waves::Order> for Order {
             timestamp: value.timestamp,
             expiration: value.expiration,
             matcher_fee: value.matcher_fee.as_ref().map_or(0, |amount| amount.amount),
-            matcher_fee_asset_id: value
-                .matcher_fee
-                .as_ref()
-                .map(|amount| encode_asset(&amount.asset_id))
-                .flatten(),
+            matcher_fee_asset_id,
             proofs: value
                 .proofs
                 .iter()
@@ -217,7 +277,7 @@ impl Order {
     }
 
     fn bytes_v3(&self) -> Vec<u8> {
-        let matcher_fee_asset_bytes = asset_to_bytes(self.matcher_fee_asset_id.as_ref());
+        let matcher_fee_asset_bytes = self.matcher_fee_asset_id.to_bytes();
         vec![vec![3], self.bytes_v1(), matcher_fee_asset_bytes].concat()
     }
 
@@ -253,18 +313,33 @@ impl From<&Order> for waves_protobuf_schemas::waves::Order {
 }
 
 fn get_matcher_fee(value: &Order) -> Option<waves_protobuf_schemas::waves::Amount> {
-    if let Order {
-        matcher_fee: 0,
-        matcher_fee_asset_id: None,
-        ..
-    } = value
-    {
-        None
-    } else {
-        Some(waves_protobuf_schemas::waves::Amount {
-            asset_id: decode_asset(value.matcher_fee_asset_id.as_ref()),
-            amount: value.matcher_fee,
-        })
+    match value {
+        Order {
+            matcher_fee: 0,
+            matcher_fee_asset_id: MatcherFeeAssetId::NotExist,
+            ..
+        } => None,
+        Order {
+            matcher_fee: 0,
+            matcher_fee_asset_id: MatcherFeeAssetId::Exist(None),
+            ..
+        } => None,
+        Order {
+            matcher_fee,
+            matcher_fee_asset_id: MatcherFeeAssetId::Exist(v),
+            ..
+        } => Some(waves_protobuf_schemas::waves::Amount {
+            asset_id: decode_asset(v.as_ref()),
+            amount: *matcher_fee,
+        }),
+        Order {
+            matcher_fee,
+            matcher_fee_asset_id: MatcherFeeAssetId::NotExist,
+            ..
+        } => Some(waves_protobuf_schemas::waves::Amount {
+            asset_id: vec![],
+            amount: *matcher_fee,
+        }),
     }
 }
 
@@ -383,7 +458,7 @@ fn order_id_test() {
         timestamp: 1491193192031,
         expiration: 1491365992031,
         matcher_fee: 1000000,
-        matcher_fee_asset_id: None,
+        matcher_fee_asset_id: MatcherFeeAssetId::NotExist,
         proofs: vec!["5odnp8FcvrsPjQEM7d6bKcEYBVKRKmw526WAruaQtwJUS1i92GU8DXY4p7y4nP1ae7ktbEo7Wbm4XVVxuvadcsuT".to_string()],
     };
     order.calculate_id();
@@ -406,7 +481,7 @@ fn order_id_test() {
         timestamp: 1547223831381,
         expiration: 1547231031382,
         matcher_fee: 700000,
-        matcher_fee_asset_id: None,
+        matcher_fee_asset_id: MatcherFeeAssetId::NotExist,
         proofs: vec!["3j7b2Jz94cYHJRsXGsrKCccJRctJEe1GFEJTMCeAt92oReoX277ihkKNU4MC7SmKS1Rn9Y3SFB9cfj8ovbUpfykh".to_string()],
     };
     order.calculate_id();
@@ -429,7 +504,7 @@ fn order_id_test() {
         timestamp: 1617526620343,
         expiration: 1620032220343,
         matcher_fee: 300000,
-        matcher_fee_asset_id: None,
+        matcher_fee_asset_id: MatcherFeeAssetId::Exist(None),
         proofs: vec!["5EENS5qrCQS2vVqopUoj6a4G3n6nryVKajzAi9KDo7R6rhjCCxFZ6LtnPBDZhieWAZDQmwg4aVjuacc8RtB5zPda".to_string()],
     };
     order.calculate_id();
