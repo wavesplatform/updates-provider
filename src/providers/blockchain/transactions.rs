@@ -338,7 +338,10 @@ async fn check_and_maybe_insert(
                 }
             }
         };
-        resources_repo.set(topic, serde_json::to_string(&new_value)?)?;
+        match new_value {
+            None => resources_repo.set(topic, serde_json::to_string(&new_value)?)?,
+            Some(v) => resources_repo.set(topic, v)?,
+        }
     }
 
     Ok(())
