@@ -1,9 +1,11 @@
 #[macro_use]
 extern crate diesel;
 
+mod api;
 mod config;
 mod db;
 mod error;
+mod metrics;
 mod models;
 mod providers;
 mod resources;
@@ -29,6 +31,7 @@ fn main() -> Result<(), Error> {
 }
 
 async fn tokio_main() -> Result<(), Error> {
+    metrics::register_metrics();
     let redis_config = config::load_redis()?;
     let postgres_config = config::load_postgres()?;
     let subscriptions_config = config::load_subscriptions()?;
@@ -183,6 +186,8 @@ async fn tokio_main() -> Result<(), Error> {
         subscriptions_updates_pusher.run().await
     });
 
+    let api_handler = tokio::spawn(async move { api::start(server_config.port).await });
+
     tokio::select! {
         result = blockchain_height_handle => {
             if let Err(e) = result? {
@@ -197,6 +202,9 @@ async fn tokio_main() -> Result<(), Error> {
                 error!("subscriptions updates pusher error: {}", error);
                 return Err(error);
             }
+        }
+        _ = api_handler => {
+            error!("server unexpectedly stopped");
         }
     }
 

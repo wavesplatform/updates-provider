@@ -1,4 +1,5 @@
 use super::{TSResourcesRepoImpl, TSUpdatesProviderLastValues};
+use crate::metrics::WATCHLISTS;
 use crate::models::Topic;
 use crate::subscriptions::SubscriptionUpdate;
 use crate::{error::Error, resources::ResourcesRepo};
@@ -11,6 +12,7 @@ pub struct WatchList<T: WatchListItem> {
     last_values: TSUpdatesProviderLastValues,
     repo: TSResourcesRepoImpl,
     delete_timeout: Duration,
+    type_name: String,
 }
 
 #[derive(Debug)]
@@ -58,11 +60,13 @@ impl<T: WatchListItem> WatchList<T> {
         delete_timeout: Duration,
     ) -> Self {
         let items = HashMap::new();
+        let type_name = std::any::type_name::<T>().to_string();
         Self {
             repo,
             items,
             last_values,
             delete_timeout,
+            type_name,
         }
     }
 
@@ -70,6 +74,9 @@ impl<T: WatchListItem> WatchList<T> {
         match update {
             SubscriptionUpdate::New { topic } => {
                 if let Some(item) = T::maybe_item(topic) {
+                    if !self.items.contains_key(&item) {
+                        WATCHLISTS.with_label_values(&[&self.type_name]).inc();
+                    }
                     self.items.insert(item, OnDelete::new());
                 }
             }
@@ -79,6 +86,7 @@ impl<T: WatchListItem> WatchList<T> {
                         on_delete.not_delete()
                     } else {
                         self.items.insert(item, OnDelete::new());
+                        WATCHLISTS.with_label_values(&[&self.type_name]).inc();
                     }
                 }
             }
@@ -113,6 +121,7 @@ impl<T: WatchListItem> WatchList<T> {
             .collect::<Vec<_>>();
         for item in keys {
             self.items.remove(&item);
+            WATCHLISTS.with_label_values(&[&self.type_name]).dec();
             self.last_values.write().await.remove(&item.to_string());
             let _ = self.repo.del(T::into(item));
         }

@@ -31,6 +31,10 @@ fn default_start_height() -> i32 {
     0
 }
 
+fn default_port() -> u16 {
+    8080
+}
+
 #[derive(Deserialize)]
 pub struct RedisConfig {
     pub host: String,
@@ -102,6 +106,12 @@ struct FlatBlockchainUpdaterConfig {
     pub start_height: i32,
 }
 
+#[derive(Deserialize)]
+struct FlatServerConfig {
+    #[serde(default = "default_port")]
+    pub port: u16,
+}
+
 pub fn load_redis() -> Result<RedisConfig, Error> {
     envy::prefixed("REDIS__")
         .from_env::<RedisConfig>()
@@ -166,5 +176,13 @@ pub fn load_blockchain() -> Result<providers::blockchain::Config, Error> {
         transactions_count_threshold: flat_config.transactions_count_threshold,
         associated_addresses_count_threshold: flat_config.associated_addresses_count_threshold,
         start_height: flat_config.start_height,
+    })
+}
+
+pub fn load_server() -> Result<crate::api::Config, Error> {
+    let flat_config = envy::prefixed("SERVER__").from_env::<FlatServerConfig>()?;
+
+    Ok(crate::api::Config {
+        port: flat_config.port,
     })
 }

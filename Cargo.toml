@@ -28,6 +28,9 @@ blake2 = "0.8"
 bs58 = "0.3"
 diesel = { version = "1.4.5", features = ["postgres", "r2d2", "chrono", "numeric", "serde_json"] }
 prost = "0.6.1"
+prometheus = "0.12"
+lazy_static = "1.4"
+warp = "0.2"
 
 [[bin]]
 name = "service"
