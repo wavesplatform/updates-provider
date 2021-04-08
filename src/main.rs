@@ -39,6 +39,7 @@ async fn tokio_main() -> Result<(), Error> {
     let states_updater_config = config::load_states_updater()?;
     let test_resources_config = config::load_test_resources_updater()?;
     let blockchain_config = config::load_blockchain()?;
+    let server_config = config::load_server()?;
 
     let subscriptions_updates_observers: SubscriptionsUpdatesObservers =
         SubscriptionsUpdatesObservers::default();
