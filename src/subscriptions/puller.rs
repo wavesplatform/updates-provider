@@ -38,10 +38,13 @@ impl PullerImpl {
 
         let initial_subscriptions_updates: Vec<SubscriptionUpdate> = current_subscriptions
             .iter()
-            .filter(|(_, count)| count.to_owned().to_owned() > 0)
-            .filter_map(|(subscriptions_key, _subscribers_count)| {
+            .filter(|(_, &count)| count > 0)
+            .filter_map(|(subscriptions_key, &subscribers_count)| {
                 match Topic::try_from(subscriptions_key.as_ref()) {
-                    Ok(topic) => Some(SubscriptionUpdate::New { topic }),
+                    Ok(topic) => Some(SubscriptionUpdate::New {
+                        topic,
+                        subscribers_count,
+                    }),
                     _ => None,
                 }
             })
@@ -104,22 +107,24 @@ fn subscription_updates_diff(
             &mut vec![],
             |acc, (subscription_key, &subscribers_count)| {
                 if let Ok(topic) = Topic::try_from(subscription_key.as_ref()) {
-                    if current.contains_key(subscription_key) {
-                        let current_count = *current.get(subscription_key).unwrap();
-                        if current_count > subscribers_count {
-                            acc.push(SubscriptionUpdate::Decrement {
-                                topic,
-                                subscribers_count,
-                            });
-                        } else if current_count < subscribers_count {
-                            if current_count == 0 {
-                                acc.push(SubscriptionUpdate::New { topic });
+                    if let Some(&current_count) = current.get(subscription_key) {
+                        if current_count != subscribers_count {
+                            if subscribers_count > 0 {
+                                acc.push(SubscriptionUpdate::Change {
+                                    topic,
+                                    subscribers_count,
+                                })
                             } else {
-                                acc.push(SubscriptionUpdate::Increment { topic });
+                                acc.push(SubscriptionUpdate::Delete { topic })
                             }
                         }
                     } else {
-                        acc.push(SubscriptionUpdate::New { topic });
+                        if subscribers_count > 0 {
+                            acc.push(SubscriptionUpdate::New {
+                                topic,
+                                subscribers_count,
+                            });
+                        }
                     }
                 }
                 Ok(acc)
@@ -131,10 +136,7 @@ fn subscription_updates_diff(
     current.iter().for_each(|(subscription_key, _)| {
         if let Ok(topic) = Topic::try_from(subscription_key.as_ref()) {
             if !new.contains_key(subscription_key) {
-                updated.push(SubscriptionUpdate::Decrement {
-                    topic,
-                    subscribers_count: 0,
-                });
+                updated.push(SubscriptionUpdate::Delete { topic });
             }
         }
     });

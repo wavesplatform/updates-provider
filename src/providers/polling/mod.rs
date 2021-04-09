@@ -85,7 +85,7 @@ impl<T: WatchListItem + Send + Sync + 'static> PollProvider<T> {
             {
                 let mut watchlist_guard = self.watchlist.write().await;
                 watchlist_guard.delete_old().await;
-                let mut items = watchlist_guard.items.iter().map(|(item, _on_delete)| item);
+                let mut items = watchlist_guard.into_iter();
                 if let Err(error) = self
                     .requester
                     .process(&mut items, &self.resources_repo, &self.last_values)
