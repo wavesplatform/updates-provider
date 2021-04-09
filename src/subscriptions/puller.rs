@@ -110,10 +110,17 @@ fn subscription_updates_diff(
                     if let Some(&current_count) = current.get(subscription_key) {
                         if current_count != subscribers_count {
                             if subscribers_count > 0 {
-                                acc.push(SubscriptionUpdate::Change {
-                                    topic,
-                                    subscribers_count,
-                                })
+                                if current_count == 0 {
+                                    acc.push(SubscriptionUpdate::New {
+                                        topic,
+                                        subscribers_count,
+                                    })
+                                } else {
+                                    acc.push(SubscriptionUpdate::Change {
+                                        topic,
+                                        subscribers_count,
+                                    })
+                                }
                             } else {
                                 acc.push(SubscriptionUpdate::Delete { topic })
                             }
