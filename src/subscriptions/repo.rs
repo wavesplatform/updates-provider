@@ -30,7 +30,7 @@ impl SubscriptionsRepo for SubscriptionsRepoImpl {
 
         let subscriptions = subscriptions
             .into_iter()
-            .filter_map(|(key, value)| match value.parse::<i32>() {
+            .filter_map(|(key, value)| match value.parse::<i64>() {
                 Ok(subscribers_count) => Some((key, subscribers_count)),
                 Err(_) => None,
             })

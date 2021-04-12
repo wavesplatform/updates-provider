@@ -230,7 +230,7 @@ impl Provider {
         data: models::Transaction,
         current_value: String,
     ) -> Result<()> {
-        if self.watchlist.read().await.items.contains_key(&data) {
+        if self.watchlist.read().await.contains_key(&data) {
             super::super::watchlist_process(
                 &data,
                 current_value,
@@ -259,7 +259,7 @@ impl UpdatesProvider for Provider {
                 if let Err(err) = watchlist.write().await.on_update(upd.clone()).await {
                     error!("error while updating watchlist: {:?}", err);
                 }
-                if let SubscriptionUpdate::New { topic } = upd {
+                if let SubscriptionUpdate::New { topic, .. } = upd {
                     if let Some(value) = models::Transaction::maybe_item(topic) {
                         if let Err(err) = check_and_maybe_insert(
                             resources_repo.clone(),
