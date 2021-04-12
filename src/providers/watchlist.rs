@@ -63,13 +63,13 @@ impl<T: WatchListItem> WatchList<T> {
                 subscribers_count,
             } => {
                 if let Some(item) = T::maybe_item(topic) {
-                    if let Some(old_count) = self.items.get_mut(&item) {
-                        if *old_count != subscribers_count {
-                            let increment_subscriptions = subscribers_count - *old_count;
-                            *old_count = subscribers_count;
+                    if let Some(current_count) = self.items.get_mut(&item) {
+                        if *current_count != subscribers_count {
+                            let subscriptions_diff = subscribers_count - *current_count;
+                            *current_count = subscribers_count;
                             WATCHLISTS_SUBSCRIPTIONS
                                 .with_label_values(&[&self.type_name])
-                                .add(increment_subscriptions);
+                                .add(subscriptions_diff);
                         }
                     } else {
                         self.deletable_items.remove(&item);
@@ -85,11 +85,11 @@ impl<T: WatchListItem> WatchList<T> {
             }
             SubscriptionUpdate::Delete { topic } => {
                 if let Some(item) = T::maybe_item(topic) {
-                    if let Some(old_count) = self.items.get_mut(&item) {
+                    if let Some(current_count) = self.items.get_mut(&item) {
                         WATCHLISTS_SUBSCRIPTIONS
                             .with_label_values(&[&self.type_name])
-                            .sub(*old_count);
-                        *old_count = 0;
+                            .sub(*current_count);
+                        *current_count = 0;
                         let delete_timestamp = Instant::now() + self.delete_timeout;
                         self.deletable_items.insert(item, delete_timestamp);
                     }

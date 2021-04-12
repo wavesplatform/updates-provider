@@ -3,12 +3,12 @@ use prometheus::{IntGaugeVec, Opts, Registry};
 lazy_static! {
     pub static ref REGISTRY: Registry = Registry::new();
     pub static ref WATCHLISTS_TOPICS: IntGaugeVec = IntGaugeVec::new(
-        Opts::new("WatchlistsTopics", "count of topics by type"),
+        Opts::new("WatchlistsTopics", "topics count per resource type"),
         &["resource_type"]
     )
     .expect("can't create watchlists_topics metrics");
     pub static ref WATCHLISTS_SUBSCRIPTIONS: IntGaugeVec = IntGaugeVec::new(
-        Opts::new("WatchlistsSubscriptions", "count of subscriptions by type"),
+        Opts::new("WatchlistsSubscriptions", "subscriptions count per resource type"),
         &["resource_type"]
     )
     .expect("can't create watchlists_subscriptions metrics");
