@@ -4,6 +4,7 @@ use super::{TSResourcesRepoImpl, TSUpdatesProviderLastValues};
 use crate::error::Error;
 use crate::models::State;
 use async_trait::async_trait;
+use futures::stream::{self, StreamExt, TryStreamExt};
 use reqwest::{Client, ClientBuilder};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -65,10 +66,10 @@ impl Requester<State> for StateRequester {
         last_values: &TSUpdatesProviderLastValues,
     ) -> Result<(), Error> {
         let states = self.group_states(items);
-        let fs = states
-            .iter()
-            .map(|address_key_pairs| async move {
-                let text = self.get(address_key_pairs).await?;
+        stream::iter(states)
+            .map(Ok)
+            .try_for_each_concurrent(5, |address_key_pairs| async move {
+                let text = self.get(&address_key_pairs).await?;
                 let response = serde_json::from_str::<Response>(&text)?;
                 if address_key_pairs.len() != response.entries.len() {
                     let err = "error fetching states, invalid response".into();
@@ -80,8 +81,7 @@ impl Requester<State> for StateRequester {
                 }
                 Ok(())
             })
-            .collect::<Vec<_>>();
-        futures::future::try_join_all(fs).await?;
+            .await?;
         Ok(())
     }
 }
@@ -102,7 +102,6 @@ impl StateRequester {
         })
     }
 }
-
 
 #[derive(Debug, Serialize)]
 pub struct Request {
