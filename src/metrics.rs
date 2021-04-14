@@ -8,7 +8,10 @@ lazy_static! {
     )
     .expect("can't create watchlists_topics metrics");
     pub static ref WATCHLISTS_SUBSCRIPTIONS: IntGaugeVec = IntGaugeVec::new(
-        Opts::new("WatchlistsSubscriptions", "subscriptions count per resource type"),
+        Opts::new(
+            "WatchlistsSubscriptions",
+            "subscriptions count per resource type"
+        ),
         &["resource_type"]
     )
     .expect("can't create watchlists_subscriptions metrics");

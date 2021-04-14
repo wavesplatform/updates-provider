@@ -5,12 +5,8 @@ pub mod repo;
 use crate::error::Error;
 use crate::models::Topic;
 use std::collections::HashMap;
-use std::sync::Arc;
-use tokio::sync::{self, mpsc};
 
 type Subscriptions = HashMap<String, i64>;
-pub type SubscriptionsUpdatesObservers =
-    Arc<sync::RwLock<Vec<mpsc::UnboundedSender<SubscriptionUpdate>>>>;
 
 #[derive(Debug)]
 pub struct Config {

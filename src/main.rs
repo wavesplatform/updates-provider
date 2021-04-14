@@ -18,7 +18,6 @@ use providers::{blockchain, UpdatesProvider};
 use r2d2::Pool;
 use r2d2_redis::{r2d2, redis, RedisConnectionManager};
 use std::sync::Arc;
-use subscriptions::SubscriptionsUpdatesObservers;
 use tokio::sync::Mutex;
 use transactions::repo::TransactionsRepoImpl;
 use wavesexchange_log::{error, info};
@@ -40,9 +39,6 @@ async fn tokio_main() -> Result<(), Error> {
     let test_resources_config = config::load_test_resources_updater()?;
     let blockchain_config = config::load_blockchain()?;
     let server_config = config::load_server()?;
-
-    let subscriptions_updates_observers: SubscriptionsUpdatesObservers =
-        SubscriptionsUpdatesObservers::default();
 
     let redis_connection_url = format!(
         "redis://{}:{}@{}:{}/",
@@ -68,10 +64,6 @@ async fn tokio_main() -> Result<(), Error> {
         resources_repo.clone(),
     );
     let configs_subscriptions_updates_sender = configs_updates_provider.fetch_updates().await?;
-    subscriptions_updates_observers
-        .write()
-        .await
-        .push(configs_subscriptions_updates_sender);
 
     // States
     let states_requester = Box::new(providers::polling::states::StateRequester::new(
@@ -85,11 +77,6 @@ async fn tokio_main() -> Result<(), Error> {
         resources_repo.clone(),
     );
     let states_subscriptions_updates_sender = states_updates_provider.fetch_updates().await?;
-
-    subscriptions_updates_observers
-        .write()
-        .await
-        .push(states_subscriptions_updates_sender);
 
     // Test Resources
     let test_resources_requester = Box::new(
@@ -105,11 +92,6 @@ async fn tokio_main() -> Result<(), Error> {
     );
     let test_resources_subscriptions_updates_sender =
         test_resources_updates_provider.fetch_updates().await?;
-
-    subscriptions_updates_observers
-        .write()
-        .await
-        .push(test_resources_subscriptions_updates_sender);
 
     // Blockchain
     let mut blockchain_puller =
@@ -151,11 +133,6 @@ async fn tokio_main() -> Result<(), Error> {
 
     let transactions_subscriptions_updates_sender = provider.fetch_updates().await?;
 
-    subscriptions_updates_observers
-        .write()
-        .await
-        .push(transactions_subscriptions_updates_sender);
-
     let blockchain_height_handle = tokio::task::spawn(async move {
         info!("starting blockchain puller");
         blockchain_puller.run().await
@@ -177,12 +154,15 @@ async fn tokio_main() -> Result<(), Error> {
 
     let subscriptions_updates_receiver = notifications_puller.run().await?;
 
-    let mut subscriptions_updates_pusher = subscriptions::pusher::PusherImpl::new(
-        subscriptions_updates_observers,
-        subscriptions_updates_receiver,
-    );
+    let mut subscriptions_updates_pusher =
+        subscriptions::pusher::PusherImpl::new(subscriptions_updates_receiver);
 
-    let subscriptions_updates_pusher_handle = tokio::task::spawn(async move {
+    subscriptions_updates_pusher.add_observer(configs_subscriptions_updates_sender);
+    subscriptions_updates_pusher.add_observer(states_subscriptions_updates_sender);
+    subscriptions_updates_pusher.add_observer(test_resources_subscriptions_updates_sender);
+    subscriptions_updates_pusher.add_observer(transactions_subscriptions_updates_sender);
+
+    let subscriptions_updates_pusher_handle = tokio::spawn(async move {
         info!("starting subscriptions updates pusher");
         subscriptions_updates_pusher.run().await
     });

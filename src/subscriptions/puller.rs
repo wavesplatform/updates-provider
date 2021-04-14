@@ -57,7 +57,8 @@ impl PullerImpl {
 
         initial_subscriptions_updates
             .iter()
-            .try_for_each(|update| subscriptions_updates_sender.send(update.to_owned()))?;
+            .try_for_each(|update| subscriptions_updates_sender.send(update.to_owned()))
+            .map_err(|error| Error::SendError(format!("{:?}", error)))?;
 
         let redis_client = self.redis_client.clone();
         let subscriptions_repo = self.subscriptions_repo.clone();

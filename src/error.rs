@@ -20,9 +20,7 @@ pub enum Error {
     #[error("SerdeJsonError: {0}")]
     SerdeJsonError(#[from] serde_json::Error),
     #[error("SendError: {0}")]
-    SendError(
-        #[from] tokio::sync::mpsc::error::SendError<crate::subscriptions::SubscriptionUpdate>,
-    ),
+    SendError(String),
     #[error("ReqwestError: {0}")]
     ReqwestError(#[from] reqwest::Error),
     #[error("UrlParseError: {0}")]

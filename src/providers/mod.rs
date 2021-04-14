@@ -5,20 +5,19 @@ pub mod watchlist;
 use crate::error::Error;
 use crate::models::Topic;
 use crate::resources::{repo::ResourcesRepoImpl, ResourcesRepo};
-use crate::subscriptions::SubscriptionUpdate;
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
-use watchlist::WatchListItem;
+use watchlist::{WatchListItem, WatchListUpdate};
 use wavesexchange_log::info;
 
 type TSResourcesRepoImpl = Arc<ResourcesRepoImpl>;
 type TSUpdatesProviderLastValues = Arc<RwLock<HashMap<String, String>>>;
 
 #[async_trait]
-pub trait UpdatesProvider {
-    async fn fetch_updates(self) -> Result<mpsc::UnboundedSender<SubscriptionUpdate>, Error>;
+pub trait UpdatesProvider<T: WatchListItem> {
+    async fn fetch_updates(self) -> Result<mpsc::UnboundedSender<WatchListUpdate<T>>, Error>;
 }
 
 // function used in implementations of provider

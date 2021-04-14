@@ -182,9 +182,9 @@ impl From<ConfigFile> for Topic {
 }
 
 impl MaybeFromTopic for ConfigFile {
-    fn maybe_item(topic: Topic) -> Option<Self> {
+    fn maybe_item(topic: &Topic) -> Option<Self> {
         if let Topic::Config(config_file) = topic {
-            return Some(config_file);
+            return Some(config_file.to_owned());
         }
         return None;
     }
@@ -230,9 +230,9 @@ impl From<State> for Topic {
 }
 
 impl MaybeFromTopic for State {
-    fn maybe_item(topic: Topic) -> Option<Self> {
+    fn maybe_item(topic: &Topic) -> Option<Self> {
         if let Topic::State(state) = topic {
-            return Some(state);
+            return Some(state.to_owned());
         }
         return None;
     }
@@ -274,9 +274,9 @@ impl From<TestResource> for Topic {
 }
 
 impl MaybeFromTopic for TestResource {
-    fn maybe_item(topic: Topic) -> Option<Self> {
+    fn maybe_item(topic: &Topic) -> Option<Self> {
         if let Topic::TestResource(test_resource) = topic {
-            return Some(test_resource);
+            return Some(test_resource.to_owned());
         }
         return None;
     }
@@ -308,7 +308,7 @@ impl From<BlockchainHeight> for Topic {
 }
 
 impl MaybeFromTopic for BlockchainHeight {
-    fn maybe_item(topic: Topic) -> Option<Self> {
+    fn maybe_item(topic: &Topic) -> Option<Self> {
         if let Topic::BlockchainHeight = topic {
             return Some(Self {});
         }
@@ -591,27 +591,27 @@ impl From<Transaction> for Topic {
 }
 
 impl MaybeFromTopic for TransactionByAddress {
-    fn maybe_item(topic: Topic) -> Option<Self> {
+    fn maybe_item(topic: &Topic) -> Option<Self> {
         if let Topic::Transaction(Transaction::ByAddress(transaction)) = topic {
-            return Some(transaction);
+            return Some(transaction.to_owned());
         }
         return None;
     }
 }
 
 impl MaybeFromTopic for TransactionExchange {
-    fn maybe_item(topic: Topic) -> Option<Self> {
+    fn maybe_item(topic: &Topic) -> Option<Self> {
         if let Topic::Transaction(Transaction::Exchange(transaction)) = topic {
-            return Some(transaction);
+            return Some(transaction.to_owned());
         }
         return None;
     }
 }
 
 impl MaybeFromTopic for Transaction {
-    fn maybe_item(topic: Topic) -> Option<Self> {
+    fn maybe_item(topic: &Topic) -> Option<Self> {
         if let Topic::Transaction(transaction) = topic {
-            return Some(transaction);
+            return Some(transaction.to_owned());
         }
         return None;
     }

@@ -1,7 +1,5 @@
-use super::super::watchlist::WatchList;
+use super::super::watchlist::{WatchList, WatchListUpdate};
 use super::super::{TSResourcesRepoImpl, TSUpdatesProviderLastValues, UpdatesProvider};
-use crate::providers::watchlist::MaybeFromTopic;
-use crate::subscriptions::SubscriptionUpdate;
 use crate::transactions::repo::TransactionsRepoImpl;
 use crate::transactions::{
     BlockMicroblockAppend, BlockchainUpdate, Exchange, Transaction, TransactionType,
@@ -245,10 +243,12 @@ impl Provider {
 }
 
 #[async_trait]
-impl UpdatesProvider for Provider {
-    async fn fetch_updates(mut self) -> Result<mpsc::UnboundedSender<SubscriptionUpdate>> {
+impl UpdatesProvider<models::Transaction> for Provider {
+    async fn fetch_updates(
+        mut self,
+    ) -> Result<mpsc::UnboundedSender<WatchListUpdate<models::Transaction>>> {
         let (subscriptions_updates_sender, mut subscriptions_updates_receiver) =
-            mpsc::unbounded_channel::<SubscriptionUpdate>();
+            mpsc::unbounded_channel::<WatchListUpdate<models::Transaction>>();
 
         let watchlist = self.watchlist.clone();
         let resources_repo = self.resources_repo.clone();
@@ -256,20 +256,18 @@ impl UpdatesProvider for Provider {
         tokio::task::spawn(async move {
             info!("starting transactions subscriptions updates handler");
             while let Some(upd) = subscriptions_updates_receiver.recv().await {
-                if let Err(err) = watchlist.write().await.on_update(upd.clone()).await {
+                if let Err(err) = watchlist.write().await.on_update(&upd) {
                     error!("error while updating watchlist: {:?}", err);
                 }
-                if let SubscriptionUpdate::New { topic, .. } = upd {
-                    if let Some(value) = models::Transaction::maybe_item(topic) {
-                        if let Err(err) = check_and_maybe_insert(
-                            resources_repo.clone(),
-                            transactions_repo.clone(),
-                            value,
-                        )
-                        .await
-                        {
-                            error!("error while updating value: {:?}", err);
-                        }
+                if let WatchListUpdate::New { item, .. } = upd {
+                    if let Err(err) = check_and_maybe_insert(
+                        resources_repo.clone(),
+                        transactions_repo.clone(),
+                        item,
+                    )
+                    .await
+                    {
+                        error!("error while updating value: {:?}", err);
                     }
                 }
             }

@@ -18,8 +18,61 @@ pub struct WatchList<T: WatchListItem> {
 
 pub trait WatchListItem: Eq + Hash + Into<Topic> + MaybeFromTopic + ToString + Clone {}
 
+#[derive(Debug, Clone)]
+pub enum WatchListUpdate<T: WatchListItem> {
+    New { item: T, subscribers_count: i64 },
+    Change { item: T, subscribers_count: i64 },
+    Delete { item: T },
+}
+
+pub trait MaybeFromUpdate: std::fmt::Debug + Send + Sync {
+    fn maybe_from_update(update: &SubscriptionUpdate) -> Option<Self>
+    where
+        Self: Sized;
+}
+
+impl<T: WatchListItem + std::fmt::Debug + Send + Sync> MaybeFromUpdate for WatchListUpdate<T> {
+    fn maybe_from_update(update: &SubscriptionUpdate) -> Option<Self> {
+        match update {
+            SubscriptionUpdate::New {
+                topic,
+                subscribers_count,
+            } => {
+                if let Some(item) = T::maybe_item(topic) {
+                    Some(WatchListUpdate::New {
+                        item,
+                        subscribers_count: *subscribers_count,
+                    })
+                } else {
+                    None
+                }
+            }
+            SubscriptionUpdate::Change {
+                topic,
+                subscribers_count,
+            } => {
+                if let Some(item) = T::maybe_item(topic) {
+                    Some(WatchListUpdate::Change {
+                        item,
+                        subscribers_count: *subscribers_count,
+                    })
+                } else {
+                    None
+                }
+            }
+            SubscriptionUpdate::Delete { topic } => {
+                if let Some(item) = T::maybe_item(topic) {
+                    Some(WatchListUpdate::Delete { item })
+                } else {
+                    None
+                }
+            }
+        }
+    }
+}
+
 pub trait MaybeFromTopic: Sized {
-    fn maybe_item(topic: Topic) -> Option<Self>;
+    fn maybe_item(topic: &Topic) -> Option<Self>;
 }
 
 impl<T: WatchListItem> WatchList<T> {
@@ -41,58 +94,53 @@ impl<T: WatchListItem> WatchList<T> {
         }
     }
 
-    pub async fn on_update(&mut self, update: SubscriptionUpdate) -> Result<(), Error> {
+    pub fn on_update(&mut self, update: &WatchListUpdate<T>) -> Result<(), Error> {
         match update {
-            SubscriptionUpdate::New {
-                topic,
+            WatchListUpdate::New {
+                item,
                 subscribers_count,
             } => {
-                if let Some(item) = T::maybe_item(topic) {
-                    self.deletable_items.remove(&item);
-                    self.items.insert(item, subscribers_count);
+                self.deletable_items.remove(item);
+                self.items.insert(item.to_owned(), *subscribers_count);
+                WATCHLISTS_TOPICS
+                    .with_label_values(&[&self.type_name])
+                    .inc();
+                WATCHLISTS_SUBSCRIPTIONS
+                    .with_label_values(&[&self.type_name])
+                    .add(*subscribers_count);
+            }
+            WatchListUpdate::Change {
+                item,
+                subscribers_count,
+            } => {
+                if let Some(current_count) = self.items.get_mut(item) {
+                    if current_count != subscribers_count {
+                        let subscriptions_diff = *subscribers_count - *current_count;
+                        *current_count = *subscribers_count;
+                        WATCHLISTS_SUBSCRIPTIONS
+                            .with_label_values(&[&self.type_name])
+                            .add(subscriptions_diff);
+                    }
+                } else {
+                    self.deletable_items.remove(item);
+                    self.items.insert(item.to_owned(), *subscribers_count);
                     WATCHLISTS_TOPICS
                         .with_label_values(&[&self.type_name])
                         .inc();
                     WATCHLISTS_SUBSCRIPTIONS
                         .with_label_values(&[&self.type_name])
-                        .add(subscribers_count);
+                        .add(*subscribers_count);
                 }
             }
-            SubscriptionUpdate::Change {
-                topic,
-                subscribers_count,
-            } => {
-                if let Some(item) = T::maybe_item(topic) {
-                    if let Some(current_count) = self.items.get_mut(&item) {
-                        if *current_count != subscribers_count {
-                            let subscriptions_diff = subscribers_count - *current_count;
-                            *current_count = subscribers_count;
-                            WATCHLISTS_SUBSCRIPTIONS
-                                .with_label_values(&[&self.type_name])
-                                .add(subscriptions_diff);
-                        }
-                    } else {
-                        self.deletable_items.remove(&item);
-                        self.items.insert(item, subscribers_count);
-                        WATCHLISTS_TOPICS
-                            .with_label_values(&[&self.type_name])
-                            .inc();
-                        WATCHLISTS_SUBSCRIPTIONS
-                            .with_label_values(&[&self.type_name])
-                            .add(subscribers_count);
-                    }
-                }
-            }
-            SubscriptionUpdate::Delete { topic } => {
-                if let Some(item) = T::maybe_item(topic) {
-                    if let Some(current_count) = self.items.get_mut(&item) {
-                        WATCHLISTS_SUBSCRIPTIONS
-                            .with_label_values(&[&self.type_name])
-                            .sub(*current_count);
-                        *current_count = 0;
-                        let delete_timestamp = Instant::now() + self.delete_timeout;
-                        self.deletable_items.insert(item, delete_timestamp);
-                    }
+            WatchListUpdate::Delete { item } => {
+                if let Some(current_count) = self.items.get_mut(item) {
+                    WATCHLISTS_SUBSCRIPTIONS
+                        .with_label_values(&[&self.type_name])
+                        .sub(*current_count);
+                    *current_count = 0;
+                    let delete_timestamp = Instant::now() + self.delete_timeout;
+                    self.deletable_items
+                        .insert(item.to_owned(), delete_timestamp);
                 }
             }
         }
