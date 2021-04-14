@@ -1,10 +1,10 @@
 use super::{
-    AssociatedAddress, BlockMicroblock, Exchange, PrevHandledHeight, Transaction, TransactionType,
+    AssociatedAddress, BlockMicroblock, PrevHandledHeight, Transaction, TransactionType,
     TransactionsRepo,
 };
 use crate::error::Result;
 use crate::schema::blocks_microblocks::dsl::*;
-use crate::schema::{associated_addresses, blocks_microblocks, exchanges, transactions};
+use crate::schema::{associated_addresses, blocks_microblocks, transactions};
 use diesel::prelude::*;
 use diesel::PgConnection;
 
@@ -223,22 +223,14 @@ impl TransactionsRepo for TransactionsRepoImpl {
             .flatten())
     }
 
-    fn insert_exchanges(&self, exchanges: &Vec<Exchange>) -> Result<()> {
-        diesel::insert_into(exchanges::table)
-            .values(exchanges)
-            .execute(&self.conn)?;
-        Ok(())
-    }
-
     fn last_exchange_transaction(
         &self,
         amount_asset: String,
         price_asset: String,
     ) -> Result<Option<Transaction>> {
-        Ok(exchanges::table
-            .inner_join(transactions::table)
-            .filter(exchanges::amount_asset.eq(amount_asset))
-            .filter(exchanges::price_asset.eq(price_asset))
+        Ok(transactions::table
+            .filter(transactions::exchange_amount_asset.eq(amount_asset))
+            .filter(transactions::exchange_price_asset.eq(price_asset))
             .select(transactions::all_columns.nullable())
             .order(transactions::block_uid.desc())
             .first::<Option<Transaction>>(&self.conn)

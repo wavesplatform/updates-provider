@@ -1,9 +1,7 @@
 use super::super::watchlist::{WatchList, WatchListUpdate};
 use super::super::{TSResourcesRepoImpl, TSUpdatesProviderLastValues, UpdatesProvider};
 use crate::transactions::repo::TransactionsRepoImpl;
-use crate::transactions::{
-    BlockMicroblockAppend, BlockchainUpdate, Exchange, Transaction, TransactionType,
-};
+use crate::transactions::{BlockMicroblockAppend, BlockchainUpdate, Transaction, TransactionType};
 use crate::{
     error::Result,
     transactions::{exchange::ExchangeData, Address, TransactionUpdate, TransactionsRepo},
@@ -460,25 +458,6 @@ fn insert_blocks(
             start.elapsed().as_millis()
         );
     }
-    let exchanges = transaction_updates
-        .flat_map(|txs| {
-            txs.filter(|tx| {
-                if let TransactionType::Exchange = tx.tx_type {
-                    true
-                } else {
-                    false
-                }
-            })
-            .map(|tx| Exchange::try_from(tx).unwrap())
-        })
-        .collect::<Vec<_>>();
-    let start = Instant::now();
-    conn.insert_exchanges(&exchanges)?;
-    info!(
-        "insert {} exchanges in {} ms",
-        exchanges.len(),
-        start.elapsed().as_millis()
-    );
     info!("inserted {:?} block", h);
     Ok(())
 }

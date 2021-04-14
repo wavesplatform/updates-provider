@@ -23,10 +23,14 @@ CREATE TABLE IF NOT EXISTS transactions (
                 ON DELETE CASCADE,
     id VARCHAR CONSTRAINT transactions_id_key PRIMARY KEY,
     tx_type SMALLINT NOT NULL,
+    exchange_amount_asset VARCHAR,
+    exchange_price_asset VARCHAR,
     body JSONB
 );
 
 CREATE INDEX IF NOT EXISTS transactions_block_uid_idx ON transactions (block_uid);
+CREATE INDEX IF NOT EXISTS transactions_amount_asset_idx ON transactions (exchange_amount_asset);
+CREATE INDEX IF NOT EXISTS transactions_price_asset_idx ON transactions (exchange_price_asset);
 
 CREATE TABLE IF NOT EXISTS associated_addresses (
     address VARCHAR,

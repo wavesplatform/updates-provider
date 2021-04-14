@@ -1,5 +1,5 @@
 use crate::error::{Error, Result};
-use crate::schema::{associated_addresses, blocks_microblocks, exchanges, transactions};
+use crate::schema::{associated_addresses, blocks_microblocks, transactions};
 use diesel::{
     deserialize::FromSql,
     serialize::{Output, ToSql},
@@ -40,6 +40,8 @@ pub struct Transaction {
     pub block_uid: i64,
     pub tx_type: TransactionType,
     pub body: Option<serde_json::Value>,
+    pub exchange_amount_asset: Option<String>,
+    pub exchange_price_asset: Option<String>,
 }
 
 #[repr(i16)]
@@ -172,14 +174,6 @@ pub struct AssociatedAddress {
     pub transaction_id: String,
 }
 
-#[derive(Clone, Debug, Insertable, QueryableByName, PartialEq)]
-#[table_name = "exchanges"]
-pub struct Exchange {
-    pub transaction_id: String,
-    pub amount_asset: String,
-    pub price_asset: String,
-}
-
 #[derive(Clone, Debug)]
 pub struct BlockMicroblockAppend {
     id: String,
@@ -280,8 +274,6 @@ pub trait TransactionsRepo {
         transaction_type: TransactionType,
     ) -> Result<Option<Transaction>>;
 
-    fn insert_exchanges(&self, exchanges: &Vec<Exchange>) -> Result<()>;
-
     fn last_exchange_transaction(
         &self,
         amount_asset: String,
@@ -359,30 +351,6 @@ impl TryFrom<std::sync::Arc<BlockchainUpdated>> for BlockchainUpdate {
     }
 }
 
-impl TryFrom<&TransactionUpdate> for Exchange {
-    type Error = Error;
-
-    fn try_from(value: &TransactionUpdate) -> Result<Self> {
-        match &value.data {
-            Data::Exchange(exchange_data) => {
-                let asset_pair = exchange_data
-                    .orders
-                    .get(0)
-                    .unwrap()
-                    .asset_pair
-                    .as_ref()
-                    .unwrap();
-                Ok(Self {
-                    transaction_id: value.id.to_owned(),
-                    price_asset: encode_asset(&asset_pair.price_asset_id),
-                    amount_asset: encode_asset(&asset_pair.amount_asset_id),
-                })
-            }
-            _ => Err(Error::InvalidExchangeData(value.data.to_owned())),
-        }
-    }
-}
-
 fn encode_asset(asset: &Vec<u8>) -> String {
     if asset.len() > 0 {
         bs58::encode(asset).into_string()
@@ -405,19 +373,59 @@ impl TryFrom<(i64, &TransactionUpdate)> for Transaction {
     type Error = Error;
 
     fn try_from(value: (i64, &TransactionUpdate)) -> Result<Self> {
-        let body = match value.1.tx_type {
-            TransactionType::Exchange => {
-                let data = exchange::ExchangeData::try_from(value.1)?;
-                Some(serde_json::to_value(data)?)
-            }
-            _ => None,
-        };
         Ok(Self {
             id: value.1.id.clone(),
             tx_type: value.1.tx_type,
             block_uid: value.0,
-            body,
+            exchange_amount_asset: exchange_amount_asset_from_update(value.1),
+            exchange_price_asset: exchange_price_asset_from_update(value.1),
+            body: body_from_transaction_update(value.1)?,
         })
+    }
+}
+
+fn body_from_transaction_update(update: &TransactionUpdate) -> Result<Option<serde_json::Value>> {
+    let body = match update.tx_type {
+        TransactionType::Exchange => {
+            let data = exchange::ExchangeData::try_from(update)?;
+            Some(serde_json::to_value(data)?)
+        }
+        _ => None,
+    };
+    Ok(body)
+}
+
+fn exchange_amount_asset_from_update(update: &TransactionUpdate) -> Option<String> {
+    match &update.data {
+        Data::Exchange(exchange_data) => {
+            let amount_asset = &exchange_data
+                .orders
+                .get(0)
+                .unwrap()
+                .asset_pair
+                .as_ref()
+                .unwrap()
+                .amount_asset_id;
+            Some(encode_asset(amount_asset))
+        }
+        _ => None,
+    }
+}
+
+fn exchange_price_asset_from_update(update: &TransactionUpdate) -> Option<String> {
+    match &update.data {
+        Data::Exchange(exchange_data) => {
+            let price_asset = &exchange_data
+                .orders
+                .get(0)
+                .unwrap()
+                .asset_pair
+                .as_ref()
+                .unwrap()
+                .price_asset_id;
+            Some(encode_asset(price_asset))
+        }
+        _ => None,
     }
 }
 
