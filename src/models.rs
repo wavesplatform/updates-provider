@@ -84,12 +84,10 @@ impl ToString for Topic {
             Topic::Config(cf) => {
                 url.set_host(Some("config")).unwrap();
                 url.set_path(&cf.path);
-                url.as_str().to_owned()
             }
             Topic::State(state) => {
                 url.set_host(Some("state")).unwrap();
                 url.set_path(state.to_string().as_str());
-                url.as_str().to_owned()
             }
             Topic::TestResource(ps) => {
                 url.set_host(Some("test.resource")).unwrap();
@@ -97,11 +95,9 @@ impl ToString for Topic {
                 if let Some(query) = ps.query.clone() {
                     url.set_query(Some(query.as_str()));
                 }
-                url.as_str().to_owned()
             }
             Topic::BlockchainHeight => {
                 url.set_host(Some("blockchain_height")).unwrap();
-                url.as_str().to_owned()
             }
             Topic::Transaction(Transaction::ByAddress(transaction)) => {
                 url.set_host(Some("transactions")).unwrap();
@@ -112,7 +108,6 @@ impl ToString for Topic {
                     )
                     .as_str(),
                 ));
-                url.as_str().to_owned()
             }
             Topic::Transaction(Transaction::Exchange(transaction)) => {
                 url.set_host(Some("transactions")).unwrap();
@@ -123,9 +118,9 @@ impl ToString for Topic {
                     )
                     .as_str(),
                 ));
-                url.as_str().to_owned()
             }
         }
+        url.as_str().to_owned()
     }
 }
 
