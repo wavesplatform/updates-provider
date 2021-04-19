@@ -9,4 +9,6 @@ pub trait ResourcesRepo {
     fn set(&self, resource: Topic, value: String) -> Result<(), Error>;
 
     fn del(&self, resource: Topic) -> Result<(), Error>;
+
+    fn push(&self, resource: Topic, value: String) -> Result<(), Error>;
 }

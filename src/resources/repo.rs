@@ -35,4 +35,10 @@ impl ResourcesRepo for ResourcesRepoImpl {
         con.del(resource.to_string())
             .map_err(|err| Error::from(err))
     }
+
+    fn push(&self, resource: Topic, value: String) -> Result<(), Error> {
+        let mut con = self.pool.get()?;
+        con.publish(resource.to_string(), value)?;
+        Ok(())
+    }
 }
