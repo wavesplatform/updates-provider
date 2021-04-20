@@ -7,7 +7,7 @@ use crate::{
     transactions::{exchange::ExchangeData, Address, TransactionUpdate, TransactionsRepo},
 };
 use crate::{
-    models::{self, TransactionByAddress, TransactionExchange, Type},
+    models::{self, Topic, TransactionByAddress, TransactionExchange, Type},
     resources::ResourcesRepo,
 };
 use async_trait::async_trait;
@@ -227,7 +227,7 @@ impl Provider {
         current_value: String,
     ) -> Result<()> {
         if self.watchlist.read().await.contains_key(&data) {
-            super::super::watchlist_process(
+            watchlist_process(
                 &data,
                 current_value,
                 &self.resources_repo,
@@ -334,10 +334,12 @@ async fn check_and_maybe_insert(
                 }
             }
         };
-        match new_value {
-            None => resources_repo.set(topic, serde_json::to_string(&new_value)?)?,
-            Some(v) => resources_repo.set(topic, v)?,
-        }
+        let encoded_value = match new_value {
+            None => serde_json::to_string(&new_value)?,
+            Some(v) => v,
+        };
+        resources_repo.set(topic.clone(), encoded_value.clone())?;
+        resources_repo.push(topic, encoded_value)?;
     }
 
     Ok(())
@@ -503,4 +505,19 @@ fn count_txs_addresses(buffer: &Vec<BlockchainUpdate>) -> (usize, usize) {
             }
             BlockchainUpdate::Rollback(_) => (txs, addresses),
         })
+}
+
+pub async fn watchlist_process(
+    data: &models::Transaction,
+    current_value: String,
+    resources_repo: &TSResourcesRepoImpl,
+    last_values: &TSUpdatesProviderLastValues,
+) -> Result<()> {
+    let data_key = data.to_string();
+    let resource: Topic = data.clone().into();
+    info!("insert new value {:?}", resource);
+    last_values.write().await.insert(data_key, current_value.clone());
+    resources_repo.set(resource.clone(), current_value.clone())?;
+    resources_repo.push(resource, current_value)?;
+    Ok(())
 }
