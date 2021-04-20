@@ -179,7 +179,7 @@ pub fn load_blockchain() -> Result<providers::blockchain::Config, Error> {
     })
 }
 
-pub fn load_server() -> Result<crate::api::Config, Error> {
+pub fn load_api() -> Result<crate::api::Config, Error> {
     let flat_config = envy::prefixed("SERVER__").from_env::<FlatServerConfig>()?;
 
     Ok(crate::api::Config {

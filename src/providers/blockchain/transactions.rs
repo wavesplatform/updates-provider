@@ -202,16 +202,14 @@ impl Provider {
             .amount_asset
             .as_ref()
             .map(|x| x.to_owned())
-            .or(Some("WAVES".to_string()))
-            .unwrap();
+            .unwrap_or("WAVES".to_string());
         let price_asset = exchange_data
             .order1
             .asset_pair
             .price_asset
             .as_ref()
             .map(|x| x.to_owned())
-            .or(Some("WAVES".to_string()))
-            .unwrap();
+            .unwrap_or("WAVES".to_string());
         let data = models::Transaction::Exchange(TransactionExchange {
             amount_asset,
             price_asset,
@@ -516,7 +514,10 @@ pub async fn watchlist_process(
     let data_key = data.to_string();
     let resource: Topic = data.clone().into();
     info!("insert new value {:?}", resource);
-    last_values.write().await.insert(data_key, current_value.clone());
+    last_values
+        .write()
+        .await
+        .insert(data_key, current_value.clone());
     resources_repo.set(resource.clone(), current_value.clone())?;
     resources_repo.push(resource, current_value)?;
     Ok(())
