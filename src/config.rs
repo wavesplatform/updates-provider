@@ -11,12 +11,50 @@ fn default_delete_timeout() -> u64 {
     60
 }
 
+fn default_updates_buffer_size() -> usize {
+    10
+}
+
+fn default_transactions_count_threshold() -> usize {
+    1000
+}
+
+fn default_associated_addresses_count_threshold() -> usize {
+    1000
+}
+
+fn default_state_batch_size() -> usize {
+    100
+}
+
+fn default_start_height() -> i32 {
+    0
+}
+
+fn default_port() -> u16 {
+    8080
+}
+
 #[derive(Deserialize)]
 pub struct RedisConfig {
     pub host: String,
     #[serde(default = "default_redis_port")]
     pub port: u16,
     pub username: String,
+    pub password: String,
+}
+
+fn default_pgport() -> u16 {
+    5432
+}
+
+#[derive(Deserialize)]
+pub struct PostgresConfig {
+    pub host: String,
+    #[serde(default = "default_pgport")]
+    pub port: u16,
+    pub database: String,
+    pub user: String,
     pub password: String,
 }
 
@@ -41,6 +79,8 @@ struct FlatStatesUpdaterConfig {
     pub polling_delay: u64,
     #[serde(default = "default_delete_timeout")]
     pub delete_timeout_secs: u64,
+    #[serde(default = "default_state_batch_size")]
+    pub batch_size: usize,
 }
 
 #[derive(Deserialize)]
@@ -52,14 +92,35 @@ struct FlatTestResourcesUpdaterConfig {
 }
 
 #[derive(Deserialize)]
-struct FlatBlockchainHeightUpdaterConfig {
+struct FlatBlockchainUpdaterConfig {
     pub blockchain_updates_node_url: String,
-    pub grpc_node_url: String,
+    #[serde(default = "default_delete_timeout")]
+    pub transaction_delete_timeout: u64,
+    #[serde(default = "default_updates_buffer_size")]
+    pub updates_buffer_size: usize,
+    #[serde(default = "default_transactions_count_threshold")]
+    pub transactions_count_threshold: usize,
+    #[serde(default = "default_associated_addresses_count_threshold")]
+    pub associated_addresses_count_threshold: usize,
+    #[serde(default = "default_start_height")]
+    pub start_height: i32,
+}
+
+#[derive(Deserialize)]
+struct FlatServerConfig {
+    #[serde(default = "default_port")]
+    pub port: u16,
 }
 
 pub fn load_redis() -> Result<RedisConfig, Error> {
     envy::prefixed("REDIS__")
         .from_env::<RedisConfig>()
+        .map_err(|err| Error::from(err))
+}
+
+pub fn load_postgres() -> Result<PostgresConfig, Error> {
+    envy::prefixed("POSTGRES__")
+        .from_env::<PostgresConfig>()
         .map_err(|err| Error::from(err))
 }
 
@@ -90,6 +151,7 @@ pub fn load_states_updater() -> Result<providers::polling::states::Config, Error
         base_url: flat_config.base_url,
         polling_delay: Duration::from_secs(flat_config.polling_delay),
         delete_timeout: Duration::from_secs(flat_config.delete_timeout_secs),
+        batch_size: flat_config.batch_size,
     })
 }
 
@@ -104,12 +166,23 @@ pub fn load_test_resources_updater() -> Result<providers::polling::test_resource
     })
 }
 
-pub fn load_blockchain_height() -> Result<providers::blockchain_height::Config, Error> {
-    let flat_config =
-        envy::prefixed("NODE_UPDATER__").from_env::<FlatBlockchainHeightUpdaterConfig>()?;
+pub fn load_blockchain() -> Result<providers::blockchain::Config, Error> {
+    let flat_config = envy::prefixed("NODE_UPDATER__").from_env::<FlatBlockchainUpdaterConfig>()?;
 
-    Ok(providers::blockchain_height::Config {
+    Ok(providers::blockchain::Config {
         updates_url: flat_config.blockchain_updates_node_url,
-        node_url: flat_config.grpc_node_url,
+        transaction_delete_timeout: Duration::from_secs(flat_config.transaction_delete_timeout),
+        updates_buffer_size: flat_config.updates_buffer_size,
+        transactions_count_threshold: flat_config.transactions_count_threshold,
+        associated_addresses_count_threshold: flat_config.associated_addresses_count_threshold,
+        start_height: flat_config.start_height,
+    })
+}
+
+pub fn load_api() -> Result<crate::api::Config, Error> {
+    let flat_config = envy::prefixed("SERVER__").from_env::<FlatServerConfig>()?;
+
+    Ok(crate::api::Config {
+        port: flat_config.port,
     })
 }

@@ -1,24 +1,23 @@
-pub mod blockchain_height;
+pub mod blockchain;
 pub mod polling;
 pub mod watchlist;
 
 use crate::error::Error;
 use crate::models::Topic;
 use crate::resources::{repo::ResourcesRepoImpl, ResourcesRepo};
-use crate::subscriptions::SubscriptionUpdate;
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
-use watchlist::WatchListItem;
+use watchlist::{WatchListItem, WatchListUpdate};
 use wavesexchange_log::info;
 
 type TSResourcesRepoImpl = Arc<ResourcesRepoImpl>;
 type TSUpdatesProviderLastValues = Arc<RwLock<HashMap<String, String>>>;
 
 #[async_trait]
-pub trait UpdatesProvider {
-    async fn fetch_updates(self) -> Result<mpsc::UnboundedSender<SubscriptionUpdate>, Error>;
+pub trait UpdatesProvider<T: WatchListItem> {
+    async fn fetch_updates(self) -> Result<mpsc::UnboundedSender<WatchListUpdate<T>>, Error>;
 }
 
 // function used in implementations of provider
@@ -30,34 +29,24 @@ pub async fn watchlist_process<T: WatchListItem + Clone>(
 ) -> Result<(), Error> {
     let data_key = data.to_string();
     let resource: Topic = data.clone().into();
-    let last_value = last_values.read().await.get(&data_key).cloned();
-
-    match last_value {
-        Some(last_value) => {
-            if current_value != last_value {
-                info!("insert new value {:?}", resource);
-                resources_repo.set(resource, current_value.clone())?;
-                last_values.write().await.insert(data_key, current_value);
-            }
+    let mut last_value_guard = last_values.write().await;
+    if let Some(last_value) = last_value_guard.get(&data_key) {
+        if &current_value != last_value {
+            info!("insert new value {:?}", resource);
+            resources_repo.set(resource, current_value.clone())?;
+            last_value_guard.insert(data_key, current_value);
         }
-        None => {
-            last_values
-                .write()
-                .await
-                .insert(data_key.clone(), current_value.clone());
+    } else {
+        last_value_guard.insert(data_key, current_value.clone());
 
-            match resources_repo.get(&resource)? {
-                Some(last_updated_value) => {
-                    if current_value != last_updated_value {
-                        info!("update value {:?}", resource);
-                        resources_repo.set(resource, current_value)?;
-                    }
-                }
-                None => {
-                    info!("update value {:?}", resource);
-                    resources_repo.set(resource, current_value)?;
-                }
+        if let Some(last_updated_value) = resources_repo.get(&resource)? {
+            if current_value != last_updated_value {
+                info!("update value {:?}", resource);
+                resources_repo.set(resource, current_value)?;
             }
+        } else {
+            info!("update value {:?}", resource);
+            resources_repo.set(resource, current_value)?;
         }
     }
 

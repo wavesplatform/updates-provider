@@ -4,6 +4,7 @@ use super::{TSResourcesRepoImpl, TSUpdatesProviderLastValues};
 use crate::error::Error;
 use crate::models::State;
 use async_trait::async_trait;
+use futures::stream::{self, StreamExt, TryStreamExt};
 use reqwest::{Client, ClientBuilder};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -14,16 +15,19 @@ pub struct Config {
     pub base_url: String,
     pub polling_delay: Duration,
     pub delete_timeout: Duration,
+    pub batch_size: usize,
 }
 
 pub struct StateRequester {
     base_url: String,
     http_client: Client,
+    batch_size: usize,
 }
 
 impl StateRequester {
-    pub fn new(base_url: impl AsRef<str>) -> Self {
+    pub fn new(base_url: impl AsRef<str>, batch_size: usize) -> Self {
         Self {
+            batch_size,
             base_url: base_url.as_ref().to_owned(),
             http_client: ClientBuilder::new()
                 .timeout(std::time::Duration::from_secs(30))
@@ -61,11 +65,11 @@ impl Requester<State> for StateRequester {
         resources_repo: &TSResourcesRepoImpl,
         last_values: &TSUpdatesProviderLastValues,
     ) -> Result<(), Error> {
-        let states = group_states(items);
-        let fs = states
-            .iter()
-            .map(|address_key_pairs| async move {
-                let text = self.get(address_key_pairs).await?;
+        let states = self.group_states(items);
+        stream::iter(states)
+            .map(Ok)
+            .try_for_each_concurrent(5, |address_key_pairs| async move {
+                let text = self.get(&address_key_pairs).await?;
                 let response = serde_json::from_str::<Response>(&text)?;
                 if address_key_pairs.len() != response.entries.len() {
                     let err = "error fetching states, invalid response".into();
@@ -77,25 +81,26 @@ impl Requester<State> for StateRequester {
                 }
                 Ok(())
             })
-            .collect::<Vec<_>>();
-        futures::future::try_join_all(fs).await?;
+            .await?;
         Ok(())
     }
 }
 
-fn group_states<'a>(items: impl Iterator<Item = &'a State>) -> Vec<Vec<State>> {
-    items.fold(vec![], |mut acc, state| {
-        if let Some(last) = acc.last_mut() {
-            if last.len() == 10 {
-                acc.push(vec![state.to_owned()])
+impl StateRequester {
+    fn group_states<'a>(&self, items: impl Iterator<Item = &'a State>) -> Vec<Vec<State>> {
+        items.fold(vec![], |mut acc, state| {
+            if let Some(last) = acc.last_mut() {
+                if last.len() == self.batch_size {
+                    acc.push(vec![state.to_owned()])
+                } else {
+                    last.push(state.to_owned())
+                }
             } else {
-                last.push(state.to_owned())
+                acc.push(vec![state.to_owned()])
             }
-        } else {
-            acc.push(vec![state.to_owned()])
-        }
-        acc
-    })
+            acc
+        })
+    }
 }
 
 #[derive(Debug, Serialize)]

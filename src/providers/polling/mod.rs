@@ -6,7 +6,6 @@ pub mod test_resources;
 use super::watchlist::{WatchList, WatchListItem};
 use crate::error::Error;
 use crate::resources::repo::ResourcesRepoImpl;
-use crate::subscriptions::SubscriptionUpdate;
 use async_trait::async_trait;
 use requester::{ErasedRequester, Requester};
 use std::collections::HashMap;
@@ -51,19 +50,21 @@ impl<T: WatchListItem> PollProvider<T> {
 }
 
 #[async_trait]
-impl<T> super::UpdatesProvider for PollProvider<T>
+impl<T> super::UpdatesProvider<T> for PollProvider<T>
 where
     T: WatchListItem + Send + Sync + 'static,
 {
-    async fn fetch_updates(self) -> Result<mpsc::UnboundedSender<SubscriptionUpdate>, Error> {
+    async fn fetch_updates(
+        self,
+    ) -> Result<mpsc::UnboundedSender<super::watchlist::WatchListUpdate<T>>, Error> {
         let (subscriptions_updates_sender, mut subscriptions_updates_receiver) =
-            mpsc::unbounded_channel::<SubscriptionUpdate>();
+            mpsc::unbounded_channel();
 
         let watchlist = self.watchlist.clone();
         tokio::task::spawn(async move {
             info!("starting subscriptions updates handler");
             while let Some(upd) = subscriptions_updates_receiver.recv().await {
-                if let Err(err) = watchlist.write().await.on_update(upd).await {
+                if let Err(err) = watchlist.write().await.on_update(&upd) {
                     error!("error while updating watchlist: {:?}", err);
                 }
             }
@@ -82,17 +83,18 @@ where
 impl<T: WatchListItem + Send + Sync + 'static> PollProvider<T> {
     async fn run(self) {
         loop {
-            let mut watchlist = self.watchlist.write().await;
-            watchlist.delete_old().await;
-            let mut items = watchlist.items.iter().map(|(item, _on_delete)| item);
-            if let Err(error) = self
-                .requester
-                .process(&mut items, &self.resources_repo, &self.last_values)
-                .await
             {
-                error!("error occured while watchlist processing: {:?}", error);
+                let mut watchlist_guard = self.watchlist.write().await;
+                watchlist_guard.delete_old().await;
+                let mut items = watchlist_guard.into_iter();
+                if let Err(error) = self
+                    .requester
+                    .process(&mut items, &self.resources_repo, &self.last_values)
+                    .await
+                {
+                    error!("error occured while watchlist processing: {:?}", error);
+                }
             }
-            drop(watchlist);
             tokio::time::delay_for(self.polling_delay).await;
         }
     }

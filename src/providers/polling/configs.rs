@@ -4,6 +4,7 @@ use super::{TSResourcesRepoImpl, TSUpdatesProviderLastValues};
 use crate::error::Error;
 use crate::models::ConfigFile;
 use async_trait::async_trait;
+use futures::stream::{self, StreamExt, TryStreamExt};
 use reqwest::{Client, ClientBuilder};
 use std::time::Duration;
 use wavesexchange_log::{debug, error};
@@ -91,16 +92,14 @@ impl Requester<ConfigFile> for ConfigRequester {
         resources_repo: &TSResourcesRepoImpl,
         last_values: &TSUpdatesProviderLastValues,
     ) -> Result<(), Error> {
-        let watchlist_processing = items
-            .into_iter()
-            .map(|config_file| async move {
+        stream::iter(items)
+            .map(Ok)
+            .try_for_each_concurrent(5, |config_file| async move {
                 let current_value = self.get(config_file).await?;
                 watchlist_process(config_file, current_value, resources_repo, last_values).await?;
                 Ok::<(), Error>(())
             })
-            .collect::<Vec<_>>();
-
-        futures::future::try_join_all(watchlist_processing).await?;
+            .await?;
         Ok(())
     }
 }

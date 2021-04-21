@@ -1,4 +1,5 @@
 use super::{TSResourcesRepoImpl, TSUpdatesProviderLastValues};
+use crate::metrics::{WATCHLISTS_SUBSCRIPTIONS, WATCHLISTS_TOPICS};
 use crate::models::Topic;
 use crate::subscriptions::SubscriptionUpdate;
 use crate::{error::Error, resources::ResourcesRepo};
@@ -7,48 +8,71 @@ use std::{collections::HashMap, hash::Hash};
 
 #[derive(Debug)]
 pub struct WatchList<T: WatchListItem> {
-    pub items: HashMap<T, OnDelete>,
+    items: HashMap<T, i64>,
+    deletable_items: HashMap<T, Instant>,
     last_values: TSUpdatesProviderLastValues,
     repo: TSResourcesRepoImpl,
     delete_timeout: Duration,
-}
-
-#[derive(Debug)]
-pub struct OnDelete {
-    pub delete_flag: bool,
-    pub on_time: Instant,
-}
-
-impl OnDelete {
-    fn new() -> Self {
-        Self {
-            delete_flag: false,
-            on_time: Instant::now(),
-        }
-    }
-
-    fn delete(delete_timeout: Duration) -> Self {
-        Self {
-            delete_flag: true,
-            on_time: Instant::now() + delete_timeout,
-        }
-    }
-
-    fn time_to_delete(&self, now: Instant) -> bool {
-        self.delete_flag && now > self.on_time
-    }
-
-    fn not_delete(&mut self) {
-        if self.delete_flag {
-            self.delete_flag = false
-        }
-    }
+    type_name: String,
 }
 
 pub trait WatchListItem: Eq + Hash + Into<Topic> + MaybeFromTopic + ToString + Clone {}
 
+#[derive(Debug, Clone)]
+pub enum WatchListUpdate<T: WatchListItem> {
+    New { item: T, subscribers_count: i64 },
+    Change { item: T, subscribers_count: i64 },
+    Delete { item: T },
+}
+
+pub trait MaybeFromUpdate: std::fmt::Debug + Send + Sync {
+    fn maybe_from_update(update: &SubscriptionUpdate) -> Option<Self>
+    where
+        Self: Sized;
+}
+
+impl<T: WatchListItem + std::fmt::Debug + Send + Sync> MaybeFromUpdate for WatchListUpdate<T> {
+    fn maybe_from_update(update: &SubscriptionUpdate) -> Option<Self> {
+        match update {
+            SubscriptionUpdate::New {
+                topic,
+                subscribers_count,
+            } => {
+                if let Some(item) = T::maybe_item(topic) {
+                    Some(WatchListUpdate::New {
+                        item,
+                        subscribers_count: *subscribers_count,
+                    })
+                } else {
+                    None
+                }
+            }
+            SubscriptionUpdate::Change {
+                topic,
+                subscribers_count,
+            } => {
+                if let Some(item) = T::maybe_item(topic) {
+                    Some(WatchListUpdate::Change {
+                        item,
+                        subscribers_count: *subscribers_count,
+                    })
+                } else {
+                    None
+                }
+            }
+            SubscriptionUpdate::Delete { topic } => {
+                if let Some(item) = T::maybe_item(topic) {
+                    Some(WatchListUpdate::Delete { item })
+                } else {
+                    None
+                }
+            }
+        }
+    }
+}
+
 pub trait MaybeFromTopic: Sized {
-    fn maybe_item(topic: Topic) -> Option<Self>;
+    fn maybe_item(topic: &Topic) -> Option<Self>;
 }
 
 impl<T: WatchListItem> WatchList<T> {
@@ -58,40 +82,65 @@ impl<T: WatchListItem> WatchList<T> {
         delete_timeout: Duration,
     ) -> Self {
         let items = HashMap::new();
+        let deletable_items = HashMap::new();
+        let type_name = std::any::type_name::<T>().to_string();
         Self {
             repo,
             items,
             last_values,
             delete_timeout,
+            type_name,
+            deletable_items,
         }
     }
 
-    pub async fn on_update(&mut self, update: SubscriptionUpdate) -> Result<(), Error> {
+    pub fn on_update(&mut self, update: &WatchListUpdate<T>) -> Result<(), Error> {
         match update {
-            SubscriptionUpdate::New { topic } => {
-                if let Some(item) = T::maybe_item(topic) {
-                    self.items.insert(item, OnDelete::new());
-                }
-            }
-            SubscriptionUpdate::Increment { topic } => {
-                if let Some(item) = T::maybe_item(topic) {
-                    if let Some(on_delete) = self.items.get_mut(&item) {
-                        on_delete.not_delete()
-                    } else {
-                        self.items.insert(item, OnDelete::new());
-                    }
-                }
-            }
-            SubscriptionUpdate::Decrement {
-                topic,
+            WatchListUpdate::New {
+                item,
                 subscribers_count,
             } => {
-                if let Some(item) = T::maybe_item(topic) {
-                    if subscribers_count == 0 {
-                        if let Some(on_delete) = self.items.get_mut(&item) {
-                            *on_delete = OnDelete::delete(self.delete_timeout);
-                        }
+                self.deletable_items.remove(item);
+                self.items.insert(item.to_owned(), *subscribers_count);
+                WATCHLISTS_TOPICS
+                    .with_label_values(&[&self.type_name])
+                    .inc();
+                WATCHLISTS_SUBSCRIPTIONS
+                    .with_label_values(&[&self.type_name])
+                    .add(*subscribers_count);
+            }
+            WatchListUpdate::Change {
+                item,
+                subscribers_count,
+            } => {
+                if let Some(current_count) = self.items.get_mut(item) {
+                    if current_count != subscribers_count {
+                        let subscriptions_diff = *subscribers_count - *current_count;
+                        *current_count = *subscribers_count;
+                        WATCHLISTS_SUBSCRIPTIONS
+                            .with_label_values(&[&self.type_name])
+                            .add(subscriptions_diff);
                     }
+                } else {
+                    self.deletable_items.remove(item);
+                    self.items.insert(item.to_owned(), *subscribers_count);
+                    WATCHLISTS_TOPICS
+                        .with_label_values(&[&self.type_name])
+                        .inc();
+                    WATCHLISTS_SUBSCRIPTIONS
+                        .with_label_values(&[&self.type_name])
+                        .add(*subscribers_count);
+                }
+            }
+            WatchListUpdate::Delete { item } => {
+                if let Some(current_count) = self.items.get_mut(item) {
+                    WATCHLISTS_SUBSCRIPTIONS
+                        .with_label_values(&[&self.type_name])
+                        .sub(*current_count);
+                    *current_count = 0;
+                    let delete_timestamp = Instant::now() + self.delete_timeout;
+                    self.deletable_items
+                        .insert(item.to_owned(), delete_timestamp);
                 }
             }
         }
@@ -101,10 +150,10 @@ impl<T: WatchListItem> WatchList<T> {
     pub async fn delete_old(&mut self) {
         let now = Instant::now();
         let keys = self
-            .items
+            .deletable_items
             .iter()
-            .filter_map(|(item, on_delete)| {
-                if on_delete.time_to_delete(now) {
+            .filter_map(|(item, delete_timestamp)| {
+                if delete_timestamp < &now {
                     Some(item.clone())
                 } else {
                     None
@@ -113,8 +162,28 @@ impl<T: WatchListItem> WatchList<T> {
             .collect::<Vec<_>>();
         for item in keys {
             self.items.remove(&item);
+            WATCHLISTS_TOPICS
+                .with_label_values(&[&self.type_name])
+                .dec();
+            self.deletable_items.remove(&item);
             self.last_values.write().await.remove(&item.to_string());
             let _ = self.repo.del(T::into(item));
         }
+    }
+
+    pub fn contains_key(&self, key: &T) -> bool {
+        self.items.contains_key(key)
+    }
+}
+
+impl<'a, T> IntoIterator for &'a WatchList<T>
+where
+    T: WatchListItem,
+{
+    type Item = &'a T;
+    type IntoIter = std::collections::hash_map::Keys<'a, T, i64>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.items.keys()
     }
 }

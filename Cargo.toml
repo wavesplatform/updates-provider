@@ -19,10 +19,19 @@ serde_json = "1.0"
 thiserror = "1.0"
 tokio = { version = "=0.2.24", features = ["full"] }
 url = "2.2"
-wavesexchange_log = { git = "https://github.com/waves-exchange/wavesexchange-rs", version = "0.1" }
 percent-encoding = "2.1"
-waves-protobuf-schemas = { git = "https://github.com/wavesplatform/protobuf-schemas", branch = "blockchain-updates-from-1.2.6" }
+waves-protobuf-schemas = { git = "https://github.com/wavesplatform/protobuf-schemas", rev = "ac1aeb7" }
 tonic = "0.2"
+sha3 = "0.8"
+blake2 = "0.8"
+bs58 = "0.3"
+diesel = { version = "1.4.5", features = ["postgres", "r2d2", "chrono", "numeric", "serde_json"] }
+prost = "0.6.1"
+prometheus = "0.12"
+lazy_static = "1.4"
+warp = "0.2"
+wavesexchange_log = { git = "https://github.com/waves-exchange/wavesexchange-rs", tag = "wavesexchange_log/0.2.0" }
+wavesexchange_warp = { git = "https://github.com/waves-exchange/wavesexchange-rs", tag = "wavesexchange_warp/0.7.0" }
 
 [[bin]]
 name = "service"
