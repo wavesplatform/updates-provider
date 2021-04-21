@@ -145,7 +145,7 @@ pub fn load_configs_updater() -> Result<providers::polling::configs::Config, Err
 }
 
 pub fn load_states_updater() -> Result<providers::polling::states::Config, Error> {
-    let flat_config = envy::prefixed("STATES_UPDATER__").from_env::<FlatStatesUpdaterConfig>()?;
+    let flat_config = envy::prefixed("STATE_UPDATER__").from_env::<FlatStatesUpdaterConfig>()?;
 
     Ok(providers::polling::states::Config {
         base_url: flat_config.base_url,
@@ -167,7 +167,7 @@ pub fn load_test_resources_updater() -> Result<providers::polling::test_resource
 }
 
 pub fn load_blockchain() -> Result<providers::blockchain::Config, Error> {
-    let flat_config = envy::prefixed("NODE_UPDATER__").from_env::<FlatBlockchainUpdaterConfig>()?;
+    let flat_config = envy::prefixed("BLOCKCHAIN_UPDATES__").from_env::<FlatBlockchainUpdaterConfig>()?;
 
     Ok(providers::blockchain::Config {
         updates_url: flat_config.blockchain_updates_node_url,
