@@ -11,6 +11,10 @@ fn default_delete_timeout() -> u64 {
     60
 }
 
+fn default_state_batch_size() -> usize {
+    100
+}
+
 #[derive(Deserialize)]
 pub struct RedisConfig {
     pub host: String,
@@ -41,6 +45,8 @@ struct FlatStatesUpdaterConfig {
     pub polling_delay: u64,
     #[serde(default = "default_delete_timeout")]
     pub delete_timeout_secs: u64,
+    #[serde(default = "default_state_batch_size")]
+    pub batch_size: usize,
 }
 
 #[derive(Deserialize)]
@@ -84,6 +90,7 @@ pub fn load_states_updater() -> Result<providers::states::Config, Error> {
         base_url: flat_config.base_url,
         polling_delay: Duration::from_secs(flat_config.polling_delay),
         delete_timeout: Duration::from_secs(flat_config.delete_timeout_secs),
+        batch_size: flat_config.batch_size,
     })
 }
 

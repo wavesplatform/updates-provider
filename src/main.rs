@@ -53,6 +53,7 @@ async fn main() -> Result<(), Error> {
     // States
     let states_requester = Box::new(providers::states::StateRequester::new(
         states_updater_config.base_url,
+        states_updater_config.batch_size,
     ));
     let states_updates_provider = providers::Provider::new(
         states_requester,
