@@ -5,10 +5,19 @@ include:
   - project: 'we-private/backend/common-ci'
     ref: master
     file: 'ci-functions/deploy_stages.yml'
+  - project: 'we-private/backend/common-ci'
+    ref: master
+    file: 'ci-functions/migrations.yml'
 
 variables:
   APP_NAME: updates-provider
+  DB_NAME: data_entries
+  MIGRATION_UP_CMD: /usr/www/app/diesel migration run
+  MIGRATION_DOWN_CMD: /usr/www/app/diesel migration redo
 
 stages:
   - "Build docker image"
   - "Deploy to stage/test/dev"
+  - "Migrations-INIT"
+  - "Migrations-UP"
+  - "Migrations-DOWN"
