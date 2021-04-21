@@ -11,7 +11,7 @@ include:
 
 variables:
   APP_NAME: updates-provider
-  DB_NAME: data_entries
+  DB_NAME: transactions
   MIGRATION_UP_CMD: /usr/www/app/diesel migration run
   MIGRATION_DOWN_CMD: /usr/www/app/diesel migration redo
 
