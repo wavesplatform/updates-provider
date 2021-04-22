@@ -69,6 +69,7 @@ async fn tokio_main() -> Result<(), Error> {
     let states_requester = Box::new(providers::polling::states::StateRequester::new(
         states_updater_config.base_url,
         states_updater_config.batch_size,
+        states_updater_config.concurrent_requests_count,
     ));
     let states_updates_provider = providers::polling::PollProvider::new(
         states_requester,
