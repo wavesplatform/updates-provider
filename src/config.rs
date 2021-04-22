@@ -27,6 +27,10 @@ fn default_state_batch_size() -> usize {
     100
 }
 
+fn default_state_concurrent_requests_count() -> usize {
+    5
+}
+
 fn default_start_height() -> i32 {
     0
 }
@@ -81,6 +85,8 @@ struct FlatStatesUpdaterConfig {
     pub delete_timeout_secs: u64,
     #[serde(default = "default_state_batch_size")]
     pub batch_size: usize,
+    #[serde(default = "default_state_concurrent_requests_count")]
+    pub concurrent_requests_count: usize,
 }
 
 #[derive(Deserialize)]
@@ -152,6 +158,7 @@ pub fn load_states_updater() -> Result<providers::polling::states::Config, Error
         polling_delay: Duration::from_secs(flat_config.polling_delay),
         delete_timeout: Duration::from_secs(flat_config.delete_timeout_secs),
         batch_size: flat_config.batch_size,
+        concurrent_requests_count: flat_config.concurrent_requests_count,
     })
 }
 

@@ -16,18 +16,25 @@ pub struct Config {
     pub polling_delay: Duration,
     pub delete_timeout: Duration,
     pub batch_size: usize,
+    pub concurrent_requests_count: usize,
 }
 
 pub struct StateRequester {
     base_url: String,
     http_client: Client,
     batch_size: usize,
+    concurrent_requests_count: usize,
 }
 
 impl StateRequester {
-    pub fn new(base_url: impl AsRef<str>, batch_size: usize) -> Self {
+    pub fn new(
+        base_url: impl AsRef<str>,
+        batch_size: usize,
+        concurrent_requests_count: usize,
+    ) -> Self {
         Self {
             batch_size,
+            concurrent_requests_count,
             base_url: base_url.as_ref().to_owned(),
             http_client: ClientBuilder::new()
                 .timeout(std::time::Duration::from_secs(30))
@@ -68,19 +75,23 @@ impl Requester<State> for StateRequester {
         let states = self.group_states(items);
         stream::iter(states)
             .map(Ok)
-            .try_for_each_concurrent(5, |address_key_pairs| async move {
-                let text = self.get(&address_key_pairs).await?;
-                let response = serde_json::from_str::<Response>(&text)?;
-                if address_key_pairs.len() != response.entries.len() {
-                    let err = "error fetching states, invalid response".into();
-                    return Err(Error::ResourceFetchingError(err));
-                };
-                for (state, value) in address_key_pairs.iter().zip(response.entries.iter()) {
-                    let current_value = serde_json::to_string(value)?;
-                    watchlist_process(state, current_value, resources_repo, last_values).await?;
-                }
-                Ok(())
-            })
+            .try_for_each_concurrent(
+                self.concurrent_requests_count,
+                |address_key_pairs| async move {
+                    let text = self.get(&address_key_pairs).await?;
+                    let response = serde_json::from_str::<Response>(&text)?;
+                    if address_key_pairs.len() != response.entries.len() {
+                        let err = "error fetching states, invalid response".into();
+                        return Err(Error::ResourceFetchingError(err));
+                    };
+                    for (state, value) in address_key_pairs.iter().zip(response.entries.iter()) {
+                        let current_value = serde_json::to_string(value)?;
+                        watchlist_process(state, current_value, resources_repo, last_values)
+                            .await?;
+                    }
+                    Ok(())
+                },
+            )
             .await?;
         Ok(())
     }
