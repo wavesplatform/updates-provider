@@ -1,8 +1,10 @@
+use super::super::watchlist_process;
 use super::requester::Requester;
 use super::{TSResourcesRepoImpl, TSUpdatesProviderLastValues};
 use crate::error::Error;
 use crate::models::State;
 use async_trait::async_trait;
+use futures::stream::{self, StreamExt, TryStreamExt};
 use reqwest::{Client, ClientBuilder};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -64,10 +66,10 @@ impl Requester<State> for StateRequester {
         last_values: &TSUpdatesProviderLastValues,
     ) -> Result<(), Error> {
         let states = self.group_states(items);
-        let fs = states
-            .iter()
-            .map(|address_key_pairs| async move {
-                let text = self.get(address_key_pairs).await?;
+        stream::iter(states)
+            .map(Ok)
+            .try_for_each_concurrent(5, |address_key_pairs| async move {
+                let text = self.get(&address_key_pairs).await?;
                 let response = serde_json::from_str::<Response>(&text)?;
                 if address_key_pairs.len() != response.entries.len() {
                     let err = "error fetching states, invalid response".into();
@@ -75,13 +77,11 @@ impl Requester<State> for StateRequester {
                 };
                 for (state, value) in address_key_pairs.iter().zip(response.entries.iter()) {
                     let current_value = serde_json::to_string(value)?;
-                    super::watchlist_process(state, current_value, resources_repo, last_values)
-                        .await?;
+                    watchlist_process(state, current_value, resources_repo, last_values).await?;
                 }
                 Ok(())
             })
-            .collect::<Vec<_>>();
-        futures::future::try_join_all(fs).await?;
+            .await?;
         Ok(())
     }
 }

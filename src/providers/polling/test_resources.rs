@@ -1,9 +1,10 @@
+use super::super::watchlist_process;
 use super::requester::Requester;
-use super::watchlist_process;
 use super::{TSResourcesRepoImpl, TSUpdatesProviderLastValues};
 use crate::error::Error;
 use crate::models::TestResource;
 use async_trait::async_trait;
+use futures::stream::{self, StreamExt, TryStreamExt};
 use reqwest::{Client, ClientBuilder};
 use std::time::Duration;
 use wavesexchange_log::error;
@@ -77,17 +78,15 @@ impl Requester<TestResource> for TestResourcesRequester {
         resources_repo: &TSResourcesRepoImpl,
         last_values: &TSUpdatesProviderLastValues,
     ) -> Result<(), Error> {
-        let watchlist_processing = items
-            .into_iter()
-            .map(|test_resource| async move {
+        stream::iter(items)
+            .map(Ok)
+            .try_for_each_concurrent(5, |test_resource| async move {
                 let current_value = self.get(test_resource).await?;
                 watchlist_process(test_resource, current_value, resources_repo, last_values)
                     .await?;
                 Ok::<(), Error>(())
             })
-            .collect::<Vec<_>>();
-
-        futures::future::try_join_all(watchlist_processing).await?;
+            .await?;
         Ok(())
     }
 }

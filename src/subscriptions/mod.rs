@@ -5,12 +5,8 @@ pub mod repo;
 use crate::error::Error;
 use crate::models::Topic;
 use std::collections::HashMap;
-use std::sync::Arc;
-use tokio::sync::{self, mpsc};
 
-type Subscriptions = HashMap<String, i32>;
-pub type SubscriptionsUpdatesObservers =
-    Arc<sync::RwLock<Vec<mpsc::UnboundedSender<SubscriptionUpdate>>>>;
+type Subscriptions = HashMap<String, i64>;
 
 #[derive(Debug)]
 pub struct Config {
@@ -21,13 +17,14 @@ pub struct Config {
 pub enum SubscriptionUpdate {
     New {
         topic: Topic,
+        subscribers_count: i64,
     },
-    Increment {
+    Change {
         topic: Topic,
+        subscribers_count: i64,
     },
-    Decrement {
+    Delete {
         topic: Topic,
-        subscribers_count: i32,
     },
 }
 

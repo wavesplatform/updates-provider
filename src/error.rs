@@ -1,3 +1,10 @@
+use std::sync::Arc;
+use tokio::sync::mpsc;
+use waves_protobuf_schemas::waves::events::BlockchainUpdated;
+use waves_protobuf_schemas::waves::transaction::Data;
+
+pub type Result<T> = std::result::Result<T, Error>;
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("ConfigLoadError: {0}")]
@@ -13,9 +20,7 @@ pub enum Error {
     #[error("SerdeJsonError: {0}")]
     SerdeJsonError(#[from] serde_json::Error),
     #[error("SendError: {0}")]
-    SendError(
-        #[from] tokio::sync::mpsc::error::SendError<crate::subscriptions::SubscriptionUpdate>,
-    ),
+    SendError(String),
     #[error("ReqwestError: {0}")]
     ReqwestError(#[from] reqwest::Error),
     #[error("UrlParseError: {0}")]
@@ -28,4 +33,42 @@ pub enum Error {
     InvalidConfigPath(String),
     #[error("InvalidStatePath: {0}")]
     InvalidStatePath(String),
+    #[error("GRPCConnectionError: {0}")]
+    GRPCConnectionError(#[from] tonic::transport::Error),
+    #[error("GRPCUriError: {0}")]
+    GRPCUriError(String),
+    #[error("GRPCError: {0}")]
+    GRPCError(#[from] tonic::Status),
+    #[error("SendErrorBlockchainUpdate: {0}")]
+    SendErrorBlockchainUpdate(#[from] mpsc::error::SendError<Arc<BlockchainUpdated>>),
+    #[error("InvalidTransactionType: {0}")]
+    InvalidTransactionType(String),
+    #[error("InvalidTransactionQuery: {0}")]
+    InvalidTransactionQuery(ErrorQuery),
+    #[error("PostgresConnectionError: {0}")]
+    PostgresConnectionError(#[from] diesel::ConnectionError),
+    #[error("DbError: {0}")]
+    DbError(#[from] diesel::result::Error),
+    #[error("GRPCBodyError: {0}")]
+    GRPCBodyError(String),
+    #[error("InvalidDBTransactionType: {0}")]
+    InvalidDBTransactionType(String),
+    #[error("InvalidExchangeData: {0:?}")]
+    InvalidExchangeData(Data),
+    #[error("InvalidOrderType: {0}")]
+    InvalidOrderType(i32),
+    #[error("InvalidOrderVersion: {0}")]
+    InvalidOrderVersion(i32),
+}
+
+#[derive(Debug)]
+pub struct ErrorQuery(pub Option<String>);
+
+impl std::fmt::Display for ErrorQuery {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.0.as_ref() {
+            None => write!(f, "None"),
+            Some(s) => write!(f, "{}", s.to_owned()),
+        }
+    }
 }
