@@ -220,7 +220,7 @@ fn insert_blockchain_updates<'a, U: TransactionsRepo>(
                 BlockchainUpdate::Rollback(block_id) => rollback_block_id = Some(block_id),
             }
         }
-        insert_blocks(conn, blocks)?;
+        inserting(conn, blocks)?;
         if let Some(block_id) = rollback_block_id {
             rollback(conn, block_id)?;
         }
@@ -231,20 +231,13 @@ fn insert_blockchain_updates<'a, U: TransactionsRepo>(
     Ok(())
 }
 
-fn insert_blocks<U: TransactionsRepo>(
+fn inserting<U: TransactionsRepo>(
     conn: &U,
     blocks_updates: Vec<&BlockMicroblockAppend>,
 ) -> Result<()> {
     if !blocks_updates.is_empty() {
         let h = blocks_updates.last().unwrap().height;
-        let blocks = blocks_updates.iter().map(|&b| b.into()).collect();
-        let start = Instant::now();
-        let block_ids = conn.insert_blocks_or_microblocks(&blocks)?;
-        info!(
-            "insert {} blocks in {} ms",
-            blocks.len(),
-            start.elapsed().as_millis()
-        );
+        let block_ids = insert_blocks(conn, &blocks_updates)?;
         let transaction_updates = blocks_updates.iter().map(|block| block.transactions.iter());
         insert_transactions(conn, transaction_updates.clone(), &block_ids)?;
         insert_addresses(conn, transaction_updates)?;
@@ -252,6 +245,21 @@ fn insert_blocks<U: TransactionsRepo>(
         info!("inserted {:?} block", h);
     }
     Ok(())
+}
+
+fn insert_blocks<U: TransactionsRepo>(
+    conn: &U,
+    blocks_updates: &Vec<&BlockMicroblockAppend>,
+) -> Result<Vec<i64>> {
+    let blocks = blocks_updates.iter().map(|&b| b.into()).collect();
+    let start = Instant::now();
+    let block_ids = conn.insert_blocks_or_microblocks(&blocks)?;
+    info!(
+        "insert {} blocks in {} ms",
+        blocks.len(),
+        start.elapsed().as_millis()
+    );
+    Ok(block_ids)
 }
 
 fn insert_transactions<'a, U: TransactionsRepo>(
@@ -271,12 +279,14 @@ fn insert_transactions<'a, U: TransactionsRepo>(
             transactions.push(transaction);
         }
         let start = Instant::now();
-        conn.insert_transactions(&transactions)?;
-        info!(
-            "insert {} txs in {} ms",
-            transactions.len(),
-            start.elapsed().as_millis()
-        );
+        if !transactions.is_empty() {
+            conn.insert_transactions(&transactions)?;
+            info!(
+                "insert {} txs in {} ms",
+                transactions.len(),
+                start.elapsed().as_millis()
+            );
+        }
     }
     Ok(())
 }
@@ -297,13 +307,15 @@ fn insert_addresses<'a, U: TransactionsRepo>(
         .into_iter()
         .chunks_from_iter(ADDRESSES_CHUNK_SIZE);
     for addresses in addresses_chunks {
-        let start = Instant::now();
-        conn.insert_associated_addresses(&addresses)?;
-        info!(
-            "insert {} addresses in {} ms",
-            addresses.len(),
-            start.elapsed().as_millis()
-        );
+        if !addresses.is_empty() {
+            let start = Instant::now();
+            conn.insert_associated_addresses(&addresses)?;
+            info!(
+                "insert {} addresses in {} ms",
+                addresses.len(),
+                start.elapsed().as_millis()
+            );
+        }
     }
     Ok(())
 }
@@ -333,32 +345,25 @@ fn insert_data_entries<U: TransactionsRepo>(
         group.push(item);
     });
 
-    let grouped_updates = grouped_updates.into_iter().collect::<Vec<_>>();
-
-    let grouped_updates_with_uids_superseded_by = grouped_updates
+    let mut grouped_updates = grouped_updates
         .into_iter()
-        .map(|(key, mut group)| {
-            group.sort_by_key(|item| item.uid);
-            let mut last_uid = std::i64::MAX - 1;
-            let mut updates = group
-                .iter_mut()
-                .rev()
-                .map(|cur| {
-                    cur.superseded_by = last_uid;
-                    last_uid = cur.uid;
-                    cur.to_owned()
-                })
-                .collect::<Vec<_>>();
-            updates.sort_by_key(|item| item.uid);
-            (key, updates)
-        })
-        .collect::<Vec<(InsertableDataEntry, Vec<InsertableDataEntry>)>>();
+        .map(|(_k, v)| v)
+        .collect::<Vec<_>>();
+
+    for group in grouped_updates.iter_mut() {
+        group.sort_by_key(|item| item.uid);
+        let mut last_uid = std::i64::MAX - 1;
+        for update in group.iter_mut().rev() {
+            update.superseded_by = last_uid;
+            last_uid = update.uid;
+        }
+    }
 
     // First uid for each asset in a new batch. This value closes superseded_by of previous updates.
-    let first_uids: Vec<DataEntryUpdate> = grouped_updates_with_uids_superseded_by
+    let first_uids: Vec<DataEntryUpdate> = grouped_updates
         .iter()
-        .map(|(_, group)| {
-            let first = group.iter().next().unwrap().clone();
+        .map(|group| {
+            let first = group.first().cloned().unwrap();
             DataEntryUpdate {
                 address: first.address,
                 key: first.key,
@@ -369,10 +374,9 @@ fn insert_data_entries<U: TransactionsRepo>(
 
     conn.close_superseded_by(&first_uids)?;
 
-    let mut updates_with_uids_superseded_by = grouped_updates_with_uids_superseded_by
-        .clone()
+    let mut updates_with_uids_superseded_by = grouped_updates
         .into_iter()
-        .flat_map(|(_, v)| v)
+        .flat_map(|v| v)
         .collect::<Vec<_>>();
 
     updates_with_uids_superseded_by.sort_by_key(|de| de.uid);
