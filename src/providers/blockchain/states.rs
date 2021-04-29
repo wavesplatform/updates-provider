@@ -163,10 +163,10 @@ async fn check_and_maybe_insert(
 ) -> Result<()> {
     let topic = value.clone().into();
     if let None = resources_repo.get(&topic)? {
-        let new_value = if let Some(x) =
+        let new_value = if let Some(ide) =
             transactions_repo.last_data_entry(value.address.to_owned(), value.key.to_owned())?
         {
-            let de = DataEntry::from(x);
+            let de = DataEntry::from(ide);
             serde_json::to_string(&de)?
         } else {
             serde_json::to_string(&None::<DataEntry>)?

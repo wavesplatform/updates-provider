@@ -220,11 +220,17 @@ pub struct DataEntry {
     pub address: String,
     pub key: String,
     pub transaction_id: String,
-    pub value_binary: Option<Vec<u8>>,
-    pub value_bool: Option<bool>,
-    pub value_integer: Option<i64>,
-    pub value_string: Option<String>,
+    pub value: ValueDataEntry,
     pub fragments: Fragments,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(untagged)]
+pub enum ValueDataEntry {
+    Binary(Vec<u8>),
+    Bool(bool),
+    Integer(i64),
+    String(String),
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -470,20 +476,15 @@ impl From<(&waves::events::state_update::DataEntryUpdate, &String)> for DataEntr
         let transaction_id = de.1.to_owned();
         let deu = de.0.data_entry.as_ref().unwrap();
 
-        let mut value_string: Option<String> = None;
-        let mut value_integer: Option<i64> = None;
-        let mut value_bool: Option<bool> = None;
-        let mut value_binary: Option<Vec<u8>> = None;
-
-        match deu.value.as_ref() {
-            Some(value) => match value {
-                Value::IntValue(v) => value_integer = Some(v.to_owned()),
-                Value::BoolValue(v) => value_bool = Some(v.to_owned()),
-                Value::BinaryValue(v) => value_binary = Some(v.to_owned()),
-                Value::StringValue(v) => value_string = Some(v.replace("\0", "\\0").to_owned()),
-            },
-            None => {}
-        }
+        let value = match deu.value.as_ref() {
+            Some(Value::IntValue(v)) => ValueDataEntry::Integer(v.to_owned()),
+            Some(Value::BoolValue(v)) => ValueDataEntry::Bool(v.to_owned()),
+            Some(Value::BinaryValue(v)) => ValueDataEntry::Binary(v.to_owned()),
+            Some(Value::StringValue(v)) => {
+                ValueDataEntry::String(v.replace("\0", "\\0").to_owned())
+            }
+            None => ValueDataEntry::String("".to_string()),
+        };
         // nul symbol is badly processed at least by PostgreSQL
         // so escape this for safety
         let key =
@@ -494,25 +495,22 @@ impl From<(&waves::events::state_update::DataEntryUpdate, &String)> for DataEntr
                 .clone()
                 .replace("\0", "\\0");
 
-        let fragments = Fragments::from((&key, &value_string));
+        let fragments = Fragments::from((&key, &value));
 
         Self {
             address: bs58::encode(&de.0.address).into_string(),
             key,
             transaction_id,
-            value_binary,
-            value_bool,
-            value_integer,
-            value_string,
+            value,
             fragments,
         }
     }
 }
 
-impl From<(&String, &Option<String>)> for Fragments {
-    fn from(v: (&String, &Option<String>)) -> Self {
+impl From<(&String, &ValueDataEntry)> for Fragments {
+    fn from(v: (&String, &ValueDataEntry)) -> Self {
         let key = split_fragments(v.0);
-        let value = if let Some(s) = v.1 {
+        let value = if let ValueDataEntry::String(s) = v.1 {
             split_fragments(s)
         } else {
             vec![]
@@ -559,16 +557,32 @@ fn split_fragments(value: &String) -> Vec<DataEntryFragment> {
 }
 
 impl From<InsertableDataEntry> for DataEntry {
-    fn from(value: InsertableDataEntry) -> Self {
-        let fragments = Fragments::from((&value.key, &value.value_string));
+    fn from(ide: InsertableDataEntry) -> Self {
+        let value = match ide {
+            InsertableDataEntry {
+                value_binary: Some(v),
+                ..
+            } => ValueDataEntry::Binary(v),
+            InsertableDataEntry {
+                value_bool: Some(v),
+                ..
+            } => ValueDataEntry::Bool(v),
+            InsertableDataEntry {
+                value_integer: Some(v),
+                ..
+            } => ValueDataEntry::Integer(v),
+            InsertableDataEntry {
+                value_string: Some(v),
+                ..
+            } => ValueDataEntry::String(v),
+            _ => panic!("InsertableDataEntry without value: {:?}", ide),
+        };
+        let fragments = Fragments::from((&ide.key, &value));
         Self {
-            address: value.address,
-            key: value.key,
-            transaction_id: value.transaction_id,
-            value_binary: value.value_binary,
-            value_bool: value.value_bool,
-            value_integer: value.value_integer,
-            value_string: value.value_string,
+            address: ide.address,
+            key: ide.key,
+            transaction_id: ide.transaction_id,
+            value,
             fragments,
         }
     }
@@ -577,14 +591,34 @@ impl From<InsertableDataEntry> for DataEntry {
 // from data_entry, index and block_id
 impl From<(&DataEntry, i64, i64)> for InsertableDataEntry {
     fn from(value: (&DataEntry, i64, i64)) -> Self {
+        let value_binary = if let ValueDataEntry::Binary(v) = &value.0.value {
+            Some(v.to_owned())
+        } else {
+            None
+        };
+        let value_bool = if let ValueDataEntry::Bool(v) = &value.0.value {
+            Some(v.to_owned())
+        } else {
+            None
+        };
+        let value_integer = if let ValueDataEntry::Integer(v) = &value.0.value {
+            Some(v.to_owned())
+        } else {
+            None
+        };
+        let value_string = if let ValueDataEntry::String(v) = &value.0.value {
+            Some(v.to_owned())
+        } else {
+            None
+        };
         Self {
             address: value.0.address.to_owned(),
             key: value.0.key.to_owned(),
             transaction_id: value.0.transaction_id.to_owned(),
-            value_binary: value.0.value_binary.to_owned(),
-            value_bool: value.0.value_bool,
-            value_integer: value.0.value_integer,
-            value_string: value.0.value_string.to_owned(),
+            value_binary,
+            value_bool,
+            value_integer,
+            value_string,
             block_uid: value.2,
             uid: value.1,
             superseded_by: -1,
