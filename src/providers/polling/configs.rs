@@ -90,7 +90,7 @@ impl Requester<ConfigFile> for ConfigRequester {
         &self,
         items: I,
         resources_repo: &TSResourcesRepoImpl,
-        last_values: &TSUpdatesProviderLastValues,
+        last_values: &TSUpdatesProviderLastValues<ConfigFile>,
     ) -> Result<(), Error> {
         stream::iter(items)
             .map(Ok)

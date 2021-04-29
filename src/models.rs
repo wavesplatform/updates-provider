@@ -189,8 +189,8 @@ impl WatchListItem for ConfigFile {}
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct State {
-    address: String,
-    key: String,
+    pub address: String,
+    pub key: String,
 }
 
 impl ToString for State {

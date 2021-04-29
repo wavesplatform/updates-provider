@@ -9,7 +9,7 @@ pub trait Requester<T: 'static>: Send + Sync {
         &self,
         items: I,
         resources_repo: &TSResourcesRepoImpl,
-        last_values: &TSUpdatesProviderLastValues,
+        last_values: &TSUpdatesProviderLastValues<T>,
     ) -> Result<(), Error>;
 }
 
@@ -19,17 +19,17 @@ pub trait ErasedRequester<T>: Send + Sync {
         &self,
         items: &mut (dyn Iterator<Item = &T> + Send + Sync),
         resources_repo: &TSResourcesRepoImpl,
-        last_values: &TSUpdatesProviderLastValues,
+        last_values: &TSUpdatesProviderLastValues<T>,
     ) -> Result<(), Error>;
 }
 
 #[async_trait]
-impl<T: 'static> Requester<T> for Box<dyn ErasedRequester<T>> {
+impl<T: 'static + Send + Sync> Requester<T> for Box<dyn ErasedRequester<T>> {
     async fn process<'a, I: Iterator<Item = &'a T> + Send + Sync>(
         &self,
         mut items: I,
         resources_repo: &TSResourcesRepoImpl,
-        last_values: &TSUpdatesProviderLastValues,
+        last_values: &TSUpdatesProviderLastValues<T>,
     ) -> Result<(), Error> {
         (**self)
             .erased_process(&mut items, resources_repo, last_values)
@@ -38,7 +38,7 @@ impl<T: 'static> Requester<T> for Box<dyn ErasedRequester<T>> {
 }
 
 #[async_trait]
-impl<R, T: 'static> ErasedRequester<T> for R
+impl<R, T: 'static + Send + Sync> ErasedRequester<T> for R
 where
     R: Requester<T> + Send + Sync,
 {
@@ -46,7 +46,7 @@ where
         &self,
         items: &mut (dyn Iterator<Item = &T> + Send + Sync),
         resources_repo: &TSResourcesRepoImpl,
-        last_values: &TSUpdatesProviderLastValues,
+        last_values: &TSUpdatesProviderLastValues<T>,
     ) -> Result<(), Error> {
         self.process(items, resources_repo, last_values).await
     }

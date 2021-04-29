@@ -52,6 +52,10 @@ fn default_pgport() -> u16 {
     5432
 }
 
+fn default_pg_pool_size() -> u8 {
+    4
+}
+
 #[derive(Deserialize)]
 pub struct PostgresConfig {
     pub host: String,
@@ -60,6 +64,8 @@ pub struct PostgresConfig {
     pub database: String,
     pub user: String,
     pub password: String,
+    #[serde(default = "default_pg_pool_size")]
+    pub pool_size: u8,
 }
 
 #[derive(Deserialize)]
@@ -150,17 +156,17 @@ pub fn load_configs_updater() -> Result<providers::polling::configs::Config, Err
     })
 }
 
-pub fn load_states_updater() -> Result<providers::polling::states::Config, Error> {
-    let flat_config = envy::prefixed("STATE_UPDATER__").from_env::<FlatStatesUpdaterConfig>()?;
+// pub fn load_states_updater() -> Result<providers::blockchain::states::Config, Error> {
+//     let flat_config = envy::prefixed("STATE_UPDATER__").from_env::<FlatStatesUpdaterConfig>()?;
 
-    Ok(providers::polling::states::Config {
-        base_url: flat_config.base_url,
-        polling_delay: Duration::from_secs(flat_config.polling_delay),
-        delete_timeout: Duration::from_secs(flat_config.delete_timeout_secs),
-        batch_size: flat_config.batch_size,
-        concurrent_requests_count: flat_config.concurrent_requests_count,
-    })
-}
+//     Ok(providers::polling::states::Config {
+//         base_url: flat_config.base_url,
+//         polling_delay: Duration::from_secs(flat_config.polling_delay),
+//         delete_timeout: Duration::from_secs(flat_config.delete_timeout_secs),
+//         batch_size: flat_config.batch_size,
+//         concurrent_requests_count: flat_config.concurrent_requests_count,
+//     })
+// }
 
 pub fn load_test_resources_updater() -> Result<providers::polling::test_resources::Config, Error> {
     let flat_config =
@@ -174,7 +180,8 @@ pub fn load_test_resources_updater() -> Result<providers::polling::test_resource
 }
 
 pub fn load_blockchain() -> Result<providers::blockchain::Config, Error> {
-    let flat_config = envy::prefixed("BLOCKCHAIN_UPDATES__").from_env::<FlatBlockchainUpdaterConfig>()?;
+    let flat_config =
+        envy::prefixed("BLOCKCHAIN_UPDATES__").from_env::<FlatBlockchainUpdaterConfig>()?;
 
     Ok(providers::blockchain::Config {
         updates_url: flat_config.url,

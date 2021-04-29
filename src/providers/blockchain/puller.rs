@@ -53,7 +53,9 @@ impl Puller {
                 if message.height > self.last_height {
                     let value = Arc::new(message);
                     for ref mut tx in self.subscribers.iter_mut() {
-                        tx.send(value.clone()).await?
+                        tx.send(value.clone())
+                            .await
+                            .map_err(|_| Error::SendErrorBlockchainUpdated)?
                     }
                 }
             }

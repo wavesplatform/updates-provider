@@ -76,7 +76,7 @@ impl Requester<TestResource> for TestResourcesRequester {
         &self,
         items: I,
         resources_repo: &TSResourcesRepoImpl,
-        last_values: &TSUpdatesProviderLastValues,
+        last_values: &TSUpdatesProviderLastValues<TestResource>,
     ) -> Result<(), Error> {
         stream::iter(items)
             .map(Ok)

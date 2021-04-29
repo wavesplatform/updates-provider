@@ -1,11 +1,10 @@
 pub mod configs;
 pub mod requester;
-pub mod states;
 pub mod test_resources;
 
 use super::watchlist::{WatchList, WatchListItem};
+use super::{TSResourcesRepoImpl, TSUpdatesProviderLastValues};
 use crate::error::Error;
-use crate::resources::repo::ResourcesRepoImpl;
 use async_trait::async_trait;
 use requester::{ErasedRequester, Requester};
 use std::collections::HashMap;
@@ -14,16 +13,12 @@ use std::time::Duration;
 use tokio::sync::{mpsc, RwLock};
 use wavesexchange_log::{error, info};
 
-type TSResourcesRepoImpl = Arc<ResourcesRepoImpl>;
-type TSUpdatesProviderLastValues = Arc<RwLock<HashMap<String, String>>>;
-type TSWatchList<T> = Arc<RwLock<WatchList<T>>>;
-
 pub struct PollProvider<T: WatchListItem> {
     requester: Box<dyn ErasedRequester<T>>,
     resources_repo: TSResourcesRepoImpl,
     polling_delay: Duration,
-    watchlist: TSWatchList<T>,
-    last_values: TSUpdatesProviderLastValues,
+    watchlist: Arc<RwLock<WatchList<T>>>,
+    last_values: TSUpdatesProviderLastValues<T>,
 }
 
 impl<T: WatchListItem> PollProvider<T> {

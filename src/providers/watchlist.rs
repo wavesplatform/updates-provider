@@ -10,7 +10,7 @@ use std::{collections::HashMap, hash::Hash};
 pub struct WatchList<T: WatchListItem> {
     items: HashMap<T, i64>,
     deletable_items: HashMap<T, Instant>,
-    last_values: TSUpdatesProviderLastValues,
+    last_values: TSUpdatesProviderLastValues<T>,
     repo: TSResourcesRepoImpl,
     delete_timeout: Duration,
     type_name: String,
@@ -78,7 +78,7 @@ pub trait MaybeFromTopic: Sized {
 impl<T: WatchListItem> WatchList<T> {
     pub fn new(
         repo: TSResourcesRepoImpl,
-        last_values: TSUpdatesProviderLastValues,
+        last_values: TSUpdatesProviderLastValues<T>,
         delete_timeout: Duration,
     ) -> Self {
         let items = HashMap::new();
@@ -166,7 +166,7 @@ impl<T: WatchListItem> WatchList<T> {
                 .with_label_values(&[&self.type_name])
                 .dec();
             self.deletable_items.remove(&item);
-            self.last_values.write().await.remove(&item.to_string());
+            self.last_values.write().await.remove(&item);
             let _ = self.repo.del(T::into(item));
         }
     }

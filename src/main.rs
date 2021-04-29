@@ -12,13 +12,13 @@ mod resources;
 mod schema;
 mod subscriptions;
 mod transactions;
+mod utils;
 
 use error::Error;
 use providers::{blockchain, UpdatesProvider};
 use r2d2::Pool;
 use r2d2_redis::{r2d2, redis, RedisConnectionManager};
 use std::sync::Arc;
-use tokio::sync::Mutex;
 use transactions::repo::TransactionsRepoImpl;
 use wavesexchange_log::{error, info};
 
@@ -35,7 +35,7 @@ async fn tokio_main() -> Result<(), Error> {
     let postgres_config = config::load_postgres()?;
     let subscriptions_config = config::load_subscriptions()?;
     let configs_updater_config = config::load_configs_updater()?;
-    let states_updater_config = config::load_states_updater()?;
+    // let states_updater_config = config::load_states_updater()?;
     let test_resources_config = config::load_test_resources_updater()?;
     let blockchain_config = config::load_blockchain()?;
     let server_config = config::load_api()?;
@@ -50,8 +50,8 @@ async fn tokio_main() -> Result<(), Error> {
     let resources_repo = resources::repo::ResourcesRepoImpl::new(redis_pool.clone());
     let resources_repo = Arc::new(resources_repo);
 
-    let conn = db::new(&postgres_config)?;
-    let transactions_repo = Arc::new(Mutex::new(TransactionsRepoImpl::new(conn)));
+    let pool = db::pool(&postgres_config)?;
+    let transactions_repo = Arc::new(TransactionsRepoImpl::new(pool));
 
     // Configs
     let configs_requester = Box::new(providers::polling::configs::ConfigRequester::new(
@@ -64,20 +64,6 @@ async fn tokio_main() -> Result<(), Error> {
         resources_repo.clone(),
     );
     let configs_subscriptions_updates_sender = configs_updates_provider.fetch_updates().await?;
-
-    // States
-    let states_requester = Box::new(providers::polling::states::StateRequester::new(
-        states_updater_config.base_url,
-        states_updater_config.batch_size,
-        states_updater_config.concurrent_requests_count,
-    ));
-    let states_updates_provider = providers::polling::PollProvider::new(
-        states_requester,
-        states_updater_config.polling_delay,
-        states_updater_config.delete_timeout,
-        resources_repo.clone(),
-    );
-    let states_subscriptions_updates_sender = states_updates_provider.fetch_updates().await?;
 
     // Test Resources
     let test_resources_requester = Box::new(
@@ -96,7 +82,7 @@ async fn tokio_main() -> Result<(), Error> {
 
     // Blockchain
     let mut blockchain_puller =
-        blockchain::updates::Puller::new(blockchain_config.updates_url).await?;
+        blockchain::puller::Puller::new(blockchain_config.updates_url).await?;
 
     let blockchain::height::ProviderWithUpdatesSender { tx, mut provider } =
         blockchain::height::Provider::new(resources_repo.clone()).await?;
@@ -110,14 +96,12 @@ async fn tokio_main() -> Result<(), Error> {
         }
     });
 
-    let blockchain::transactions::ProviderReturn {
+    let blockchain::updater::UpdaterReturn {
         tx,
         last_height,
-        provider,
-    } = blockchain::transactions::Provider::new(
-        resources_repo.clone(),
-        blockchain_config.transaction_delete_timeout,
-        transactions_repo,
+        mut updater,
+    } = blockchain::updater::Updater::new(
+        transactions_repo.clone(),
         blockchain_config.updates_buffer_size,
         blockchain_config.transactions_count_threshold,
         blockchain_config.associated_addresses_count_threshold,
@@ -132,9 +116,33 @@ async fn tokio_main() -> Result<(), Error> {
     };
     blockchain_puller.set_last_height(start_from);
 
+    let blockchain::transactions::ProviderReturn { tx, provider } =
+        blockchain::transactions::Provider::new(
+            resources_repo.clone(),
+            blockchain_config.transaction_delete_timeout,
+            transactions_repo.clone(),
+        )
+        .await?;
+
+    updater.add_provider(tx);
+
     let transactions_subscriptions_updates_sender = provider.fetch_updates().await?;
 
-    let blockchain_height_handle = tokio::task::spawn(async move {
+    let blockchain::states::ProviderReturn { tx, provider } = blockchain::states::Provider::new(
+        resources_repo,
+        // todo: change it
+        blockchain_config.transaction_delete_timeout,
+        transactions_repo,
+    )
+    .await?;
+
+    updater.add_provider(tx);
+
+    let states_subscriptions_updates_sender = provider.fetch_updates().await?;
+
+    let blockchain_updater_handle = tokio::spawn(async move { updater.run().await });
+
+    let blockchain_puller_handle = tokio::spawn(async move {
         info!("starting blockchain puller");
         blockchain_puller.run().await
     });
@@ -159,9 +167,9 @@ async fn tokio_main() -> Result<(), Error> {
         subscriptions::pusher::PusherImpl::new(subscriptions_updates_receiver);
 
     subscriptions_updates_pusher.add_observer(configs_subscriptions_updates_sender);
-    subscriptions_updates_pusher.add_observer(states_subscriptions_updates_sender);
     subscriptions_updates_pusher.add_observer(test_resources_subscriptions_updates_sender);
     subscriptions_updates_pusher.add_observer(transactions_subscriptions_updates_sender);
+    subscriptions_updates_pusher.add_observer(states_subscriptions_updates_sender);
 
     let subscriptions_updates_pusher_handle = tokio::spawn(async move {
         info!("starting subscriptions updates pusher");
@@ -171,10 +179,17 @@ async fn tokio_main() -> Result<(), Error> {
     let api_handler = tokio::spawn(async move { api::start(server_config.port).await });
 
     tokio::select! {
-        result = blockchain_height_handle => {
+        result = blockchain_puller_handle => {
             if let Err(e) = result? {
                 let error = Error::from(e);
-                error!("blockchain height return error: {}", error);
+                error!("blockchain puller return error: {}", error);
+                return Err(error);
+            }
+        }
+        result = blockchain_updater_handle => {
+            if let Err(e) = result? {
+                let error = Error::from(e);
+                error!("blockchain updater return error: {}", error);
                 return Err(error);
             }
         }

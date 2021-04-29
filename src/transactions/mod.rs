@@ -1,19 +1,26 @@
 use crate::error::{Error, Result};
-use crate::schema::{associated_addresses, blocks_microblocks, transactions};
+use crate::schema::{associated_addresses, blocks_microblocks, data_entries, transactions};
 use diesel::{
     deserialize::FromSql,
     serialize::{Output, ToSql},
     sql_types::*,
     Insertable, Queryable,
 };
+use serde::Serialize;
 use std::convert::{TryFrom, TryInto};
+use std::hash::{Hash, Hasher};
 use waves_protobuf_schemas::waves;
+use waves_protobuf_schemas::waves::data_transaction_data::data_entry::Value;
 use waves_protobuf_schemas::waves::events::blockchain_updated::append::{
     BlockAppend, Body, MicroBlockAppend,
 };
 use waves_protobuf_schemas::waves::events::blockchain_updated::{Append, Update};
 use waves_protobuf_schemas::waves::events::BlockchainUpdated;
 use waves_protobuf_schemas::waves::transaction::Data;
+
+pub const FRAGMENT_SEPARATOR: &str = "__";
+pub const STRING_DESCRIPTOR: &str = "s";
+pub const INTEGER_DESCRIPTOR: &str = "d";
 
 pub mod exchange;
 pub mod repo;
@@ -180,6 +187,7 @@ pub struct BlockMicroblockAppend {
     time_stamp: Option<i64>,
     pub height: i32,
     pub transactions: Vec<TransactionUpdate>,
+    pub data_entries: Vec<DataEntry>,
 }
 
 #[derive(Debug, Clone)]
@@ -204,8 +212,63 @@ pub struct Amount {
     pub amount: i64,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Address(pub String);
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DataEntry {
+    pub address: String,
+    pub key: String,
+    pub transaction_id: String,
+    pub value_binary: Option<Vec<u8>>,
+    pub value_bool: Option<bool>,
+    pub value_integer: Option<i64>,
+    pub value_string: Option<String>,
+    pub fragments: Fragments,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct Fragments {
+    pub key: Vec<DataEntryFragment>,
+    pub value: Vec<DataEntryFragment>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum DataEntryFragment {
+    String { value: String },
+    Integer { value: i64 },
+}
+
+#[derive(Clone, Debug, Insertable)]
+#[table_name = "data_entries"]
+pub struct DataEntryUpdate {
+    pub superseded_by: i64,
+    pub address: String,
+    pub key: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct DeletedDataEntry {
+    pub uid: i64,
+    pub address: String,
+    pub key: String,
+}
+
+impl PartialEq for DeletedDataEntry {
+    fn eq(&self, other: &DeletedDataEntry) -> bool {
+        (&self.address, &self.key) == (&other.address, &other.key)
+    }
+}
+
+impl Eq for DeletedDataEntry {}
+
+impl Hash for DeletedDataEntry {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.address.hash(state);
+        self.key.hash(state);
+    }
+}
 
 #[derive(Clone, Debug)]
 pub enum BlockchainUpdate {
@@ -226,6 +289,36 @@ pub struct PrevHandledHeight {
     pub height: i32,
 }
 
+#[derive(Clone, Debug, Insertable, QueryableByName, Queryable)]
+#[table_name = "data_entries"]
+pub struct InsertableDataEntry {
+    pub block_uid: i64,
+    pub transaction_id: String,
+    pub uid: i64,
+    pub superseded_by: i64,
+    pub address: String,
+    pub key: String,
+    pub value_binary: Option<Vec<u8>>,
+    pub value_bool: Option<bool>,
+    pub value_integer: Option<i64>,
+    pub value_string: Option<String>,
+}
+
+impl PartialEq for InsertableDataEntry {
+    fn eq(&self, other: &InsertableDataEntry) -> bool {
+        (&self.address, &self.key) == (&other.address, &other.key)
+    }
+}
+
+impl Eq for InsertableDataEntry {}
+
+impl Hash for InsertableDataEntry {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.address.hash(state);
+        self.key.hash(state);
+    }
+}
+
 pub trait TransactionsRepo {
     fn transaction(&self, f: impl FnOnce() -> Result<()>) -> Result<()>;
 
@@ -237,7 +330,7 @@ pub trait TransactionsRepo {
 
     fn get_total_block_id(&self) -> Result<Option<String>>;
 
-    // fn get_next_update_uid(&self) -> Result<i64>;
+    fn get_next_update_uid(&self) -> Result<i64>;
 
     fn insert_blocks_or_microblocks(&self, blocks: &Vec<BlockMicroblock>) -> Result<Vec<i64>>;
 
@@ -248,13 +341,13 @@ pub trait TransactionsRepo {
         associated_addresses: &Vec<AssociatedAddress>,
     ) -> Result<()>;
 
-    // fn insert_data_entries(&self, entries: &Vec<InsertableDataEntry>) -> Result<()>;
+    fn insert_data_entries(&self, entries: &Vec<InsertableDataEntry>) -> Result<()>;
 
-    // fn close_superseded_by(&self, updates: &Vec<DataEntryUpdate>) -> Result<()>;
+    fn close_superseded_by(&self, updates: &Vec<DataEntryUpdate>) -> Result<()>;
 
-    // fn reopen_superseded_by(&self, current_superseded_by: &Vec<i64>) -> Result<()>;
+    fn reopen_superseded_by(&self, current_superseded_by: &Vec<i64>) -> Result<()>;
 
-    // fn set_next_update_uid(&self, uid: i64) -> Result<()>;
+    fn set_next_update_uid(&self, uid: i64) -> Result<()>;
 
     fn change_block_id(&self, block_uid: &i64, new_block_id: &str) -> Result<()>;
 
@@ -264,7 +357,7 @@ pub trait TransactionsRepo {
 
     fn rollback_blocks_microblocks(&self, block_uid: &i64) -> Result<()>;
 
-    // fn rollback_data_entries(&self, block_uid: &i64) -> Result<Vec<DeletedDataEntry>>;
+    fn rollback_data_entries(&self, block_uid: &i64) -> Result<Vec<DeletedDataEntry>>;
 
     fn last_transaction_by_address(&self, address: String) -> Result<Option<Transaction>>;
 
@@ -279,6 +372,10 @@ pub trait TransactionsRepo {
         amount_asset: String,
         price_asset: String,
     ) -> Result<Option<Transaction>>;
+
+    fn last_data_entry(&self, address: String, key: String) -> Result<Option<InsertableDataEntry>>;
+
+    fn update_data_entries_block_references(&self, block_uid: &i64) -> Result<()>;
 }
 
 impl TryFrom<std::sync::Arc<BlockchainUpdated>> for BlockchainUpdate {
@@ -289,9 +386,23 @@ impl TryFrom<std::sync::Arc<BlockchainUpdated>> for BlockchainUpdate {
             Some(Update::Append(Append {
                 body,
                 transaction_ids,
+                transaction_state_updates,
                 ..
             })) => {
                 let height = value.height;
+
+                let data_entries = transaction_state_updates
+                    .iter()
+                    .enumerate()
+                    .flat_map::<Vec<DataEntry>, _>(|(idx, su)| {
+                        let transaction_id =
+                            bs58::encode(&transaction_ids.get(idx).unwrap()).into_string();
+                        su.data_entries
+                            .iter()
+                            .map(|de| DataEntry::from((de, &transaction_id)))
+                            .collect()
+                    })
+                    .collect();
 
                 match body {
                     Some(Body::Block(BlockAppend { block, .. })) => {
@@ -313,6 +424,7 @@ impl TryFrom<std::sync::Arc<BlockchainUpdated>> for BlockchainUpdate {
                                 .unwrap_or(None),
                             height,
                             transactions,
+                            data_entries,
                         }))
                     }
                     Some(Body::MicroBlock(MicroBlockAppend { micro_block, .. })) => {
@@ -336,6 +448,7 @@ impl TryFrom<std::sync::Arc<BlockchainUpdated>> for BlockchainUpdate {
                             time_stamp: None,
                             height,
                             transactions,
+                            data_entries,
                         }))
                     }
                     _ => Err(Error::GRPCBodyError("Append body is empty.".to_string())),
@@ -347,6 +460,134 @@ impl TryFrom<std::sync::Arc<BlockchainUpdated>> for BlockchainUpdate {
             _ => Err(Error::GRPCBodyError(
                 "Unknown blockchain update.".to_string(),
             )),
+        }
+    }
+}
+
+// from data_entry with transaction_id
+impl From<(&waves::events::state_update::DataEntryUpdate, &String)> for DataEntry {
+    fn from(de: (&waves::events::state_update::DataEntryUpdate, &String)) -> Self {
+        let transaction_id = de.1.to_owned();
+        let deu = de.0.data_entry.as_ref().unwrap();
+
+        let mut value_string: Option<String> = None;
+        let mut value_integer: Option<i64> = None;
+        let mut value_bool: Option<bool> = None;
+        let mut value_binary: Option<Vec<u8>> = None;
+
+        match deu.value.as_ref() {
+            Some(value) => match value {
+                Value::IntValue(v) => value_integer = Some(v.to_owned()),
+                Value::BoolValue(v) => value_bool = Some(v.to_owned()),
+                Value::BinaryValue(v) => value_binary = Some(v.to_owned()),
+                Value::StringValue(v) => value_string = Some(v.replace("\0", "\\0").to_owned()),
+            },
+            None => {}
+        }
+        // nul symbol is badly processed at least by PostgreSQL
+        // so escape this for safety
+        let key =
+            de.0.data_entry
+                .as_ref()
+                .unwrap()
+                .key
+                .clone()
+                .replace("\0", "\\0");
+
+        let fragments = Fragments::from((&key, &value_string));
+
+        Self {
+            address: bs58::encode(&de.0.address).into_string(),
+            key,
+            transaction_id,
+            value_binary,
+            value_bool,
+            value_integer,
+            value_string,
+            fragments,
+        }
+    }
+}
+
+impl From<(&String, &Option<String>)> for Fragments {
+    fn from(v: (&String, &Option<String>)) -> Self {
+        let key = split_fragments(v.0);
+        let value = if let Some(s) = v.1 {
+            split_fragments(s)
+        } else {
+            vec![]
+        };
+        Self { key, value }
+    }
+}
+
+fn split_fragments(value: &String) -> Vec<DataEntryFragment> {
+    let mut frs = value.split(FRAGMENT_SEPARATOR).into_iter();
+
+    let types = frs
+        .next()
+        .map(|fragment| {
+            fragment
+                .split("%")
+                .into_iter()
+                .skip(1) // first item is empty
+                .collect()
+        })
+        .unwrap_or(vec![]);
+
+    let mut result = vec![];
+    for (t, v) in types.into_iter().zip(frs) {
+        match t {
+            STRING_DESCRIPTOR => {
+                let fragment = DataEntryFragment::String {
+                    value: v.to_string(),
+                };
+                result.push(fragment)
+            }
+            INTEGER_DESCRIPTOR => {
+                if let Some(value) = v.parse().ok() {
+                    let fragment = DataEntryFragment::Integer { value };
+                    result.push(fragment)
+                } else {
+                    break;
+                }
+            }
+            _ => break,
+        }
+    }
+    result
+}
+
+impl From<InsertableDataEntry> for DataEntry {
+    fn from(value: InsertableDataEntry) -> Self {
+        let fragments = Fragments::from((&value.key, &value.value_string));
+        Self {
+            address: value.address,
+            key: value.key,
+            transaction_id: value.transaction_id,
+            value_binary: value.value_binary,
+            value_bool: value.value_bool,
+            value_integer: value.value_integer,
+            value_string: value.value_string,
+            fragments,
+        }
+    }
+}
+
+// from data_entry, index and block_id
+impl From<(&DataEntry, i64, i64)> for InsertableDataEntry {
+    fn from(value: (&DataEntry, i64, i64)) -> Self {
+        Self {
+            address: value.0.address.to_owned(),
+            key: value.0.key.to_owned(),
+            transaction_id: value.0.transaction_id.to_owned(),
+            value_binary: value.0.value_binary.to_owned(),
+            value_bool: value.0.value_bool,
+            value_integer: value.0.value_integer,
+            value_string: value.0.value_string.to_owned(),
+            block_uid: value.2,
+            uid: value.1,
+            superseded_by: -1,
         }
     }
 }
