@@ -54,12 +54,21 @@ impl Provider {
     }
 
     async fn run(&mut self) -> Result<()> {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(15));
         loop {
-            if let Some(blockchain_updates) = self.rx.recv().await {
-                self.process_updates(blockchain_updates).await?;
-                continue;
+            tokio::select! {
+                msg = self.rx.recv() => {
+                    if let Some(blockchain_updates) = msg {
+                        self.process_updates(blockchain_updates).await?;
+                        continue;
+                    }
+                    break;
+                }
+                _ = interval.tick() => {
+                    let mut watchlist_lock = self.watchlist.write().await;
+                    watchlist_lock.delete_old().await;
+                }
             }
-            break;
         }
         Ok(())
     }
