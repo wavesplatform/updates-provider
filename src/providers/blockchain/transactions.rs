@@ -154,7 +154,7 @@ impl Provider {
         current_value: String,
     ) -> Result<()> {
         if self.watchlist.read().await.contains_key(&data) {
-            watchlist_process(
+            Self::watchlist_process(
                 &data,
                 current_value,
                 &self.resources_repo,
@@ -206,6 +206,23 @@ impl UpdatesProvider<models::Transaction> for Provider {
         });
 
         Ok(subscriptions_updates_sender)
+    }
+
+    async fn watchlist_process(
+        data: &models::Transaction,
+        current_value: String,
+        resources_repo: &TSResourcesRepoImpl,
+        last_values: &TSUpdatesProviderLastValues<models::Transaction>,
+    ) -> Result<()> {
+        let resource: Topic = data.clone().into();
+        info!("insert new value {:?}", resource);
+        last_values
+            .write()
+            .await
+            .insert(data.to_owned(), current_value.clone());
+        resources_repo.set(resource.clone(), current_value.clone())?;
+        resources_repo.push(resource, current_value)?;
+        Ok(())
     }
 }
 
@@ -279,21 +296,4 @@ impl From<&TransactionUpdate> for Tx {
             addresses: value.addresses.to_owned(),
         }
     }
-}
-
-pub async fn watchlist_process(
-    data: &models::Transaction,
-    current_value: String,
-    resources_repo: &TSResourcesRepoImpl,
-    last_values: &TSUpdatesProviderLastValues<models::Transaction>,
-) -> Result<()> {
-    let resource: Topic = data.clone().into();
-    info!("insert new value {:?}", resource);
-    last_values
-        .write()
-        .await
-        .insert(data.to_owned(), current_value.clone());
-    resources_repo.set(resource.clone(), current_value.clone())?;
-    resources_repo.push(resource, current_value)?;
-    Ok(())
 }

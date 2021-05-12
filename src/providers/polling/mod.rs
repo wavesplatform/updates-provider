@@ -2,11 +2,12 @@ pub mod configs;
 pub mod requester;
 pub mod test_resources;
 
-use super::watchlist::{WatchList, WatchListItem};
-use super::{TSResourcesRepoImpl, TSUpdatesProviderLastValues};
+use super::watchlist::{WatchList, WatchListItem, WatchListUpdate};
+use super::{TSResourcesRepoImpl, TSUpdatesProviderLastValues, UpdatesProvider};
 use crate::error::Error;
 use async_trait::async_trait;
-use requester::{ErasedRequester, Requester};
+use futures::stream::{self, StreamExt, TryStreamExt};
+use requester::Requester;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -14,7 +15,7 @@ use tokio::sync::{mpsc, RwLock};
 use wavesexchange_log::{error, info};
 
 pub struct PollProvider<T: WatchListItem> {
-    requester: Box<dyn ErasedRequester<T>>,
+    requester: Box<dyn Requester<T>>,
     resources_repo: TSResourcesRepoImpl,
     polling_delay: Duration,
     watchlist: Arc<RwLock<WatchList<T>>>,
@@ -23,7 +24,7 @@ pub struct PollProvider<T: WatchListItem> {
 
 impl<T: WatchListItem> PollProvider<T> {
     pub fn new(
-        requester: Box<(dyn ErasedRequester<T>)>,
+        requester: Box<(dyn Requester<T>)>,
         polling_delay: Duration,
         delete_timeout: Duration,
         resources_repo: TSResourcesRepoImpl,
@@ -45,13 +46,11 @@ impl<T: WatchListItem> PollProvider<T> {
 }
 
 #[async_trait]
-impl<T> super::UpdatesProvider<T> for PollProvider<T>
+impl<T> UpdatesProvider<T> for PollProvider<T>
 where
     T: WatchListItem + Send + Sync + 'static,
 {
-    async fn fetch_updates(
-        self,
-    ) -> Result<mpsc::UnboundedSender<super::watchlist::WatchListUpdate<T>>, Error> {
+    async fn fetch_updates(self) -> Result<mpsc::UnboundedSender<WatchListUpdate<T>>, Error> {
         let (subscriptions_updates_sender, mut subscriptions_updates_receiver) =
             mpsc::unbounded_channel();
 
@@ -81,10 +80,30 @@ impl<T: WatchListItem + Send + Sync + 'static> PollProvider<T> {
             {
                 let mut watchlist_guard = self.watchlist.write().await;
                 watchlist_guard.delete_old().await;
-                let mut items = watchlist_guard.into_iter();
-                if let Err(error) = self
-                    .requester
-                    .process(&mut items, &self.resources_repo, &self.last_values)
+
+                if let Err(error) = stream::iter(watchlist_guard.into_iter())
+                    .map(|data| {
+                        Ok((
+                            data,
+                            &self.requester,
+                            &self.resources_repo,
+                            &self.last_values,
+                        ))
+                    })
+                    .try_for_each_concurrent(
+                        5,
+                        |(data, requester, resources_repo, last_values)| async move {
+                            let current_value = requester.get(data).await?;
+                            Self::watchlist_process(
+                                data,
+                                current_value,
+                                resources_repo,
+                                last_values,
+                            )
+                            .await?;
+                            Ok::<(), Error>(())
+                        },
+                    )
                     .await
                 {
                     error!("error occured while watchlist processing: {:?}", error);
