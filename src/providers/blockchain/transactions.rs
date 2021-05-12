@@ -47,10 +47,10 @@ impl Provider {
             watchlist,
             resources_repo,
             last_values,
-            transactions_repo,
             rx,
+            transactions_repo,
         };
-        Ok(ProviderReturn { provider, tx })
+        Ok(ProviderReturn { tx, provider })
     }
 
     async fn run(&mut self) -> Result<()> {
@@ -92,8 +92,8 @@ impl Provider {
         Ok(())
     }
 
-    async fn check_transactions(&mut self, tx_updates: &Vec<TransactionUpdate>) -> Result<()> {
-        for tx_update in tx_updates.into_iter() {
+    async fn check_transactions(&mut self, tx_updates: &[TransactionUpdate]) -> Result<()> {
+        for tx_update in tx_updates.iter() {
             if let TransactionType::Exchange = tx_update.tx_type {
                 let exchange_data = ExchangeData::try_from(tx_update)?;
                 self.check_transaction_exchange(exchange_data).await?
@@ -131,14 +131,14 @@ impl Provider {
             .amount_asset
             .as_ref()
             .map(|x| x.to_owned())
-            .unwrap_or("WAVES".to_string());
+            .unwrap_or_else(|| "WAVES".to_string());
         let price_asset = exchange_data
             .order1
             .asset_pair
             .price_asset
             .as_ref()
             .map(|x| x.to_owned())
-            .unwrap_or("WAVES".to_string());
+            .unwrap_or_else(|| "WAVES".to_string());
         let data = models::Transaction::Exchange(TransactionExchange {
             amount_asset,
             price_asset,
@@ -215,7 +215,7 @@ async fn check_and_maybe_insert(
     value: models::Transaction,
 ) -> Result<()> {
     let topic = value.clone().into();
-    if let None = resources_repo.get(&topic)? {
+    if resources_repo.get(&topic)?.is_none() {
         let new_value = match value {
             models::Transaction::ByAddress(TransactionByAddress {
                 tx_type: Type::All,

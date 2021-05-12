@@ -53,7 +53,7 @@ impl Updater {
         transactions_count_threshold: usize,
         associated_addresses_count_threshold: usize,
     ) -> Result<UpdaterReturn> {
-        let (tx, rx) = mpsc::channel(updates_buffer_size.clone());
+        let (tx, rx) = mpsc::channel(updates_buffer_size);
         let last_height = {
             match transactions_repo.get_prev_handled_height()? {
                 Some(prev_handled_height) => prev_handled_height.height as i32 + 1,
@@ -208,12 +208,12 @@ impl Updater {
 
 fn insert_blockchain_updates<'a, U: TransactionsRepo>(
     conn: &U,
-    mut blockchain_updates: impl Iterator<Item = &'a BlockchainUpdate>,
+    blockchain_updates: impl Iterator<Item = &'a BlockchainUpdate>,
 ) -> Result<()> {
     conn.transaction(|| {
         let mut blocks = vec![];
         let mut rollback_block_id = None;
-        while let Some(update) = blockchain_updates.next() {
+        for update in blockchain_updates {
             match update {
                 BlockchainUpdate::Block(block) => blocks.push(block),
                 BlockchainUpdate::Microblock(block) => blocks.push(block),
@@ -249,9 +249,9 @@ fn inserting<U: TransactionsRepo>(
 
 fn insert_blocks<U: TransactionsRepo>(
     conn: &U,
-    blocks_updates: &Vec<&BlockMicroblockAppend>,
+    blocks_updates: &[&BlockMicroblockAppend],
 ) -> Result<Vec<i64>> {
-    let blocks = blocks_updates.iter().map(|&b| b.into()).collect();
+    let blocks = blocks_updates.iter().map(|&b| b.into()).collect::<Vec<_>>();
     let start = Instant::now();
     let block_ids = conn.insert_blocks_or_microblocks(&blocks)?;
     info!(
@@ -265,10 +265,10 @@ fn insert_blocks<U: TransactionsRepo>(
 fn insert_transactions<'a, U: TransactionsRepo>(
     conn: &U,
     transaction_updates: impl Iterator<Item = impl Iterator<Item = &'a TransactionUpdate>>,
-    block_ids: &Vec<i64>,
+    block_ids: &[i64],
 ) -> Result<()> {
     let transactions_chunks = block_ids
-        .into_iter()
+        .iter()
         .zip(transaction_updates)
         .flat_map(|(&block_uid, txs)| txs.map(move |tx| (block_uid, tx)))
         .chunks_from_iter(TX_CHUNK_SIZE);
@@ -323,7 +323,7 @@ fn insert_addresses<'a, U: TransactionsRepo>(
 fn insert_data_entries<U: TransactionsRepo>(
     conn: &U,
     blocks_updates: Vec<&BlockMicroblockAppend>,
-    block_ids: &Vec<i64>,
+    block_ids: &[i64],
 ) -> Result<()> {
     let start = Instant::now();
     let next_uid = conn.get_next_update_uid()?;
@@ -341,7 +341,7 @@ fn insert_data_entries<U: TransactionsRepo>(
         HashMap::new();
 
     entries.for_each(|item: InsertableDataEntry| {
-        let group = grouped_updates.entry(item.clone()).or_insert(vec![]);
+        let group = grouped_updates.entry(item.clone()).or_insert_with(Vec::new);
         group.push(item);
     });
 
@@ -376,7 +376,7 @@ fn insert_data_entries<U: TransactionsRepo>(
 
     let mut updates_with_uids_superseded_by = grouped_updates
         .into_iter()
-        .flat_map(|v| v)
+        .flatten()
         .collect::<Vec<_>>();
 
     updates_with_uids_superseded_by.sort_by_key(|de| de.uid);
@@ -391,14 +391,14 @@ fn insert_data_entries<U: TransactionsRepo>(
     Ok(())
 }
 
-fn rollback<U: TransactionsRepo>(conn: &U, block_id: &String) -> Result<()> {
+fn rollback<U: TransactionsRepo>(conn: &U, block_id: &str) -> Result<()> {
     let block_uid = conn.get_block_uid(block_id)?;
     let deletes = conn.rollback_data_entries(&block_uid)?;
 
     let mut grouped_deletes = HashMap::new();
 
     deletes.into_iter().for_each(|item| {
-        let group = grouped_deletes.entry(item.clone()).or_insert(vec![]);
+        let group = grouped_deletes.entry(item.clone()).or_insert_with(Vec::new);
         group.push(item);
     });
 
@@ -412,7 +412,7 @@ fn rollback<U: TransactionsRepo>(conn: &U, block_id: &String) -> Result<()> {
     Ok(())
 }
 
-fn count_txs_addresses(buffer: &Vec<BlockchainUpdate>) -> (usize, usize) {
+fn count_txs_addresses(buffer: &[BlockchainUpdate]) -> (usize, usize) {
     buffer
         .iter()
         .fold((0, 0), |(txs, addresses), block| match block {
@@ -435,18 +435,13 @@ fn count_txs_addresses(buffer: &Vec<BlockchainUpdate>) -> (usize, usize) {
 }
 
 fn squash_microblocks<U: TransactionsRepo>(conn: &U) -> Result<()> {
-    let total_block_id = conn.get_total_block_id()?;
+    if let Some(total_block_id) = conn.get_total_block_id()? {
+        let key_block_uid = conn.get_key_block_uid()?;
 
-    match total_block_id {
-        Some(total_block_id) => {
-            let key_block_uid = conn.get_key_block_uid()?;
-
-            conn.update_data_entries_block_references(&key_block_uid)?;
-            conn.update_transactions_block_references(&key_block_uid)?;
-            conn.delete_microblocks()?;
-            conn.change_block_id(&key_block_uid, &total_block_id)?;
-        }
-        None => (),
+        conn.update_data_entries_block_references(&key_block_uid)?;
+        conn.update_transactions_block_references(&key_block_uid)?;
+        conn.delete_microblocks()?;
+        conn.change_block_id(&key_block_uid, &total_block_id)?;
     }
 
     Ok(())

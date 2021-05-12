@@ -17,11 +17,11 @@ impl PullerImpl {
         redis_client: redis::Client,
         subscriptions_key: String,
     ) -> Self {
-        return Self {
+        Self {
             subscriptions_repo,
             redis_client,
             subscriptions_key,
-        };
+        }
     }
 
     // NB: redis server have to be configured to publish keyspace notifications:
@@ -70,10 +70,12 @@ impl PullerImpl {
             let subscription_pattern = format!("__keyspace*__:{}", self.subscriptions_key);
             pubsub
                 .psubscribe(subscription_pattern.clone())
-                .expect(&format!(
-                    "Cannot subscribe for the redis keyspace updates on pattern {}",
-                    subscription_pattern
-                ));
+                .unwrap_or_else(|_| {
+                    panic!(
+                        "Cannot subscribe for the redis keyspace updates on pattern {}",
+                        subscription_pattern
+                    )
+                });
 
             while let Ok(_msg) = pubsub.get_message() {
                 let updated_subscriptions = subscriptions_repo
@@ -126,13 +128,11 @@ fn subscription_updates_diff(
                                 acc.push(SubscriptionUpdate::Delete { topic })
                             }
                         }
-                    } else {
-                        if subscribers_count > 0 {
-                            acc.push(SubscriptionUpdate::New {
-                                topic,
-                                subscribers_count,
-                            });
-                        }
+                    } else if subscribers_count > 0 {
+                        acc.push(SubscriptionUpdate::New {
+                            topic,
+                            subscribers_count,
+                        });
                     }
                 }
                 Ok(acc)

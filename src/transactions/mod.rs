@@ -338,20 +338,18 @@ pub trait TransactionsRepo {
 
     fn get_next_update_uid(&self) -> Result<i64>;
 
-    fn insert_blocks_or_microblocks(&self, blocks: &Vec<BlockMicroblock>) -> Result<Vec<i64>>;
+    fn insert_blocks_or_microblocks(&self, blocks: &[BlockMicroblock]) -> Result<Vec<i64>>;
 
-    fn insert_transactions(&self, transactions: &Vec<Transaction>) -> Result<()>;
+    fn insert_transactions(&self, transactions: &[Transaction]) -> Result<()>;
 
-    fn insert_associated_addresses(
-        &self,
-        associated_addresses: &Vec<AssociatedAddress>,
-    ) -> Result<()>;
+    fn insert_associated_addresses(&self, associated_addresses: &[AssociatedAddress])
+        -> Result<()>;
 
-    fn insert_data_entries(&self, entries: &Vec<InsertableDataEntry>) -> Result<()>;
+    fn insert_data_entries(&self, entries: &[InsertableDataEntry]) -> Result<()>;
 
-    fn close_superseded_by(&self, updates: &Vec<DataEntryUpdate>) -> Result<()>;
+    fn close_superseded_by(&self, updates: &[DataEntryUpdate]) -> Result<()>;
 
-    fn reopen_superseded_by(&self, current_superseded_by: &Vec<i64>) -> Result<()>;
+    fn reopen_superseded_by(&self, current_superseded_by: &[i64]) -> Result<()>;
 
     fn set_next_update_uid(&self, uid: i64) -> Result<()>;
 
@@ -480,9 +478,7 @@ impl From<(&waves::events::state_update::DataEntryUpdate, &String)> for DataEntr
             Some(Value::IntValue(v)) => ValueDataEntry::Integer(v.to_owned()),
             Some(Value::BoolValue(v)) => ValueDataEntry::Bool(v.to_owned()),
             Some(Value::BinaryValue(v)) => ValueDataEntry::Binary(v.to_owned()),
-            Some(Value::StringValue(v)) => {
-                ValueDataEntry::String(v.replace("\0", "\\0").to_owned())
-            }
+            Some(Value::StringValue(v)) => ValueDataEntry::String(v.replace("\0", "\\0")),
             None => ValueDataEntry::String("".to_string()),
         };
         // nul symbol is badly processed at least by PostgreSQL
@@ -519,19 +515,19 @@ impl From<(&String, &ValueDataEntry)> for Fragments {
     }
 }
 
-fn split_fragments(value: &String) -> Vec<DataEntryFragment> {
-    let mut frs = value.split(FRAGMENT_SEPARATOR).into_iter();
+fn split_fragments(value: &str) -> Vec<DataEntryFragment> {
+    let mut frs = value.split(FRAGMENT_SEPARATOR);
 
     let types = frs
         .next()
         .map(|fragment| {
             fragment
-                .split("%")
+                .split('%')
                 .into_iter()
                 .skip(1) // first item is empty
                 .collect()
         })
-        .unwrap_or(vec![]);
+        .unwrap_or_else(Vec::new);
 
     let mut result = vec![];
     for (t, v) in types.into_iter().zip(frs) {
@@ -543,7 +539,7 @@ fn split_fragments(value: &String) -> Vec<DataEntryFragment> {
                 result.push(fragment)
             }
             INTEGER_DESCRIPTOR => {
-                if let Some(value) = v.parse().ok() {
+                if let Ok(value) = v.parse() {
                     let fragment = DataEntryFragment::Integer { value };
                     result.push(fragment)
                 } else {
@@ -626,8 +622,8 @@ impl From<(&DataEntry, i64, i64)> for InsertableDataEntry {
     }
 }
 
-fn encode_asset(asset: &Vec<u8>) -> String {
-    if asset.len() > 0 {
+fn encode_asset(asset: &[u8]) -> String {
+    if asset.is_empty() {
         bs58::encode(asset).into_string()
     } else {
         "WAVES".to_string()
@@ -716,8 +712,8 @@ impl From<(String, &Address)> for AssociatedAddress {
 fn parse_transactions(
     block_uid: String,
     height: i32,
-    raw_transactions: &Vec<waves::SignedTransaction>,
-    transaction_ids: &Vec<Vec<u8>>,
+    raw_transactions: &[waves::SignedTransaction],
+    transaction_ids: &[Vec<u8>],
 ) -> Vec<TransactionUpdate> {
     transaction_ids
         .iter()
@@ -725,7 +721,7 @@ fn parse_transactions(
         .map(|(tx_id, tx)| {
             let transaction = tx.transaction.as_ref().unwrap();
             let sender_public_key = &transaction.sender_public_key;
-            let mut addresses = if sender_public_key.len() == 0 {
+            let mut addresses = if sender_public_key.is_empty() {
                 vec![]
             } else {
                 let sender = address_from_public_key(sender_public_key, transaction.chain_id as u8);
@@ -769,20 +765,18 @@ impl From<&waves_protobuf_schemas::waves::Amount> for Amount {
     }
 }
 
-pub fn address_from_public_key(pk: &Vec<u8>, chain_id: u8) -> Address {
+pub fn address_from_public_key(pk: &[u8], chain_id: u8) -> Address {
     let pkh = &keccak256(&blake2b256(&pk))[..20];
     address_from_public_key_hash(&pkh.to_vec(), chain_id)
 }
 
-fn address_from_public_key_hash(pkh: &Vec<u8>, chain_id: u8) -> Address {
+fn address_from_public_key_hash(pkh: &[u8], chain_id: u8) -> Address {
     let mut addr = [0u8; 26];
     addr[0] = 1;
     addr[1] = chain_id;
-    for i in 0..20 {
-        addr[i + 2] = pkh[i];
-    }
+    addr[2..22].clone_from_slice(&pkh[..20]);
     let chks = &keccak256(&blake2b256(&addr[..22]))[..4];
-    for (i, v) in chks.into_iter().enumerate() {
+    for (i, v) in chks.iter().enumerate() {
         addr[i + 22] = *v
     }
     Address(bs58::encode(addr).into_string())

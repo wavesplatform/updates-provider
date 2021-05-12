@@ -36,8 +36,8 @@ impl<T: WatchListItem> PollProvider<T> {
         )));
         Self {
             requester,
-            polling_delay,
             resources_repo,
+            polling_delay,
             watchlist,
             last_values,
         }

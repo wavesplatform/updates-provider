@@ -54,10 +54,10 @@ impl TestResourcesRequester {
             .send()
             .await?;
         let status = res.status();
-        let text = res.text().await.map_err(|e| Error::from(e))?;
+        let text = res.text().await?;
 
         if status.is_success() {
-            Ok(text.to_owned())
+            Ok(text)
         } else if status == reqwest::StatusCode::NOT_FOUND {
             Ok("null".to_string())
         } else {

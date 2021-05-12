@@ -37,35 +37,19 @@ impl<T: WatchListItem + std::fmt::Debug + Send + Sync> MaybeFromUpdate for Watch
             SubscriptionUpdate::New {
                 topic,
                 subscribers_count,
-            } => {
-                if let Some(item) = T::maybe_item(topic) {
-                    Some(WatchListUpdate::New {
-                        item,
-                        subscribers_count: *subscribers_count,
-                    })
-                } else {
-                    None
-                }
-            }
+            } => T::maybe_item(topic).map(|item| WatchListUpdate::New {
+                item,
+                subscribers_count: *subscribers_count,
+            }),
             SubscriptionUpdate::Change {
                 topic,
                 subscribers_count,
-            } => {
-                if let Some(item) = T::maybe_item(topic) {
-                    Some(WatchListUpdate::Change {
-                        item,
-                        subscribers_count: *subscribers_count,
-                    })
-                } else {
-                    None
-                }
-            }
+            } => T::maybe_item(topic).map(|item| WatchListUpdate::Change {
+                item,
+                subscribers_count: *subscribers_count,
+            }),
             SubscriptionUpdate::Delete { topic } => {
-                if let Some(item) = T::maybe_item(topic) {
-                    Some(WatchListUpdate::Delete { item })
-                } else {
-                    None
-                }
+                T::maybe_item(topic).map(|item| WatchListUpdate::Delete { item })
             }
         }
     }
@@ -85,12 +69,12 @@ impl<T: WatchListItem> WatchList<T> {
         let deletable_items = HashMap::new();
         let type_name = std::any::type_name::<T>().to_string();
         Self {
-            repo,
             items,
+            deletable_items,
             last_values,
+            repo,
             delete_timeout,
             type_name,
-            deletable_items,
         }
     }
 

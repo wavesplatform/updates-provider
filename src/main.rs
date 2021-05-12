@@ -180,22 +180,19 @@ async fn tokio_main() -> Result<(), Error> {
 
     tokio::select! {
         result = blockchain_puller_handle => {
-            if let Err(e) = result? {
-                let error = Error::from(e);
+            if let Err(error) = result? {
                 error!("blockchain puller return error: {}", error);
                 return Err(error);
             }
         }
         result = blockchain_updater_handle => {
-            if let Err(e) = result? {
-                let error = Error::from(e);
+            if let Err(error) = result? {
                 error!("blockchain updater return error: {}", error);
                 return Err(error);
             }
         }
         result = subscriptions_updates_pusher_handle => {
-            if let Err(e) = result? {
-                let error = Error::from(e);
+            if let Err(error) = result? {
                 error!("subscriptions updates pusher error: {}", error);
                 return Err(error);
             }

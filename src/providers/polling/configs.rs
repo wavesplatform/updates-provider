@@ -68,10 +68,10 @@ impl ConfigRequester {
             .send()
             .await?;
         let status = res.status();
-        let text = res.text().await.map_err(|e| Error::from(e))?;
+        let text = res.text().await?;
         debug!("url = {}, status = {}", config_file_url, status);
         if status.is_success() {
-            Ok(text.to_owned())
+            Ok(text)
         } else if status == reqwest::StatusCode::NOT_FOUND {
             Ok("null".to_string())
         } else {

@@ -72,14 +72,14 @@ impl TransactionsRepo for TransactionsRepoImpl {
             .first(&self.pool.get()?)?)
     }
 
-    fn insert_blocks_or_microblocks(&self, blocks: &Vec<BlockMicroblock>) -> Result<Vec<i64>> {
+    fn insert_blocks_or_microblocks(&self, blocks: &[BlockMicroblock]) -> Result<Vec<i64>> {
         Ok(diesel::insert_into(blocks_microblocks::table)
             .values(blocks)
             .returning(blocks_microblocks::uid)
             .get_results(&self.pool.get()?)?)
     }
 
-    fn insert_transactions(&self, transactions: &Vec<Transaction>) -> Result<()> {
+    fn insert_transactions(&self, transactions: &[Transaction]) -> Result<()> {
         diesel::insert_into(transactions::table)
             .values(transactions)
             .on_conflict_do_nothing()
@@ -89,7 +89,7 @@ impl TransactionsRepo for TransactionsRepoImpl {
 
     fn insert_associated_addresses(
         &self,
-        associated_addresses: &Vec<AssociatedAddress>,
+        associated_addresses: &[AssociatedAddress],
     ) -> Result<()> {
         diesel::insert_into(associated_addresses::table)
             .values(associated_addresses)
@@ -98,7 +98,7 @@ impl TransactionsRepo for TransactionsRepoImpl {
         Ok(())
     }
 
-    fn insert_data_entries(&self, entries: &Vec<InsertableDataEntry>) -> Result<()> {
+    fn insert_data_entries(&self, entries: &[InsertableDataEntry]) -> Result<()> {
         // one data entry has 10 columns
         // pg cannot insert more then 65535
         // so the biggest chunk should be less then 6553
@@ -111,7 +111,7 @@ impl TransactionsRepo for TransactionsRepoImpl {
         Ok(())
     }
 
-    fn close_superseded_by(&self, updates: &Vec<DataEntryUpdate>) -> Result<()> {
+    fn close_superseded_by(&self, updates: &[DataEntryUpdate]) -> Result<()> {
         let mut addresses = vec![];
         let mut keys = vec![];
         let mut superseded_bys = vec![];
@@ -131,7 +131,7 @@ impl TransactionsRepo for TransactionsRepoImpl {
         Ok(())
     }
 
-    fn reopen_superseded_by(&self, current_superseded_by: &Vec<i64>) -> Result<()> {
+    fn reopen_superseded_by(&self, current_superseded_by: &[i64]) -> Result<()> {
         diesel::sql_query("UPDATE data_entries SET superseded_by = $1 FROM (SELECT UNNEST($2) AS superseded_by) AS current WHERE data_entries.superseded_by = current.superseded_by;")
             .bind::<BigInt, _>(MAX_UID)
             .bind::<Array<BigInt>, _>(current_superseded_by)

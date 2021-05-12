@@ -47,10 +47,10 @@ impl Provider {
             watchlist,
             resources_repo,
             last_values,
-            transactions_repo,
             rx,
+            transactions_repo,
         };
-        Ok(ProviderReturn { provider, tx })
+        Ok(ProviderReturn { tx, provider })
     }
 
     async fn run(&mut self) -> Result<()> {
@@ -92,8 +92,8 @@ impl Provider {
         Ok(())
     }
 
-    async fn check_data_entries(&mut self, de_updates: &Vec<DataEntry>) -> Result<()> {
-        for de in de_updates.into_iter() {
+    async fn check_data_entries(&mut self, de_updates: &[DataEntry]) -> Result<()> {
+        for de in de_updates.iter() {
             self.check_data_entry(de).await?;
         }
 
@@ -171,9 +171,9 @@ async fn check_and_maybe_insert(
     value: State,
 ) -> Result<()> {
     let topic = value.clone().into();
-    if let None = resources_repo.get(&topic)? {
+    if resources_repo.get(&topic)?.is_none() {
         let new_value = if let Some(ide) =
-            transactions_repo.last_data_entry(value.address.to_owned(), value.key.to_owned())?
+            transactions_repo.last_data_entry(value.address.to_owned(), value.key)?
         {
             let de = DataEntry::from(ide);
             serde_json::to_string(&de)?

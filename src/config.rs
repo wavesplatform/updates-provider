@@ -127,13 +127,13 @@ struct FlatServerConfig {
 pub fn load_redis() -> Result<RedisConfig, Error> {
     envy::prefixed("REDIS__")
         .from_env::<RedisConfig>()
-        .map_err(|err| Error::from(err))
+        .map_err(Error::from)
 }
 
 pub fn load_postgres() -> Result<PostgresConfig, Error> {
     envy::prefixed("POSTGRES__")
         .from_env::<PostgresConfig>()
-        .map_err(|err| Error::from(err))
+        .map_err(Error::from)
 }
 
 pub fn load_subscriptions() -> Result<subscriptions::Config, Error> {

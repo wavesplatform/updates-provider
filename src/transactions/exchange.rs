@@ -55,11 +55,7 @@ pub enum MatcherFeeAssetId {
 }
 
 fn skip_matcher_fee(value: &MatcherFeeAssetId) -> bool {
-    if let MatcherFeeAssetId::NotExist = value {
-        true
-    } else {
-        false
-    }
+    matches!(value, MatcherFeeAssetId::NotExist)
 }
 
 impl serde::Serialize for MatcherFeeAssetId {
@@ -148,7 +144,7 @@ impl TryFrom<&TransactionUpdate> for ExchangeData {
                 sender: value.sender.to_owned(),
                 buy_matcher_fee: exchange_data.buy_matcher_fee,
                 fee_asset_id: value.fee.as_ref().and_then(|amount| {
-                    if amount.asset_id.len() > 0 {
+                    if !amount.asset_id.is_empty() {
                         Some(amount.asset_id.to_owned())
                     } else {
                         None
@@ -218,10 +214,10 @@ impl TryFrom<i32> for OrderVersion {
 impl From<&OrderVersion> for i32 {
     fn from(value: &OrderVersion) -> i32 {
         match value {
-            &OrderVersion::V1 => 1,
-            &OrderVersion::V2 => 2,
-            &OrderVersion::V3 => 3,
-            &OrderVersion::V4 => 4,
+            OrderVersion::V1 => 1,
+            OrderVersion::V2 => 2,
+            OrderVersion::V3 => 3,
+            OrderVersion::V4 => 4,
         }
     }
 }
@@ -268,7 +264,7 @@ impl Order {
             .chain(self.timestamp.to_be_bytes().iter())
             .chain(self.expiration.to_be_bytes().iter())
             .chain(self.matcher_fee.to_be_bytes().iter())
-            .map(|x| *x)
+            .cloned()
             .collect::<Vec<_>>()
     }
 
@@ -413,8 +409,8 @@ impl TryFrom<i32> for OrderType {
 impl From<&OrderType> for i32 {
     fn from(value: &OrderType) -> Self {
         match value {
-            &OrderType::Buy => 0,
-            &OrderType::Sell => 1,
+            OrderType::Buy => 0,
+            OrderType::Sell => 1,
         }
     }
 }
@@ -425,8 +421,8 @@ impl OrderType {
     }
 }
 
-fn encode_asset(value: &Vec<u8>) -> Option<String> {
-    if value.len() > 0 {
+fn encode_asset(value: &[u8]) -> Option<String> {
+    if value.is_empty() {
         Some(bs58::encode(value).into_string())
     } else {
         None
