@@ -27,7 +27,7 @@ pub struct ExchangeData {
     pub height: i32,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Order {
     pub id: String,
@@ -49,6 +49,7 @@ pub struct Order {
     pub proofs: Vec<String>,
 }
 
+#[derive(Debug)]
 pub enum MatcherFeeAssetId {
     NotExist,
     Exist(Option<String>),
@@ -106,20 +107,21 @@ impl MatcherFeeAssetId {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AssetPair {
     pub amount_asset: Option<String>,
     pub price_asset: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum OrderType {
     Sell,
     Buy,
 }
 
+#[derive(Debug)]
 pub enum OrderVersion {
     V1 = 1,
     V2 = 2,
@@ -303,7 +305,11 @@ impl From<&Order> for waves_protobuf_schemas::waves::Order {
             expiration: value.expiration,
             matcher_fee: get_matcher_fee(value),
             version: (&value.version).into(),
-            proofs: vec![],
+            proofs: value
+                .proofs
+                .iter()
+                .map(|proof| bs58::decode(proof).into_vec().unwrap())
+                .collect(),
         }
     }
 }
@@ -422,7 +428,7 @@ impl OrderType {
 }
 
 fn encode_asset(value: &[u8]) -> Option<String> {
-    if value.is_empty() {
+    if !value.is_empty() {
         Some(bs58::encode(value).into_string())
     } else {
         None
@@ -508,4 +514,45 @@ fn order_id_test() {
         "3Q9C79wgadXCX4gCp2AEvtQZEYCoZkGXei7zoTmd2DEm".to_string(),
         order.id
     );
+}
+
+#[test]
+fn order_conversion_test() {
+    let waves_order = waves_protobuf_schemas::waves::Order {
+        chain_id: 87,
+        sender_public_key: vec![
+            220, 50, 71, 14, 248, 224, 41, 231, 130, 10, 175, 36, 161, 42, 123, 94, 89, 192, 200,
+            248, 168, 120, 220, 203, 122, 77, 140, 219, 31, 133, 85, 36,
+        ],
+        matcher_public_key: vec![
+            128, 10, 102, 186, 12, 222, 12, 94, 172, 144, 109, 83, 59, 213, 227, 244, 220, 226, 36,
+            47, 251, 233, 206, 3, 182, 186, 67, 156, 191, 213, 123, 110,
+        ],
+        asset_pair: Some(waves_protobuf_schemas::waves::AssetPair {
+            amount_asset_id: vec![],
+            price_asset_id: vec![
+                30, 148, 7, 19, 82, 118, 161, 37, 149, 253, 200, 97, 168, 130, 95, 16, 127, 223,
+                58, 79, 41, 187, 252, 154, 70, 63, 90, 253, 54, 79, 159, 145,
+            ],
+        }),
+        order_side: 0,
+        amount: 11446590227,
+        price: 30694623,
+        timestamp: 1620720516480,
+        expiration: 1620720581480,
+        matcher_fee: Some(waves_protobuf_schemas::waves::Amount {
+            asset_id: vec![],
+            amount: 300000,
+        }),
+        version: 3,
+        proofs: vec![vec![
+            159, 10, 173, 216, 5, 7, 39, 152, 173, 7, 100, 193, 164, 103, 34, 34, 180, 85, 250, 34,
+            27, 218, 29, 167, 14, 76, 25, 112, 171, 121, 145, 104, 198, 46, 6, 225, 34, 54, 59, 13,
+            255, 181, 90, 188, 133, 224, 138, 142, 104, 158, 36, 19, 80, 11, 237, 65, 69, 42, 163,
+            49, 72, 229, 37, 132,
+        ]],
+    };
+    let order = Order::try_from(&waves_order).unwrap();
+    let waves_order_2 = (&order).into();
+    assert_eq!(waves_order, waves_order_2);
 }
