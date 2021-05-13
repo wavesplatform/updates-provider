@@ -1,6 +1,6 @@
 use super::super::watchlist::{WatchList, WatchListUpdate};
 use super::super::{TSResourcesRepoImpl, TSUpdatesProviderLastValues, UpdatesProvider};
-use crate::transactions::repo::TransactionsRepoImpl;
+use crate::transactions::repo::TransactionsRepoPoolImpl;
 use crate::transactions::{BlockMicroblockAppend, BlockchainUpdate, Transaction, TransactionType};
 use crate::{
     error::Result,
@@ -22,7 +22,7 @@ pub struct Provider {
     resources_repo: TSResourcesRepoImpl,
     last_values: TSUpdatesProviderLastValues<models::Transaction>,
     rx: mpsc::Receiver<Arc<Vec<BlockchainUpdate>>>,
-    transactions_repo: Arc<TransactionsRepoImpl>,
+    transactions_repo: Arc<TransactionsRepoPoolImpl>,
 }
 
 pub struct ProviderReturn {
@@ -34,7 +34,7 @@ impl Provider {
     pub async fn new(
         resources_repo: TSResourcesRepoImpl,
         delete_timeout: Duration,
-        transactions_repo: Arc<TransactionsRepoImpl>,
+        transactions_repo: Arc<TransactionsRepoPoolImpl>,
     ) -> Result<ProviderReturn> {
         let last_values = Arc::new(RwLock::new(HashMap::new()));
         let watchlist = Arc::new(RwLock::new(WatchList::new(
@@ -228,7 +228,7 @@ impl UpdatesProvider<models::Transaction> for Provider {
 
 async fn check_and_maybe_insert(
     resources_repo: TSResourcesRepoImpl,
-    transactions_repo: Arc<TransactionsRepoImpl>,
+    transactions_repo: Arc<TransactionsRepoPoolImpl>,
     value: models::Transaction,
 ) -> Result<()> {
     let topic = value.clone().into();

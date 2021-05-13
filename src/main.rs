@@ -19,7 +19,7 @@ use providers::{blockchain, UpdatesProvider};
 use r2d2::Pool;
 use r2d2_redis::{r2d2, redis, RedisConnectionManager};
 use std::sync::Arc;
-use transactions::repo::TransactionsRepoImpl;
+use transactions::repo::TransactionsRepoPoolImpl;
 use wavesexchange_log::{error, info};
 
 fn main() -> Result<(), Error> {
@@ -51,7 +51,7 @@ async fn tokio_main() -> Result<(), Error> {
     let resources_repo = Arc::new(resources_repo);
 
     let pool = db::pool(&postgres_config)?;
-    let transactions_repo = Arc::new(TransactionsRepoImpl::new(pool));
+    let transactions_repo = Arc::new(TransactionsRepoPoolImpl::new(pool));
 
     // Configs
     let configs_requester = Box::new(providers::polling::configs::ConfigRequester::new(

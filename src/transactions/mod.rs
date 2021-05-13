@@ -325,9 +325,11 @@ impl Hash for InsertableDataEntry {
     }
 }
 
-pub trait TransactionsRepo {
-    fn transaction(&self, f: impl FnOnce() -> Result<()>) -> Result<()>;
+pub trait TransactionsRepoPool {
+    fn transaction(&self, f: impl FnOnce(&dyn TransactionsRepo) -> Result<()>) -> Result<()>;
+}
 
+pub trait TransactionsRepo {
     fn get_prev_handled_height(&self) -> Result<Option<PrevHandledHeight>>;
 
     fn get_block_uid(&self, block_id: &str) -> Result<i64>;
