@@ -31,7 +31,7 @@ pub struct ProviderReturn {
 }
 
 impl Provider {
-    pub async fn new(
+    pub async fn init(
         resources_repo: TSResourcesRepoImpl,
         delete_timeout: Duration,
         transactions_repo: Arc<TransactionsRepoPoolImpl>,

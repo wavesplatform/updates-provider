@@ -50,13 +50,11 @@ impl Puller {
 
         while let Some(SubscribeEvent { update }) = stream.message().await? {
             if let Some(message) = update {
-                if message.height > self.last_height {
-                    let value = Arc::new(message);
-                    for ref mut tx in self.subscribers.iter_mut() {
-                        tx.send(value.clone())
-                            .await
-                            .map_err(|_| Error::SendErrorBlockchainUpdated)?
-                    }
+                let value = Arc::new(message);
+                for tx in self.subscribers.iter_mut() {
+                    tx.send(value.clone())
+                        .await
+                        .map_err(|_| Error::SendErrorBlockchainUpdated)?
                 }
             }
         }

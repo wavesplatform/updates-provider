@@ -47,7 +47,7 @@ impl Default for MicroBlockFlag {
 }
 
 impl Updater {
-    pub async fn new(
+    pub async fn init(
         transactions_repo: Arc<TransactionsRepoPoolImpl>,
         updates_buffer_size: usize,
         transactions_count_threshold: usize,
@@ -56,7 +56,12 @@ impl Updater {
         let (tx, rx) = mpsc::channel(updates_buffer_size);
         let last_height = {
             match transactions_repo.get_prev_handled_height()? {
-                Some(prev_handled_height) => prev_handled_height.height as i32 + 1,
+                Some(prev_handled_height) => {
+                    transactions_repo.transaction(|conn| {
+                        Ok(rollback_by_block_uid(conn, prev_handled_height.uid)?)
+                    })?;
+                    prev_handled_height.height as i32 + 1
+                }
                 None => 1i32,
             }
         };
@@ -391,6 +396,10 @@ fn insert_data_entries<U: TransactionsRepo + ?Sized>(
 
 fn rollback<U: TransactionsRepo + ?Sized>(conn: &U, block_id: &str) -> Result<()> {
     let block_uid = conn.get_block_uid(block_id)?;
+    Ok(rollback_by_block_uid(conn, block_uid)?)
+}
+
+fn rollback_by_block_uid<U: TransactionsRepo + ?Sized>(conn: &U, block_uid: i64) -> Result<()> {
     let deletes = conn.rollback_data_entries(&block_uid)?;
 
     let mut grouped_deletes = HashMap::new();

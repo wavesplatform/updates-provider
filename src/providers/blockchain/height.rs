@@ -16,7 +16,7 @@ pub struct ProviderWithUpdatesSender {
 }
 
 impl Provider {
-    pub async fn new(
+    pub async fn init(
         resources_repo: TSResourcesRepoImpl,
     ) -> Result<ProviderWithUpdatesSender, Error> {
         let last_height = get_last_height(resources_repo.clone())?;
