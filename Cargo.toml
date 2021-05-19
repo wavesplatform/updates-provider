@@ -29,9 +29,9 @@ diesel = { version = "1.4.5", features = ["postgres", "r2d2", "chrono", "numeric
 prost = "0.7"
 prometheus = "0.12"
 lazy_static = "1.4"
-warp = "0.2"
+warp = "0.3"
 wavesexchange_log = { git = "https://github.com/waves-exchange/wavesexchange-rs", tag = "wavesexchange_log/0.2.0" }
-wavesexchange_warp = { git = "https://github.com/waves-exchange/wavesexchange-rs", tag = "wavesexchange_warp/0.7.0" }
+wavesexchange_warp = { git = "https://github.com/waves-exchange/wavesexchange-rs", tag = "wavesexchange_warp/0.7.1" }
 
 [[bin]]
 name = "service"

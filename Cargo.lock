@@ -90,12 +90,6 @@ checksum = "cdb031dd78e28731d87d56cc8ffef4a8f36ca26c38fe2de700543e627f8a464a"
 
 [[package]]
 name = "base64"
-version = "0.12.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3441f0f7b02788e948e47f457ca01f1d7e6d92c693bc132c22b087d3141c03ff"
-
-[[package]]
-name = "base64"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "904dfeac50f3cdaba28fc6f57fdcddb75f49ed61346676a78c4ffe55877802fd"
@@ -669,7 +663,7 @@ version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f0b7591fb62902706ae8e7aaff416b1b0fa2c0fd0878b46dc13baa3712d8a855"
 dependencies = [
- "base64 0.13.0",
+ "base64",
  "bitflags",
  "bytes 1.0.1",
  "headers-core",
@@ -840,11 +834,11 @@ dependencies = [
 
 [[package]]
 name = "input_buffer"
-version = "0.3.1"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "19a8a95243d5a0398cae618ec29477c6e3cb631152be5c19481f80bc71559754"
+checksum = "f97967975f448f1a7ddb12b0bc41069d09ed6a1c161a92687e057325db35d413"
 dependencies = [
- "bytes 0.5.6",
+ "bytes 1.0.1",
 ]
 
 [[package]]
@@ -1592,7 +1586,7 @@ version = "0.10.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0718f81a8e14c4dbb3b34cf23dc6aaf9ab8a0dfec160c534b3dbca1aaa21f47c"
 dependencies = [
- "base64 0.13.0",
+ "base64",
  "bytes 0.5.6",
  "encoding_rs",
  "futures-core",
@@ -1611,7 +1605,7 @@ dependencies = [
  "percent-encoding",
  "pin-project-lite 0.2.0",
  "serde",
- "serde_urlencoded 0.7.0",
+ "serde_urlencoded",
  "tokio 0.2.24",
  "tokio-tls",
  "url",
@@ -1627,7 +1621,7 @@ version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4b18820d944b33caa75a71378964ac46f58517c92b6ae5f762636247c09e78fb"
 dependencies = [
- "base64 0.13.0",
+ "base64",
  "blake2b_simd",
  "constant_time_eq",
  "crossbeam-utils 0.8.1",
@@ -1739,18 +1733,6 @@ dependencies = [
  "percent-encoding",
  "serde",
  "thiserror",
-]
-
-[[package]]
-name = "serde_urlencoded"
-version = "0.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9ec5d77e2d4c73717816afac02670d5c4f534ea95ed430442cad02e7a6e32c97"
-dependencies = [
- "dtoa",
- "itoa",
- "serde",
- "url",
 ]
 
 [[package]]
@@ -2082,14 +2064,14 @@ dependencies = [
 
 [[package]]
 name = "tokio-tungstenite"
-version = "0.11.0"
+version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6d9e878ad426ca286e4dcae09cbd4e1973a7f8987d97570e2469703dd7f5720c"
+checksum = "e1a5f475f1b9d077ea1017ecbc60890fda8e54942d680ca0b1d2b47cfa2d861b"
 dependencies = [
  "futures-util",
  "log",
- "pin-project 0.4.27",
- "tokio 0.2.24",
+ "pin-project 1.0.2",
+ "tokio 1.6.0",
  "tungstenite",
 ]
 
@@ -2143,7 +2125,7 @@ checksum = "2ac42cd97ac6bd2339af5bcabf105540e21e45636ec6fa6aae5e85d44db31be0"
 dependencies = [
  "async-stream",
  "async-trait",
- "base64 0.13.0",
+ "base64",
  "bytes 1.0.1",
  "futures-core",
  "futures-util",
@@ -2259,18 +2241,18 @@ checksum = "59547bce71d9c38b83d9c0e92b6066c4253371f15005def0c30d9657f50c7642"
 
 [[package]]
 name = "tungstenite"
-version = "0.11.1"
+version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f0308d80d86700c5878b9ef6321f020f29b1bb9d5ff3cab25e75e23f3a492a23"
+checksum = "8ada8297e8d70872fa9a551d93250a9f407beb9f37ef86494eb20012a2ff7c24"
 dependencies = [
- "base64 0.12.3",
+ "base64",
  "byteorder",
- "bytes 0.5.6",
+ "bytes 1.0.1",
  "http",
  "httparse",
  "input_buffer",
  "log",
- "rand 0.7.3",
+ "rand 0.8.3",
  "sha-1",
  "url",
  "utf-8",
@@ -2383,12 +2365,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "urlencoding"
-version = "1.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c9232eb53352b4442e40d7900465dfc534e8cb2dc8f18656fcb2ac16112b5593"
-
-[[package]]
 name = "utf-8"
 version = "0.7.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2424,30 +2400,31 @@ dependencies = [
 
 [[package]]
 name = "warp"
-version = "0.2.5"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f41be6df54c97904af01aa23e613d4521eed7ab23537cede692d4058f6449407"
+checksum = "332d47745e9a0c38636dbd454729b147d16bd1ed08ae67b3ab281c4506771054"
 dependencies = [
- "bytes 0.5.6",
+ "bytes 1.0.1",
  "futures",
  "headers",
  "http",
- "hyper 0.13.10",
+ "hyper 0.14.7",
  "log",
  "mime",
  "mime_guess",
  "multipart",
- "pin-project 0.4.27",
+ "percent-encoding",
+ "pin-project 1.0.2",
  "scoped-tls",
  "serde",
  "serde_json",
- "serde_urlencoded 0.6.1",
- "tokio 0.2.24",
+ "serde_urlencoded",
+ "tokio 1.6.0",
+ "tokio-stream",
  "tokio-tungstenite",
+ "tokio-util 0.6.7",
  "tower-service",
  "tracing",
- "tracing-futures",
- "urlencoding",
 ]
 
 [[package]]
@@ -2557,7 +2534,7 @@ dependencies = [
 [[package]]
 name = "wavesexchange_log"
 version = "0.2.0"
-source = "git+https://github.com/waves-exchange/wavesexchange-rs?tag=wavesexchange_warp/0.7.0#4f1f5b81511779e2417c75321819f61d2b3c2895"
+source = "git+https://github.com/waves-exchange/wavesexchange-rs?tag=wavesexchange_warp/0.7.1#a3238a2fe8cf674eef7f10d79e515b920f41a0ac"
 dependencies = [
  "chrono",
  "once_cell",
@@ -2570,8 +2547,8 @@ dependencies = [
 
 [[package]]
 name = "wavesexchange_warp"
-version = "0.7.0"
-source = "git+https://github.com/waves-exchange/wavesexchange-rs?tag=wavesexchange_warp/0.7.0#4f1f5b81511779e2417c75321819f61d2b3c2895"
+version = "0.7.1"
+source = "git+https://github.com/waves-exchange/wavesexchange-rs?tag=wavesexchange_warp/0.7.1#a3238a2fe8cf674eef7f10d79e515b920f41a0ac"
 dependencies = [
  "futures",
  "once_cell",
@@ -2579,7 +2556,7 @@ dependencies = [
  "serde_json",
  "serde_qs",
  "warp",
- "wavesexchange_log 0.2.0 (git+https://github.com/waves-exchange/wavesexchange-rs?tag=wavesexchange_warp/0.7.0)",
+ "wavesexchange_log 0.2.0 (git+https://github.com/waves-exchange/wavesexchange-rs?tag=wavesexchange_warp/0.7.1)",
 ]
 
 [[package]]
