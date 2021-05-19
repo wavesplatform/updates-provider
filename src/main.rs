@@ -23,7 +23,7 @@ use transactions::repo::TransactionsRepoImpl;
 use wavesexchange_log::{error, info};
 
 fn main() -> Result<(), Error> {
-    let mut rt = tokio::runtime::Runtime::new().unwrap();
+    let rt = tokio::runtime::Runtime::new().unwrap();
     let result = rt.block_on(tokio_main());
     rt.shutdown_timeout(std::time::Duration::from_millis(1));
     result
