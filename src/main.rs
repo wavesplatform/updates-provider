@@ -23,7 +23,7 @@ use transactions::repo::TransactionsRepoImpl;
 use wavesexchange_log::{error, info};
 
 fn main() -> Result<(), Error> {
-    let mut rt = tokio::runtime::Runtime::new().unwrap();
+    let rt = tokio::runtime::Runtime::new().unwrap();
     let result = rt.block_on(tokio_main());
     rt.shutdown_timeout(std::time::Duration::from_millis(1));
     result
@@ -69,6 +69,7 @@ async fn tokio_main() -> Result<(), Error> {
     let states_requester = Box::new(providers::polling::states::StateRequester::new(
         states_updater_config.base_url,
         states_updater_config.batch_size,
+        states_updater_config.concurrent_requests_count,
     ));
     let states_updates_provider = providers::polling::PollProvider::new(
         states_requester,

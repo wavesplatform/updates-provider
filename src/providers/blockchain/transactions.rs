@@ -91,7 +91,9 @@ impl Provider {
                     self.process_updates(buffer).await?;
                     continue;
                 }
-                let mut delay = tokio::time::delay_for(Duration::from_secs(10));
+                let delay = tokio::time::sleep(Duration::from_secs(10));
+                tokio::pin!(delay);
+
                 loop {
                     tokio::select! {
                         _ = &mut delay => {
