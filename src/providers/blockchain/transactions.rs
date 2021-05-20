@@ -25,36 +25,30 @@ pub struct Provider {
     transactions_repo: Arc<TransactionsRepoPoolImpl>,
 }
 
-pub struct ProviderReturn {
-    pub tx: mpsc::Sender<Arc<Vec<BlockchainUpdate>>>,
-    pub provider: Provider,
-}
-
 impl Provider {
-    pub async fn init(
+    pub fn new(
         resources_repo: TSResourcesRepoImpl,
         delete_timeout: Duration,
         transactions_repo: Arc<TransactionsRepoPoolImpl>,
-    ) -> Result<ProviderReturn> {
+        rx: mpsc::Receiver<Arc<Vec<BlockchainUpdate>>>,
+    ) -> Self {
         let last_values = Arc::new(RwLock::new(HashMap::new()));
         let watchlist = Arc::new(RwLock::new(WatchList::new(
             resources_repo.clone(),
             last_values.clone(),
             delete_timeout,
         )));
-        let (tx, rx) = mpsc::channel(20);
-        let provider = Self {
+        Self {
             watchlist,
             resources_repo,
             last_values,
             rx,
             transactions_repo,
-        };
-        Ok(ProviderReturn { tx, provider })
+        }
     }
 
     async fn run(&mut self) -> Result<()> {
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(15));
+        let mut interval = tokio::time::interval(Duration::from_secs(15));
         loop {
             tokio::select! {
                 msg = self.rx.recv() => {
@@ -185,12 +179,8 @@ impl UpdatesProvider<models::Transaction> for Provider {
                     error!("error while updating watchlist: {:?}", err);
                 }
                 if let WatchListUpdate::New { item, .. } = upd {
-                    if let Err(err) = check_and_maybe_insert(
-                        resources_repo.clone(),
-                        transactions_repo.clone(),
-                        item,
-                    )
-                    .await
+                    if let Err(err) =
+                        check_and_maybe_insert(&resources_repo, &transactions_repo, item).await
                     {
                         error!("error while updating value: {:?}", err);
                     }
@@ -227,8 +217,8 @@ impl UpdatesProvider<models::Transaction> for Provider {
 }
 
 async fn check_and_maybe_insert(
-    resources_repo: TSResourcesRepoImpl,
-    transactions_repo: Arc<TransactionsRepoPoolImpl>,
+    resources_repo: &TSResourcesRepoImpl,
+    transactions_repo: &Arc<TransactionsRepoPoolImpl>,
     value: models::Transaction,
 ) -> Result<()> {
     let topic = value.clone().into();

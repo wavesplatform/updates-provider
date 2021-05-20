@@ -34,13 +34,13 @@ pub struct UpdaterReturn {
 }
 
 #[derive(Debug)]
-enum MicroBlockFlag {
+enum UpdatesSequenceState {
     Ok,
     HasMicroBlocks,
     NeedSquash,
 }
 
-impl Default for MicroBlockFlag {
+impl Default for UpdatesSequenceState {
     fn default() -> Self {
         Self::Ok
     }
@@ -80,12 +80,12 @@ impl Updater {
         })
     }
 
-    pub fn add_provider(&mut self, subscriber: mpsc::Sender<Arc<Vec<BlockchainUpdate>>>) {
-        self.providers.push(subscriber);
+    pub fn add_provider(&mut self, provider: mpsc::Sender<Arc<Vec<BlockchainUpdate>>>) {
+        self.providers.push(provider);
     }
 
     pub async fn run(&mut self) -> Result<()> {
-        let mut microblock_flag = MicroBlockFlag::default();
+        let mut microblock_flag = UpdatesSequenceState::default();
         'a: loop {
             let mut buffer = Vec::with_capacity(self.updates_buffer_size);
             if let Some(event) = self.rx.recv().await {
@@ -93,13 +93,13 @@ impl Updater {
                 buffer.push(update);
                 match buffer.last().unwrap() {
                     BlockchainUpdate::Microblock(_) => {
-                        if let MicroBlockFlag::Ok = microblock_flag {
-                            microblock_flag = MicroBlockFlag::HasMicroBlocks
+                        if let UpdatesSequenceState::Ok = microblock_flag {
+                            microblock_flag = UpdatesSequenceState::HasMicroBlocks
                         }
                     }
                     BlockchainUpdate::Block(_) => {
-                        if let MicroBlockFlag::HasMicroBlocks = microblock_flag {
-                            microblock_flag = MicroBlockFlag::NeedSquash;
+                        if let UpdatesSequenceState::HasMicroBlocks = microblock_flag {
+                            microblock_flag = UpdatesSequenceState::NeedSquash;
                             self.process_updates(buffer, &mut microblock_flag).await?;
                             continue;
                         }
@@ -124,13 +124,13 @@ impl Updater {
                                 buffer.push(update);
                                 match buffer.last().unwrap() {
                                     BlockchainUpdate::Microblock(_) => {
-                                        if let MicroBlockFlag::Ok = microblock_flag {
-                                            microblock_flag = MicroBlockFlag::HasMicroBlocks
+                                        if let UpdatesSequenceState::Ok = microblock_flag {
+                                            microblock_flag = UpdatesSequenceState::HasMicroBlocks
                                         }
                                     }
                                     BlockchainUpdate::Block(_) => {
-                                        if let MicroBlockFlag::HasMicroBlocks = microblock_flag {
-                                            microblock_flag = MicroBlockFlag::NeedSquash;
+                                        if let UpdatesSequenceState::HasMicroBlocks = microblock_flag {
+                                            microblock_flag = UpdatesSequenceState::NeedSquash;
                                             self.process_updates(buffer, &mut microblock_flag).await?;
                                             break;
                                         }
@@ -165,11 +165,11 @@ impl Updater {
     async fn process_updates(
         &mut self,
         blockchain_updates: Vec<BlockchainUpdate>,
-        microblock_flag: &mut MicroBlockFlag,
+        microblock_flag: &mut UpdatesSequenceState,
     ) -> Result<()> {
         let start = Instant::now();
         {
-            if let MicroBlockFlag::NeedSquash = microblock_flag {
+            if let UpdatesSequenceState::NeedSquash = microblock_flag {
                 let mut i = 0;
                 let mut blockchain_updates_iter = blockchain_updates.iter().enumerate();
                 loop {
@@ -180,7 +180,7 @@ impl Updater {
                                 blockchain_updates[..idx].to_vec().iter(),
                             )?;
                             squash_microblocks(&*self.transactions_repo)?;
-                            *microblock_flag = MicroBlockFlag::default();
+                            *microblock_flag = UpdatesSequenceState::default();
                             i = idx;
                             break;
                         }

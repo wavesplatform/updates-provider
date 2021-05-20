@@ -81,7 +81,7 @@ async fn tokio_main() -> Result<(), Error> {
 
     // Blockchain
     let mut blockchain_puller =
-        blockchain::puller::Puller::new(blockchain_config.updates_url).await?;
+        blockchain::handler::Puller::new(blockchain_config.updates_url).await?;
 
     let blockchain::height::ProviderWithUpdatesSender { tx, mut provider } =
         blockchain::height::Provider::init(resources_repo.clone()).await?;
@@ -115,24 +115,25 @@ async fn tokio_main() -> Result<(), Error> {
     };
     blockchain_puller.set_last_height(start_from);
 
-    let blockchain::transactions::ProviderReturn { tx, provider } =
-        blockchain::transactions::Provider::init(
-            resources_repo.clone(),
-            blockchain_config.transaction_delete_timeout,
-            transactions_repo.clone(),
-        )
-        .await?;
+    let (tx, rx) = tokio::sync::mpsc::channel(20);
+    let provider = blockchain::transactions::Provider::new(
+        resources_repo.clone(),
+        blockchain_config.transaction_delete_timeout,
+        transactions_repo.clone(),
+        rx,
+    );
 
     updater.add_provider(tx);
 
     let transactions_subscriptions_updates_sender = provider.fetch_updates().await?;
 
-    let blockchain::states::ProviderReturn { tx, provider } = blockchain::states::Provider::init(
+    let (tx, rx) = tokio::sync::mpsc::channel(20);
+    let provider = blockchain::state::Provider::new(
         resources_repo,
         blockchain_config.state_delete_timeout,
         transactions_repo,
-    )
-    .await?;
+        rx,
+    );
 
     updater.add_provider(tx);
 
@@ -174,7 +175,7 @@ async fn tokio_main() -> Result<(), Error> {
         subscriptions_updates_pusher.run().await
     });
 
-    let api_handler = tokio::spawn(async move { api::start(server_config.port).await });
+    let api_handle = tokio::spawn(async move { api::start(server_config.port).await });
 
     tokio::select! {
         result = blockchain_puller_handle => {
@@ -195,7 +196,8 @@ async fn tokio_main() -> Result<(), Error> {
                 return Err(error);
             }
         }
-        _ = api_handler => {
+        result = api_handle => {
+            result?;
             error!("server unexpectedly stopped");
         }
     }
