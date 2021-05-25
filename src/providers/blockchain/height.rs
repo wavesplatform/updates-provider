@@ -20,6 +20,7 @@ impl Provider {
         resources_repo: TSResourcesRepoImpl,
     ) -> Result<ProviderWithUpdatesSender, Error> {
         let last_height = get_last_height(resources_repo.clone())?;
+        // random channel buffer size
         let (tx, rx) = mpsc::channel(20);
 
         Ok(ProviderWithUpdatesSender {

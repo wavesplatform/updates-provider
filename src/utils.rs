@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 pub struct Chunks<I: Iterator> {
     iter: Option<I>,
     chunk_size: usize,
@@ -54,4 +56,14 @@ fn chunks_test() {
 fn chunks_invalid_size_test() {
     let vals = vec![1, 2];
     let _ = vals.into_iter().chunks_from_iter(0).collect::<Vec<_>>();
+}
+
+pub fn clean_timeout(delete_timeout: Duration) -> Duration {
+    let temp = delete_timeout / 2;
+    let minimum = Duration::from_secs(15);
+    if temp > minimum {
+        temp
+    } else {
+        minimum
+    }
 }

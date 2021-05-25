@@ -31,6 +31,10 @@ fn default_port() -> u16 {
     8080
 }
 
+fn default_waiting_blocks_timeout() -> u64 {
+    15
+}
+
 #[derive(Deserialize)]
 pub struct RedisConfig {
     pub host: String,
@@ -98,6 +102,8 @@ struct FlatBlockchainUpdaterConfig {
     pub associated_addresses_count_threshold: usize,
     #[serde(default = "default_start_height")]
     pub start_height: i32,
+    #[serde(default = "default_waiting_blocks_timeout")]
+    pub waiting_blocks_timeout: u64,
 }
 
 #[derive(Deserialize)]
@@ -161,6 +167,7 @@ pub fn load_blockchain() -> Result<providers::blockchain::Config, Error> {
         transactions_count_threshold: flat_config.transactions_count_threshold,
         associated_addresses_count_threshold: flat_config.associated_addresses_count_threshold,
         start_height: flat_config.start_height,
+        waiting_blocks_timeout: Duration::from_secs(flat_config.waiting_blocks_timeout),
     })
 }
 

@@ -354,6 +354,13 @@ impl TransactionsRepo for PooledConnection<ConnectionManager<PgConnection>> {
         Ok(data_entries::table
             .filter(data_entries::address.eq(address))
             .filter(data_entries::key.eq(key))
+            .filter(
+                data_entries::value_binary
+                    .is_not_null()
+                    .or(data_entries::value_bool.is_not_null())
+                    .or(data_entries::value_integer.is_not_null())
+                    .or(data_entries::value_string.is_not_null()),
+            )
             .select(data_entries::all_columns.nullable())
             .order(data_entries::block_uid.desc())
             .first::<Option<InsertableDataEntry>>(self)

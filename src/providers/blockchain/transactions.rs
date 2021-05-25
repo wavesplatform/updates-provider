@@ -2,6 +2,7 @@ use super::super::watchlist::{WatchList, WatchListUpdate};
 use super::super::{TSResourcesRepoImpl, TSUpdatesProviderLastValues, UpdatesProvider};
 use crate::transactions::repo::TransactionsRepoPoolImpl;
 use crate::transactions::{BlockMicroblockAppend, BlockchainUpdate, Transaction, TransactionType};
+use crate::utils::clean_timeout;
 use crate::{
     error::Result,
     transactions::{exchange::ExchangeData, Address, TransactionUpdate, TransactionsRepo},
@@ -23,6 +24,7 @@ pub struct Provider {
     last_values: TSUpdatesProviderLastValues<models::Transaction>,
     rx: mpsc::Receiver<Arc<Vec<BlockchainUpdate>>>,
     transactions_repo: Arc<TransactionsRepoPoolImpl>,
+    clean_timeout: Duration,
 }
 
 impl Provider {
@@ -38,17 +40,19 @@ impl Provider {
             last_values.clone(),
             delete_timeout,
         )));
+        let clean_timeout = clean_timeout(delete_timeout);
         Self {
             watchlist,
             resources_repo,
             last_values,
             rx,
             transactions_repo,
+            clean_timeout,
         }
     }
 
     async fn run(&mut self) -> Result<()> {
-        let mut interval = tokio::time::interval(Duration::from_secs(15));
+        let mut interval = tokio::time::interval(self.clean_timeout);
         loop {
             tokio::select! {
                 msg = self.rx.recv() => {

@@ -25,6 +25,7 @@ pub struct Updater {
     transactions_count_threshold: usize,
     associated_addresses_count_threshold: usize,
     providers: Vec<mpsc::Sender<Arc<Vec<BlockchainUpdate>>>>,
+    waiting_blocks_timeout: Duration,
 }
 
 pub struct UpdaterReturn {
@@ -52,6 +53,7 @@ impl Updater {
         updates_buffer_size: usize,
         transactions_count_threshold: usize,
         associated_addresses_count_threshold: usize,
+        waiting_blocks_timeout: Duration,
     ) -> Result<UpdaterReturn> {
         let (tx, rx) = mpsc::channel(updates_buffer_size);
         let last_height = {
@@ -72,6 +74,7 @@ impl Updater {
             transactions_count_threshold,
             associated_addresses_count_threshold,
             providers: vec![],
+            waiting_blocks_timeout: waiting_blocks_timeout,
         };
         Ok(UpdaterReturn {
             last_height,
@@ -109,7 +112,7 @@ impl Updater {
                         continue;
                     }
                 }
-                let delay = tokio::time::sleep(Duration::from_secs(10));
+                let delay = tokio::time::sleep(self.waiting_blocks_timeout);
                 tokio::pin!(delay);
 
                 loop {
@@ -218,16 +221,16 @@ fn insert_blockchain_updates<'a, P: TransactionsRepoPool>(
     blockchain_updates: impl Iterator<Item = &'a BlockchainUpdate>,
 ) -> Result<()> {
     pool.transaction(|conn| {
-        let mut blocks = vec![];
+        let mut blocks_updates = vec![];
         let mut rollback_block_id = None;
         for update in blockchain_updates {
             match update {
-                BlockchainUpdate::Block(block) => blocks.push(block),
-                BlockchainUpdate::Microblock(block) => blocks.push(block),
+                BlockchainUpdate::Block(block) => blocks_updates.push(block),
+                BlockchainUpdate::Microblock(block) => blocks_updates.push(block),
                 BlockchainUpdate::Rollback(block_id) => rollback_block_id = Some(block_id),
             }
         }
-        inserting(conn, blocks)?;
+        insert_blocks_updates(conn, blocks_updates)?;
         if let Some(block_id) = rollback_block_id {
             rollback(conn, block_id)?;
         }
@@ -238,7 +241,7 @@ fn insert_blockchain_updates<'a, P: TransactionsRepoPool>(
     Ok(())
 }
 
-fn inserting<U: TransactionsRepo + ?Sized>(
+fn insert_blocks_updates<U: TransactionsRepo + ?Sized>(
     conn: &U,
     blocks_updates: Vec<&BlockMicroblockAppend>,
 ) -> Result<()> {

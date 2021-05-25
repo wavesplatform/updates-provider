@@ -104,6 +104,7 @@ async fn tokio_main() -> Result<(), Error> {
         blockchain_config.updates_buffer_size,
         blockchain_config.transactions_count_threshold,
         blockchain_config.associated_addresses_count_threshold,
+        blockchain_config.waiting_blocks_timeout,
     )
     .await?;
 
@@ -115,6 +116,7 @@ async fn tokio_main() -> Result<(), Error> {
     };
     blockchain_puller.set_last_height(start_from);
 
+    // random channel buffer size
     let (tx, rx) = tokio::sync::mpsc::channel(20);
     let provider = blockchain::transactions::Provider::new(
         resources_repo.clone(),
@@ -127,6 +129,7 @@ async fn tokio_main() -> Result<(), Error> {
 
     let transactions_subscriptions_updates_sender = provider.fetch_updates().await?;
 
+    // random channel buffer size
     let (tx, rx) = tokio::sync::mpsc::channel(20);
     let provider = blockchain::state::Provider::new(
         resources_repo,
@@ -198,7 +201,6 @@ async fn tokio_main() -> Result<(), Error> {
         }
         result = api_handle => {
             result?;
-            error!("server unexpectedly stopped");
         }
     }
 

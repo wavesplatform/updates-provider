@@ -2,6 +2,7 @@ use super::super::watchlist::{WatchList, WatchListUpdate};
 use super::super::{TSResourcesRepoImpl, TSUpdatesProviderLastValues, UpdatesProvider};
 use crate::transactions::repo::TransactionsRepoPoolImpl;
 use crate::transactions::{BlockMicroblockAppend, BlockchainUpdate};
+use crate::utils::clean_timeout;
 use crate::{
     error::Result,
     transactions::{DataEntry, TransactionsRepo},
@@ -23,6 +24,7 @@ pub struct Provider {
     last_values: Arc<RwLock<HashMap<State, String>>>,
     rx: mpsc::Receiver<Arc<Vec<BlockchainUpdate>>>,
     transactions_repo: Arc<TransactionsRepoPoolImpl>,
+    clean_timeout: Duration,
 }
 
 impl Provider {
@@ -38,17 +40,19 @@ impl Provider {
             last_values.clone(),
             delete_timeout,
         )));
+        let clean_timeout = clean_timeout(delete_timeout);
         Self {
             watchlist,
             resources_repo,
             last_values,
             rx,
             transactions_repo,
+            clean_timeout,
         }
     }
 
     async fn run(&mut self) -> Result<()> {
-        let mut interval = tokio::time::interval(Duration::from_secs(15));
+        let mut interval = tokio::time::interval(self.clean_timeout);
         loop {
             tokio::select! {
                 msg = self.rx.recv() => {
@@ -86,27 +90,22 @@ impl Provider {
 
     async fn check_data_entries(&mut self, data_entries: &[DataEntry]) -> Result<()> {
         for de in data_entries.iter() {
-            self.check_data_entry(de).await?;
+            let data = State {
+                address: de.address.to_owned(),
+                key: de.key.to_owned(),
+            };
+            if self.watchlist.read().await.contains_key(&data) {
+                let current_value = serde_json::to_string(de)?;
+                Self::watchlist_process(
+                    &data,
+                    current_value,
+                    &self.resources_repo,
+                    &self.last_values,
+                )
+                .await?;
+            }
         }
 
-        Ok(())
-    }
-
-    async fn check_data_entry(&mut self, de: &DataEntry) -> Result<()> {
-        let data = State {
-            address: de.address.to_owned(),
-            key: de.key.to_owned(),
-        };
-        if self.watchlist.read().await.contains_key(&data) {
-            let current_value = serde_json::to_string(de)?;
-            Self::watchlist_process(
-                &data,
-                current_value,
-                &self.resources_repo,
-                &self.last_values,
-            )
-            .await?;
-        }
         Ok(())
     }
 }
