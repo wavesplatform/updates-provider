@@ -126,9 +126,7 @@ impl ToString for Topic {
             }
             Topic::LeasingBalance(leasing_balance) => {
                 url.set_host(Some("leasing_balance")).unwrap();
-                url.set_query(Some(
-                    format!("address={}", leasing_balance.address).as_str(),
-                ));
+                url.set_path(&leasing_balance.address);
             }
         }
         url.as_str().to_owned()
@@ -634,7 +632,7 @@ pub struct LeasingBalance {
 
 impl ToString for LeasingBalance {
     fn to_string(&self) -> String {
-        format!("address={}", self.address)
+        self.address.to_owned()
     }
 }
 
@@ -672,3 +670,15 @@ impl MaybeFromTopic for LeasingBalance {
 }
 
 impl WatchListItem for LeasingBalance {}
+
+#[test]
+fn leasing_balance_test() {
+    let url = Url::parse("topic://leasing_balance/some_address").unwrap();
+    let leasing_balance = LeasingBalance::try_from(&url).unwrap();
+    assert_eq!(leasing_balance.address, "some_address".to_string());
+    let url = Url::parse("topic://leasing_balance/some_address/some_other_part_of_path").unwrap();
+    let leasing_balance = LeasingBalance::try_from(&url).unwrap();
+    assert_eq!(leasing_balance.address, "some_address".to_string());
+    let leasing_balance_string = leasing_balance.to_string();
+    assert_eq!("some_address".to_string(), leasing_balance_string);
+}
