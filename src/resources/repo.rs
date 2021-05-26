@@ -19,21 +19,20 @@ impl ResourcesRepoImpl {
 impl ResourcesRepo for ResourcesRepoImpl {
     fn get(&self, resource: &Topic) -> Result<Option<String>, Error> {
         let mut con = self.pool.get()?;
-
-        con.get(resource.to_string())
-            .map_err(|err| Error::from(err))
+        let result = con.get(resource.to_string())?;
+        Ok(result)
     }
 
     fn set(&self, resource: Topic, value: String) -> Result<(), Error> {
         let mut con = self.pool.get()?;
-        con.set(resource.to_string(), value)
-            .map_err(|err| Error::from(err))
+        con.set(resource.to_string(), value)?;
+        Ok(())
     }
 
     fn del(&self, resource: Topic) -> Result<(), Error> {
         let mut con = self.pool.get()?;
-        con.del(resource.to_string())
-            .map_err(|err| Error::from(err))
+        con.del(resource.to_string())?;
+        Ok(())
     }
 
     fn push(&self, resource: Topic, value: String) -> Result<(), Error> {

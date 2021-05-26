@@ -164,7 +164,7 @@ impl TryFrom<&str> for ConfigFile {
     fn try_from(s: &str) -> Result<Self, Self::Error> {
         let p = std::path::Path::new(s)
             .to_str()
-            .ok_or(Error::InvalidConfigPath(s.to_owned()))?;
+            .ok_or_else(|| Error::InvalidConfigPath(s.to_owned()))?;
 
         Ok(ConfigFile { path: p.to_owned() })
     }
@@ -181,7 +181,7 @@ impl MaybeFromTopic for ConfigFile {
         if let Topic::Config(config_file) = topic {
             return Some(config_file.to_owned());
         }
-        return None;
+        None
     }
 }
 
@@ -189,8 +189,8 @@ impl WatchListItem for ConfigFile {}
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct State {
-    address: String,
-    key: String,
+    pub address: String,
+    pub key: String,
 }
 
 impl ToString for State {
@@ -204,8 +204,8 @@ impl TryFrom<&str> for State {
 
     fn try_from(s: &str) -> Result<Self, Self::Error> {
         let parts = s
-            .trim_start_matches("/")
-            .split("/")
+            .trim_start_matches('/')
+            .split('/')
             .take(2)
             .collect::<Vec<_>>();
         if parts.len() == 2 {
@@ -229,7 +229,7 @@ impl MaybeFromTopic for State {
         if let Topic::State(state) = topic {
             return Some(state.to_owned());
         }
-        return None;
+        None
     }
 }
 
@@ -245,7 +245,7 @@ impl ToString for TestResource {
     fn to_string(&self) -> String {
         let mut s = self.path.clone();
         if let Some(query) = self.query.clone() {
-            s = format!("{}?{}", s, query).to_string();
+            s = format!("{}?{}", s, query);
         }
         s
     }
@@ -273,7 +273,7 @@ impl MaybeFromTopic for TestResource {
         if let Topic::TestResource(test_resource) = topic {
             return Some(test_resource.to_owned());
         }
-        return None;
+        None
     }
 }
 
@@ -307,7 +307,7 @@ impl MaybeFromTopic for BlockchainHeight {
         if let Topic::BlockchainHeight = topic {
             return Some(Self {});
         }
-        return None;
+        None
     }
 }
 
@@ -361,7 +361,7 @@ impl TryFrom<Url> for TransactionByAddress {
             Type::All
         };
         let address = get_value_from_query(&value, "address")?;
-        Ok(Self { address, tx_type })
+        Ok(Self { tx_type, address })
     }
 }
 
@@ -372,8 +372,8 @@ impl TryFrom<Url> for TransactionExchange {
         let price_asset = get_value_from_query(&value, "price_asset")?;
         let amount_asset = get_value_from_query(&value, "amount_asset")?;
         Ok(Self {
-            price_asset,
             amount_asset,
+            price_asset,
         })
     }
 }
@@ -590,7 +590,7 @@ impl MaybeFromTopic for TransactionByAddress {
         if let Topic::Transaction(Transaction::ByAddress(transaction)) = topic {
             return Some(transaction.to_owned());
         }
-        return None;
+        None
     }
 }
 
@@ -599,7 +599,7 @@ impl MaybeFromTopic for TransactionExchange {
         if let Topic::Transaction(Transaction::Exchange(transaction)) = topic {
             return Some(transaction.to_owned());
         }
-        return None;
+        None
     }
 }
 
@@ -608,7 +608,7 @@ impl MaybeFromTopic for Transaction {
         if let Topic::Transaction(transaction) = topic {
             return Some(transaction.to_owned());
         }
-        return None;
+        None
     }
 }
 

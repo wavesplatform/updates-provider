@@ -23,20 +23,16 @@ fn default_associated_addresses_count_threshold() -> usize {
     1000
 }
 
-fn default_state_batch_size() -> usize {
-    100
-}
-
-fn default_state_concurrent_requests_count() -> usize {
-    5
-}
-
 fn default_start_height() -> i32 {
     0
 }
 
 fn default_port() -> u16 {
     8080
+}
+
+fn default_waiting_blocks_timeout() -> u64 {
+    15
 }
 
 #[derive(Deserialize)]
@@ -52,6 +48,10 @@ fn default_pgport() -> u16 {
     5432
 }
 
+fn default_pg_pool_size() -> u8 {
+    4
+}
+
 #[derive(Deserialize)]
 pub struct PostgresConfig {
     pub host: String,
@@ -60,6 +60,8 @@ pub struct PostgresConfig {
     pub database: String,
     pub user: String,
     pub password: String,
+    #[serde(default = "default_pg_pool_size")]
+    pub pool_size: u8,
 }
 
 #[derive(Deserialize)]
@@ -78,18 +80,6 @@ struct FlatConfigsUpdaterConfig {
 }
 
 #[derive(Deserialize)]
-struct FlatStatesUpdaterConfig {
-    pub base_url: String,
-    pub polling_delay: u64,
-    #[serde(default = "default_delete_timeout")]
-    pub delete_timeout_secs: u64,
-    #[serde(default = "default_state_batch_size")]
-    pub batch_size: usize,
-    #[serde(default = "default_state_concurrent_requests_count")]
-    pub concurrent_requests_count: usize,
-}
-
-#[derive(Deserialize)]
 struct FlatTestResourcesUpdaterConfig {
     pub test_resources_base_url: String,
     pub polling_delay: u64,
@@ -102,6 +92,8 @@ struct FlatBlockchainUpdaterConfig {
     pub url: String,
     #[serde(default = "default_delete_timeout")]
     pub transaction_delete_timeout: u64,
+    #[serde(default = "default_delete_timeout")]
+    pub state_delete_timeout: u64,
     #[serde(default = "default_updates_buffer_size")]
     pub updates_buffer_size: usize,
     #[serde(default = "default_transactions_count_threshold")]
@@ -110,6 +102,8 @@ struct FlatBlockchainUpdaterConfig {
     pub associated_addresses_count_threshold: usize,
     #[serde(default = "default_start_height")]
     pub start_height: i32,
+    #[serde(default = "default_waiting_blocks_timeout")]
+    pub waiting_blocks_timeout: u64,
 }
 
 #[derive(Deserialize)]
@@ -121,13 +115,13 @@ struct FlatServerConfig {
 pub fn load_redis() -> Result<RedisConfig, Error> {
     envy::prefixed("REDIS__")
         .from_env::<RedisConfig>()
-        .map_err(|err| Error::from(err))
+        .map_err(Error::from)
 }
 
 pub fn load_postgres() -> Result<PostgresConfig, Error> {
     envy::prefixed("POSTGRES__")
         .from_env::<PostgresConfig>()
-        .map_err(|err| Error::from(err))
+        .map_err(Error::from)
 }
 
 pub fn load_subscriptions() -> Result<subscriptions::Config, Error> {
@@ -150,18 +144,6 @@ pub fn load_configs_updater() -> Result<providers::polling::configs::Config, Err
     })
 }
 
-pub fn load_states_updater() -> Result<providers::polling::states::Config, Error> {
-    let flat_config = envy::prefixed("STATE_UPDATER__").from_env::<FlatStatesUpdaterConfig>()?;
-
-    Ok(providers::polling::states::Config {
-        base_url: flat_config.base_url,
-        polling_delay: Duration::from_secs(flat_config.polling_delay),
-        delete_timeout: Duration::from_secs(flat_config.delete_timeout_secs),
-        batch_size: flat_config.batch_size,
-        concurrent_requests_count: flat_config.concurrent_requests_count,
-    })
-}
-
 pub fn load_test_resources_updater() -> Result<providers::polling::test_resources::Config, Error> {
     let flat_config =
         envy::prefixed("TEST_RESOURCES_UPDATER__").from_env::<FlatTestResourcesUpdaterConfig>()?;
@@ -174,15 +156,18 @@ pub fn load_test_resources_updater() -> Result<providers::polling::test_resource
 }
 
 pub fn load_blockchain() -> Result<providers::blockchain::Config, Error> {
-    let flat_config = envy::prefixed("BLOCKCHAIN_UPDATES__").from_env::<FlatBlockchainUpdaterConfig>()?;
+    let flat_config =
+        envy::prefixed("BLOCKCHAIN_UPDATES__").from_env::<FlatBlockchainUpdaterConfig>()?;
 
     Ok(providers::blockchain::Config {
         updates_url: flat_config.url,
         transaction_delete_timeout: Duration::from_secs(flat_config.transaction_delete_timeout),
+        state_delete_timeout: Duration::from_secs(flat_config.state_delete_timeout),
         updates_buffer_size: flat_config.updates_buffer_size,
         transactions_count_threshold: flat_config.transactions_count_threshold,
         associated_addresses_count_threshold: flat_config.associated_addresses_count_threshold,
         start_height: flat_config.start_height,
+        waiting_blocks_timeout: Duration::from_secs(flat_config.waiting_blocks_timeout),
     })
 }
 
