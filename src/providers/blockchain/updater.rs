@@ -1,6 +1,7 @@
 use crate::transactions::repo::TransactionsRepoPoolImpl;
 use crate::transactions::{
-    BlockMicroblockAppend, BlockchainUpdate, DataEntryUpdate, InsertableDataEntry, Transaction,
+    BlockMicroblockAppend, BlockchainUpdate, DataEntryUpdate, InsertableDataEntry,
+    InsertableLeasingBalance, LeasingBalanceUpdate, Transaction,
 };
 use crate::utils::ToChunks;
 use crate::{
@@ -251,7 +252,8 @@ fn insert_blocks_updates<U: TransactionsRepo + ?Sized>(
         let transaction_updates = blocks_updates.iter().map(|block| block.transactions.iter());
         insert_transactions(conn, transaction_updates.clone(), &block_ids)?;
         insert_addresses(conn, transaction_updates)?;
-        insert_data_entries(conn, blocks_updates, &block_ids)?;
+        insert_data_entries(conn, &blocks_updates, &block_ids)?;
+        insert_leasing_balances(conn, &blocks_updates, &block_ids)?;
         info!("inserted {:?} block", h);
     }
     Ok(())
@@ -332,7 +334,7 @@ fn insert_addresses<'a, U: TransactionsRepo + ?Sized>(
 
 fn insert_data_entries<U: TransactionsRepo + ?Sized>(
     conn: &U,
-    blocks_updates: Vec<&BlockMicroblockAppend>,
+    blocks_updates: &Vec<&BlockMicroblockAppend>,
     block_ids: &[i64],
 ) -> Result<()> {
     let start = Instant::now();
@@ -399,6 +401,74 @@ fn insert_data_entries<U: TransactionsRepo + ?Sized>(
     Ok(())
 }
 
+fn insert_leasing_balances<U: TransactionsRepo + ?Sized>(
+    conn: &U,
+    blocks_updates: &Vec<&BlockMicroblockAppend>,
+    block_ids: &[i64],
+) -> Result<()> {
+    let start = Instant::now();
+    let next_uid = conn.get_next_lease_update_uid()?;
+
+    let entries = blocks_updates
+        .iter()
+        .zip(block_ids)
+        .flat_map(|(block, &block_id)| block.leasing_balances.iter().map(move |l| (l, block_id)))
+        .enumerate()
+        .map(|(idx, (l, block_id))| (l, idx as i64 + next_uid, block_id).into());
+
+    let updates_count = entries.clone().count() as i64;
+
+    let mut grouped_updates: HashMap<InsertableLeasingBalance, Vec<InsertableLeasingBalance>> =
+        HashMap::new();
+
+    entries.for_each(|item: InsertableLeasingBalance| {
+        let group = grouped_updates.entry(item.clone()).or_insert_with(Vec::new);
+        group.push(item);
+    });
+
+    let mut grouped_updates = grouped_updates
+        .into_iter()
+        .map(|(_k, v)| v)
+        .collect::<Vec<_>>();
+
+    for group in grouped_updates.iter_mut() {
+        group.sort_by_key(|item| item.uid);
+        let mut last_uid = std::i64::MAX - 1;
+        for update in group.iter_mut().rev() {
+            update.superseded_by = last_uid;
+            last_uid = update.uid;
+        }
+    }
+
+    // First uid for each asset in a new batch. This value closes superseded_by of previous updates.
+    let first_uids: Vec<LeasingBalanceUpdate> = grouped_updates
+        .iter()
+        .map(|group| {
+            let first = group.first().cloned().unwrap();
+            LeasingBalanceUpdate {
+                address: first.address,
+                superseded_by: first.uid,
+            }
+        })
+        .collect();
+
+    conn.close_lease_superseded_by(&first_uids)?;
+
+    let mut updates_with_uids_superseded_by =
+        grouped_updates.into_iter().flatten().collect::<Vec<_>>();
+
+    updates_with_uids_superseded_by.sort_by_key(|de| de.uid);
+
+    conn.insert_leasing_balances(&updates_with_uids_superseded_by)?;
+    conn.set_next_lease_update_uid(next_uid + updates_count)?;
+    info!(
+        "insert {} leasing_balances in {} ms",
+        updates_count,
+        start.elapsed().as_millis()
+    );
+    Ok(())
+}
+
 fn rollback<U: TransactionsRepo + ?Sized>(conn: &U, block_id: &str) -> Result<()> {
     let block_uid = conn.get_block_uid(block_id)?;
     Ok(rollback_by_block_uid(conn, block_uid)?)
@@ -420,6 +490,22 @@ fn rollback_by_block_uid<U: TransactionsRepo + ?Sized>(conn: &U, block_uid: i64)
         .collect();
 
     conn.reopen_superseded_by(&lowest_deleted_uids)?;
+
+    let deletes = conn.rollback_leasing_balances(&block_uid)?;
+
+    let mut grouped_deletes = HashMap::new();
+
+    deletes.into_iter().for_each(|item| {
+        let group = grouped_deletes.entry(item.clone()).or_insert_with(Vec::new);
+        group.push(item);
+    });
+
+    let lowest_deleted_uids: Vec<i64> = grouped_deletes
+        .into_iter()
+        .filter_map(|(_, group)| group.into_iter().min_by_key(|i| i.uid).map(|i| i.uid))
+        .collect();
+
+    conn.reopen_lease_superseded_by(&lowest_deleted_uids)?;
     conn.rollback_blocks_microblocks(&block_uid)?;
     Ok(())
 }
@@ -452,6 +538,7 @@ fn squash_microblocks<P: TransactionsRepoPool>(pool: &P) -> Result<()> {
             let key_block_uid = conn.get_key_block_uid()?;
 
             conn.update_data_entries_block_references(&key_block_uid)?;
+            conn.update_leasing_balances_block_references(&key_block_uid)?;
             conn.update_transactions_block_references(&key_block_uid)?;
             conn.delete_microblocks()?;
             conn.change_block_id(&key_block_uid, &total_block_id)?;

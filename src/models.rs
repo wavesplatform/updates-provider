@@ -14,6 +14,7 @@ pub enum Topic {
     TestResource(TestResource),
     BlockchainHeight,
     Transaction(Transaction),
+    LeasingBalance(LeasingBalance),
 }
 
 impl TryFrom<&str> for Topic {
@@ -40,6 +41,10 @@ impl TryFrom<&str> for Topic {
                 Some("transactions") => {
                     let transaction = Transaction::try_from(url)?;
                     Ok(Topic::Transaction(transaction))
+                }
+                Some("leasing_balance") => {
+                    let leasing_balance = LeasingBalance::try_from(&url)?;
+                    Ok(Topic::LeasingBalance(leasing_balance))
                 }
                 _ => Err(Error::InvalidTopic(s.to_owned())),
             },
@@ -104,7 +109,7 @@ impl ToString for Topic {
                 url.set_query(Some(
                     format!(
                         "type={}&address={}",
-                        &transaction.tx_type, &transaction.address
+                        transaction.tx_type, transaction.address
                     )
                     .as_str(),
                 ));
@@ -114,10 +119,14 @@ impl ToString for Topic {
                 url.set_query(Some(
                     format!(
                         "type=exchange&amount_asset={}&price_asset={}",
-                        &transaction.amount_asset, &transaction.price_asset
+                        transaction.amount_asset, transaction.price_asset
                     )
                     .as_str(),
                 ));
+            }
+            Topic::LeasingBalance(leasing_balance) => {
+                url.set_host(Some("leasing_balance")).unwrap();
+                url.set_query(Some(format!("address={}", leasing_balance.address).as_str()));
             }
         }
         url.as_str().to_owned()
@@ -615,3 +624,56 @@ impl MaybeFromTopic for Transaction {
 impl WatchListItem for TransactionByAddress {}
 impl WatchListItem for TransactionExchange {}
 impl WatchListItem for Transaction {}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub struct LeasingBalance {
+    pub address: String,
+}
+
+impl ToString for LeasingBalance {
+    fn to_string(&self) -> String {
+        format!("address={}", self.address)
+    }
+}
+
+impl TryFrom<&url::Url> for LeasingBalance {
+    type Error = Error;
+
+    fn try_from(url: &url::Url) -> Result<Self, Self::Error> {
+        let mut address = None;
+        for (k, v) in url.query_pairs() {
+            if k == "address" {
+                address =
+                    Some(v.parse().map_err(|_| {
+                        Error::InvalidLeaseQuery(url.query().unwrap_or("").to_string())
+                    })?)
+            }
+        }
+        if address.is_none() {
+            return Err(Error::InvalidLeaseQuery(
+                url.query().unwrap_or("").to_string(),
+            ));
+        } else {
+            Ok(Self {
+                address: address.unwrap(),
+            })
+        }
+    }
+}
+
+impl From<LeasingBalance> for Topic {
+    fn from(leasing_balance: LeasingBalance) -> Self {
+        Self::LeasingBalance(leasing_balance)
+    }
+}
+
+impl MaybeFromTopic for LeasingBalance {
+    fn maybe_item(topic: &Topic) -> Option<Self> {
+        if let Topic::LeasingBalance(leasing_balance) = topic {
+            return Some(leasing_balance.to_owned());
+        }
+        None
+    }
+}
+
+impl WatchListItem for LeasingBalance {}

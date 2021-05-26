@@ -132,6 +132,18 @@ async fn tokio_main() -> Result<(), Error> {
     // random channel buffer size
     let (tx, rx) = tokio::sync::mpsc::channel(20);
     let provider = blockchain::state::Provider::new(
+        resources_repo.clone(),
+        blockchain_config.state_delete_timeout,
+        transactions_repo.clone(),
+        rx,
+    );
+
+    updater.add_provider(tx);
+
+    let states_subscriptions_updates_sender = provider.fetch_updates().await?;
+
+    let (tx, rx) = tokio::sync::mpsc::channel(20);
+    let provider = blockchain::leasing_balance::Provider::new(
         resources_repo,
         blockchain_config.state_delete_timeout,
         transactions_repo,
@@ -140,7 +152,7 @@ async fn tokio_main() -> Result<(), Error> {
 
     updater.add_provider(tx);
 
-    let states_subscriptions_updates_sender = provider.fetch_updates().await?;
+    let leasing_balances_subscriptions_updates_sender = provider.fetch_updates().await?;
 
     let blockchain_updater_handle = tokio::spawn(async move { updater.run().await });
 
@@ -172,6 +184,7 @@ async fn tokio_main() -> Result<(), Error> {
     subscriptions_updates_pusher.add_observer(test_resources_subscriptions_updates_sender);
     subscriptions_updates_pusher.add_observer(transactions_subscriptions_updates_sender);
     subscriptions_updates_pusher.add_observer(states_subscriptions_updates_sender);
+    subscriptions_updates_pusher.add_observer(leasing_balances_subscriptions_updates_sender);
 
     let subscriptions_updates_pusher_handle = tokio::spawn(async move {
         info!("starting subscriptions updates pusher");

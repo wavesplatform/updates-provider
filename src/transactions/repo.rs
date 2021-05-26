@@ -1,12 +1,17 @@
 use super::{
-    AssociatedAddress, BlockMicroblock, DataEntryUpdate, DeletedDataEntry, InsertableDataEntry,
-    PrevHandledHeight, Transaction, TransactionType, TransactionsRepo, TransactionsRepoPool,
+    AssociatedAddress, BlockMicroblock, DataEntryUpdate, DeletedDataEntry, DeletedLeasingBalance,
+    InsertableDataEntry, InsertableLeasingBalance, LeasingBalanceUpdate, PrevHandledHeight,
+    Transaction, TransactionType, TransactionsRepo, TransactionsRepoPool,
 };
 use crate::error::Result;
 use crate::schema::blocks_microblocks::dsl::*;
 use crate::schema::data_entries_uid_seq;
 use crate::schema::data_entries_uid_seq::dsl::*;
-use crate::schema::{associated_addresses, blocks_microblocks, data_entries, transactions};
+use crate::schema::leasing_balances_uid_seq;
+use crate::schema::leasing_balances_uid_seq::dsl::*;
+use crate::schema::{
+    associated_addresses, blocks_microblocks, data_entries, leasing_balances, transactions,
+};
 use crate::{db::PgPool, utils::ToChunks};
 use diesel::sql_types::{Array, BigInt, VarChar};
 use diesel::{prelude::*, r2d2::ConnectionManager};
@@ -139,6 +144,40 @@ impl TransactionsRepo for TransactionsRepoPoolImpl {
     fn update_data_entries_block_references(&self, block_uid: &i64) -> Result<()> {
         self.get_conn()?
             .update_data_entries_block_references(block_uid)
+    }
+
+    fn get_next_lease_update_uid(&self) -> Result<i64> {
+        self.get_conn()?.get_next_lease_update_uid()
+    }
+
+    fn insert_leasing_balances(&self, entries: &[InsertableLeasingBalance]) -> Result<()> {
+        self.get_conn()?.insert_leasing_balances(entries)
+    }
+
+    fn set_next_lease_update_uid(&self, new_uid: i64) -> Result<()> {
+        self.get_conn()?.set_next_lease_update_uid(new_uid)
+    }
+
+    fn close_lease_superseded_by(&self, updates: &[LeasingBalanceUpdate]) -> Result<()> {
+        self.get_conn()?.close_lease_superseded_by(updates)
+    }
+
+    fn reopen_lease_superseded_by(&self, current_superseded_by: &[i64]) -> Result<()> {
+        self.get_conn()?
+            .reopen_lease_superseded_by(current_superseded_by)
+    }
+
+    fn rollback_leasing_balances(&self, block_uid: &i64) -> Result<Vec<DeletedLeasingBalance>> {
+        self.get_conn()?.rollback_leasing_balances(block_uid)
+    }
+
+    fn update_leasing_balances_block_references(&self, block_uid: &i64) -> Result<()> {
+        self.get_conn()?
+            .update_leasing_balances_block_references(block_uid)
+    }
+
+    fn last_leasing_balance(&self, address: String) -> Result<Option<InsertableLeasingBalance>> {
+        self.get_conn()?.last_leasing_balance(address)
     }
 }
 
@@ -374,5 +413,92 @@ impl TransactionsRepo for PooledConnection<ConnectionManager<PgConnection>> {
             .filter(data_entries::block_uid.gt(block_uid))
             .execute(self)?;
         Ok(())
+    }
+
+    fn get_next_lease_update_uid(&self) -> Result<i64> {
+        Ok(leasing_balances_uid_seq
+            .select(leasing_balances_uid_seq::last_value)
+            .first(self)?)
+    }
+
+    fn insert_leasing_balances(&self, entries: &[InsertableLeasingBalance]) -> Result<()> {
+        // one data entry has 6 columns
+        // pg cannot insert more then 65535
+        // so the biggest chunk should be less then 10922
+        let chunk_size = 10000;
+        for chunk in entries.iter().chunks_from_iter(chunk_size) {
+            diesel::insert_into(leasing_balances::table)
+                .values(chunk)
+                .execute(self)?;
+        }
+        Ok(())
+    }
+
+    fn close_lease_superseded_by(&self, updates: &[LeasingBalanceUpdate]) -> Result<()> {
+        let mut addresses = vec![];
+        let mut superseded_bys = vec![];
+        updates.iter().for_each(|u| {
+            addresses.push(&u.address);
+            superseded_bys.push(&u.superseded_by);
+        });
+
+        diesel::sql_query("UPDATE leasing_balances SET superseded_by = updates.superseded_by FROM (SELECT UNNEST($1) as address, UNNEST($2) as superseded_by) as updates where leasing_balances.address = updates.address and leasing_balances.superseded_by = $3")
+                .bind::<Array<VarChar>, _>(addresses)
+                .bind::<Array<BigInt>, _>(superseded_bys)
+                .bind::<BigInt, _>(MAX_UID)
+            .execute(self)?;
+
+        Ok(())
+    }
+
+    fn reopen_lease_superseded_by(&self, current_superseded_by: &[i64]) -> Result<()> {
+        diesel::sql_query("UPDATE leasing_balances SET superseded_by = $1 FROM (SELECT UNNEST($2) AS superseded_by) AS current WHERE leasing_balances.superseded_by = current.superseded_by;")
+            .bind::<BigInt, _>(MAX_UID)
+            .bind::<Array<BigInt>, _>(current_superseded_by)
+            .execute(self)?;
+
+        Ok(())
+    }
+
+    fn set_next_lease_update_uid(&self, new_uid: i64) -> Result<()> {
+        Ok(diesel::sql_query(format!(
+            "select setval('leasing_balances_uid_seq', {}, false);", // 3rd param - is called; in case of true, value'll be incremented before returning
+            new_uid
+        ))
+        .execute(self)
+        .map(|_| ())?)
+    }
+
+    fn rollback_leasing_balances(&self, block_uid: &i64) -> Result<Vec<DeletedLeasingBalance>> {
+        Ok(diesel::delete(leasing_balances::table)
+            .filter(leasing_balances::block_uid.gt(block_uid))
+            .returning((leasing_balances::address, leasing_balances::uid))
+            .get_results(self)
+            .map(|des| {
+                des.into_iter()
+                    .map(|(de_address, de_uid)| DeletedLeasingBalance {
+                        address: de_address,
+                        uid: de_uid,
+                    })
+                    .collect::<Vec<_>>()
+            })?)
+    }
+
+    fn update_leasing_balances_block_references(&self, block_uid: &i64) -> Result<()> {
+        diesel::update(leasing_balances::table)
+            .set(leasing_balances::block_uid.eq(block_uid))
+            .filter(leasing_balances::block_uid.gt(block_uid))
+            .execute(self)?;
+        Ok(())
+    }
+
+    fn last_leasing_balance(&self, address: String) -> Result<Option<InsertableLeasingBalance>> {
+        Ok(leasing_balances::table
+            .filter(leasing_balances::address.eq(address))
+            .select(leasing_balances::all_columns.nullable())
+            .order(leasing_balances::block_uid.desc())
+            .first::<Option<InsertableLeasingBalance>>(self)
+            .optional()?
+            .flatten())
     }
 }
