@@ -3,6 +3,7 @@ use super::super::{TSResourcesRepoImpl, TSUpdatesProviderLastValues, UpdatesProv
 use crate::transactions::repo::TransactionsRepoPoolImpl;
 use crate::transactions::LeasingBalance as LeasingBalanceDB;
 use crate::transactions::{BlockMicroblockAppend, BlockchainUpdate};
+use crate::utils::clean_timeout;
 use crate::{error::Result, transactions::TransactionsRepo};
 use crate::{
     models::{LeasingBalance, Topic},
@@ -14,7 +15,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, RwLock};
 use wavesexchange_log::{error, info};
-use crate::utils::clean_timeout;
 
 pub struct Provider {
     watchlist: Arc<RwLock<WatchList<LeasingBalance>>>,

@@ -249,7 +249,7 @@ pub struct DeletedLeasingBalance {
 
 impl PartialEq for DeletedLeasingBalance {
     fn eq(&self, other: &DeletedLeasingBalance) -> bool {
-        &self.address == &other.address
+        self.address == other.address
     }
 }
 
@@ -375,7 +375,7 @@ pub struct InsertableLeasingBalance {
 
 impl PartialEq for InsertableLeasingBalance {
     fn eq(&self, other: &InsertableLeasingBalance) -> bool {
-        &self.address == &other.address
+        self.address == other.address
     }
 }
 

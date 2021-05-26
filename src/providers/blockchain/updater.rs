@@ -60,9 +60,8 @@ impl Updater {
         let last_height = {
             match transactions_repo.get_prev_handled_height()? {
                 Some(prev_handled_height) => {
-                    transactions_repo.transaction(|conn| {
-                        Ok(rollback_by_block_uid(conn, prev_handled_height.uid)?)
-                    })?;
+                    transactions_repo
+                        .transaction(|conn| rollback_by_block_uid(conn, prev_handled_height.uid))?;
                     prev_handled_height.height as i32 + 1
                 }
                 None => 1i32,
@@ -75,7 +74,7 @@ impl Updater {
             transactions_count_threshold,
             associated_addresses_count_threshold,
             providers: vec![],
-            waiting_blocks_timeout: waiting_blocks_timeout,
+            waiting_blocks_timeout,
         };
         Ok(UpdaterReturn {
             last_height,
@@ -334,7 +333,7 @@ fn insert_addresses<'a, U: TransactionsRepo + ?Sized>(
 
 fn insert_data_entries<U: TransactionsRepo + ?Sized>(
     conn: &U,
-    blocks_updates: &Vec<&BlockMicroblockAppend>,
+    blocks_updates: &[&BlockMicroblockAppend],
     block_ids: &[i64],
 ) -> Result<()> {
     let start = Instant::now();
@@ -403,7 +402,7 @@ fn insert_data_entries<U: TransactionsRepo + ?Sized>(
 
 fn insert_leasing_balances<U: TransactionsRepo + ?Sized>(
     conn: &U,
-    blocks_updates: &Vec<&BlockMicroblockAppend>,
+    blocks_updates: &[&BlockMicroblockAppend],
     block_ids: &[i64],
 ) -> Result<()> {
     let start = Instant::now();
@@ -471,7 +470,7 @@ fn insert_leasing_balances<U: TransactionsRepo + ?Sized>(
 
 fn rollback<U: TransactionsRepo + ?Sized>(conn: &U, block_id: &str) -> Result<()> {
     let block_uid = conn.get_block_uid(block_id)?;
-    Ok(rollback_by_block_uid(conn, block_uid)?)
+    rollback_by_block_uid(conn, block_uid)
 }
 
 fn rollback_by_block_uid<U: TransactionsRepo + ?Sized>(conn: &U, block_uid: i64) -> Result<()> {

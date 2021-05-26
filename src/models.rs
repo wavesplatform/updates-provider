@@ -126,7 +126,9 @@ impl ToString for Topic {
             }
             Topic::LeasingBalance(leasing_balance) => {
                 url.set_host(Some("leasing_balance")).unwrap();
-                url.set_query(Some(format!("address={}", leasing_balance.address).as_str()));
+                url.set_query(Some(
+                    format!("address={}", leasing_balance.address).as_str(),
+                ));
             }
         }
         url.as_str().to_owned()
@@ -649,14 +651,12 @@ impl TryFrom<&url::Url> for LeasingBalance {
                     })?)
             }
         }
-        if address.is_none() {
+        if let Some(address) = address {
+            Ok(Self { address })
+        } else {
             return Err(Error::InvalidLeaseQuery(
                 url.query().unwrap_or("").to_string(),
             ));
-        } else {
-            Ok(Self {
-                address: address.unwrap(),
-            })
         }
     }
 }
