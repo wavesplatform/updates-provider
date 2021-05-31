@@ -3,7 +3,6 @@ pub mod polling;
 pub mod watchlist;
 
 use crate::error::Error;
-use crate::models::Topic;
 use crate::resources::{repo::ResourcesRepoImpl, ResourcesRepo};
 use async_trait::async_trait;
 use std::collections::HashMap;
@@ -11,6 +10,7 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 use watchlist::{WatchListItem, WatchListUpdate};
 use wavesexchange_log::info;
+use wavesexchange_topic::Topic;
 
 type TSResourcesRepoImpl = Arc<ResourcesRepoImpl>;
 type TSUpdatesProviderLastValues<T> = Arc<RwLock<HashMap<T, String>>>;

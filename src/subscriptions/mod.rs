@@ -3,8 +3,8 @@ pub mod pusher;
 pub mod repo;
 
 use crate::error::Error;
-use crate::models::Topic;
 use std::collections::HashMap;
+use wavesexchange_topic::Topic;
 
 type Subscriptions = HashMap<String, i64>;
 

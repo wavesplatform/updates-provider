@@ -1,5 +1,6 @@
 use super::super::watchlist::{WatchList, WatchListUpdate};
 use super::super::{TSResourcesRepoImpl, TSUpdatesProviderLastValues, UpdatesProvider};
+use crate::resources::ResourcesRepo;
 use crate::transactions::repo::TransactionsRepoPoolImpl;
 use crate::transactions::{BlockMicroblockAppend, BlockchainUpdate};
 use crate::utils::clean_timeout;
@@ -7,16 +8,13 @@ use crate::{
     error::Result,
     transactions::{DataEntry, TransactionsRepo},
 };
-use crate::{
-    models::{State, Topic},
-    resources::ResourcesRepo,
-};
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, RwLock};
 use wavesexchange_log::{error, info};
+use wavesexchange_topic::{State, Topic};
 
 pub struct Provider {
     watchlist: Arc<RwLock<WatchList<State>>>,

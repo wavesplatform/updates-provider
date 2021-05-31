@@ -1,9 +1,9 @@
 use super::{SubscriptionUpdate, Subscriptions, SubscriptionsRepo};
 use crate::error::Error;
-use crate::models::Topic;
 use r2d2_redis::redis;
 use std::convert::TryFrom;
 use wavesexchange_log::info;
+use wavesexchange_topic::Topic;
 
 pub struct PullerImpl {
     subscriptions_repo: std::sync::Arc<dyn SubscriptionsRepo + Send + Sync + 'static>,
@@ -56,8 +56,8 @@ impl PullerImpl {
         );
 
         initial_subscriptions_updates
-            .iter()
-            .try_for_each(|update| subscriptions_updates_sender.send(update.to_owned()))
+            .into_iter()
+            .try_for_each(|update| subscriptions_updates_sender.send(update))
             .map_err(|error| Error::SendError(format!("{:?}", error)))?;
 
         let redis_client = self.redis_client.clone();

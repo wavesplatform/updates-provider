@@ -149,29 +149,33 @@ impl From<&Data> for TransactionType {
     }
 }
 
-impl TryFrom<crate::models::Type> for TransactionType {
+impl TryFrom<wavesexchange_topic::TransactionType> for TransactionType {
     type Error = Error;
 
-    fn try_from(value: crate::models::Type) -> core::result::Result<Self, Self::Error> {
+    fn try_from(
+        value: wavesexchange_topic::TransactionType,
+    ) -> core::result::Result<Self, Self::Error> {
         match value {
-            crate::models::Type::All => Err(Error::InvalidDBTransactionType(value.to_string())),
-            crate::models::Type::Genesis => Ok(Self::Genesis),
-            crate::models::Type::Payment => Ok(Self::Payment),
-            crate::models::Type::Issue => Ok(Self::Issue),
-            crate::models::Type::Transfer => Ok(Self::Transfer),
-            crate::models::Type::Reissue => Ok(Self::Reissue),
-            crate::models::Type::Burn => Ok(Self::Burn),
-            crate::models::Type::Exchange => Ok(Self::Exchange),
-            crate::models::Type::Lease => Ok(Self::Lease),
-            crate::models::Type::LeaseCancel => Ok(Self::LeaseCancel),
-            crate::models::Type::Alias => Ok(Self::Alias),
-            crate::models::Type::MassTransfer => Ok(Self::MassTransfer),
-            crate::models::Type::Data => Ok(Self::Data),
-            crate::models::Type::SetScript => Ok(Self::SetScript),
-            crate::models::Type::Sponsorship => Ok(Self::Sponsorship),
-            crate::models::Type::SetAssetScript => Ok(Self::SetAssetScript),
-            crate::models::Type::InvokeScript => Ok(Self::InvokeScript),
-            crate::models::Type::UpdateAssetInfo => Ok(Self::UpdateAssetInfo),
+            wavesexchange_topic::TransactionType::All => {
+                Err(Error::InvalidDBTransactionType(value.to_string()))
+            }
+            wavesexchange_topic::TransactionType::Genesis => Ok(Self::Genesis),
+            wavesexchange_topic::TransactionType::Payment => Ok(Self::Payment),
+            wavesexchange_topic::TransactionType::Issue => Ok(Self::Issue),
+            wavesexchange_topic::TransactionType::Transfer => Ok(Self::Transfer),
+            wavesexchange_topic::TransactionType::Reissue => Ok(Self::Reissue),
+            wavesexchange_topic::TransactionType::Burn => Ok(Self::Burn),
+            wavesexchange_topic::TransactionType::Exchange => Ok(Self::Exchange),
+            wavesexchange_topic::TransactionType::Lease => Ok(Self::Lease),
+            wavesexchange_topic::TransactionType::LeaseCancel => Ok(Self::LeaseCancel),
+            wavesexchange_topic::TransactionType::Alias => Ok(Self::Alias),
+            wavesexchange_topic::TransactionType::MassTransfer => Ok(Self::MassTransfer),
+            wavesexchange_topic::TransactionType::Data => Ok(Self::Data),
+            wavesexchange_topic::TransactionType::SetScript => Ok(Self::SetScript),
+            wavesexchange_topic::TransactionType::Sponsorship => Ok(Self::Sponsorship),
+            wavesexchange_topic::TransactionType::SetAssetScript => Ok(Self::SetAssetScript),
+            wavesexchange_topic::TransactionType::InvokeScript => Ok(Self::InvokeScript),
+            wavesexchange_topic::TransactionType::UpdateAssetInfo => Ok(Self::UpdateAssetInfo),
         }
     }
 }

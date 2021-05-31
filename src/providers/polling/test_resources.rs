@@ -1,10 +1,10 @@
 use super::requester::Requester;
 use crate::error::Error;
-use crate::models::TestResource;
 use async_trait::async_trait;
 use reqwest::{Client, ClientBuilder};
 use std::time::Duration;
 use wavesexchange_log::error;
+use wavesexchange_topic::TestResource;
 
 #[async_trait]
 pub trait ConfigsRepo {
@@ -43,7 +43,9 @@ impl Requester<TestResource> for TestResourcesRequester {
             format!(
                 "{}/{}",
                 self.test_resources_base_url,
-                test_resource.to_string().strip_prefix("/").unwrap(),
+                String::from(test_resource.to_owned())
+                    .strip_prefix("/")
+                    .unwrap(),
             )
             .as_ref(),
         )?;

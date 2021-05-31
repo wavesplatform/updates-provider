@@ -1,10 +1,10 @@
 use super::{TSResourcesRepoImpl, TSUpdatesProviderLastValues};
 use crate::metrics::{WATCHLISTS_SUBSCRIPTIONS, WATCHLISTS_TOPICS};
-use crate::models::Topic;
 use crate::subscriptions::SubscriptionUpdate;
 use crate::{error::Error, resources::ResourcesRepo};
 use std::time::{Duration, Instant};
 use std::{collections::HashMap, hash::Hash};
+use wavesexchange_topic::Topic;
 
 #[derive(Debug)]
 pub struct WatchList<T: WatchListItem> {
@@ -16,7 +16,7 @@ pub struct WatchList<T: WatchListItem> {
     type_name: String,
 }
 
-pub trait WatchListItem: Eq + Hash + Into<Topic> + MaybeFromTopic + ToString + Clone {}
+pub trait WatchListItem: Eq + Hash + Into<Topic> + MaybeFromTopic + Into<String> + Clone {}
 
 #[derive(Debug, Clone)]
 pub enum WatchListUpdate<T: WatchListItem> {

@@ -1,8 +1,9 @@
 use super::super::TSResourcesRepoImpl;
-use crate::{error::Error, models::Topic, resources::ResourcesRepo};
+use crate::{error::Error, resources::ResourcesRepo};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use waves_protobuf_schemas::waves::events::BlockchainUpdated;
+use wavesexchange_topic::Topic;
 
 pub struct Provider {
     resources_repo: TSResourcesRepoImpl,

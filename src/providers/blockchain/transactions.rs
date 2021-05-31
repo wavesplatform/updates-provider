@@ -1,5 +1,6 @@
 use super::super::watchlist::{WatchList, WatchListUpdate};
 use super::super::{TSResourcesRepoImpl, TSUpdatesProviderLastValues, UpdatesProvider};
+use crate::resources::ResourcesRepo;
 use crate::transactions::repo::TransactionsRepoPoolImpl;
 use crate::transactions::{BlockMicroblockAppend, BlockchainUpdate, Transaction, TransactionType};
 use crate::utils::clean_timeout;
@@ -7,21 +8,20 @@ use crate::{
     error::Result,
     transactions::{exchange::ExchangeData, Address, TransactionUpdate, TransactionsRepo},
 };
-use crate::{
-    models::{self, Topic, TransactionByAddress, TransactionExchange, Type},
-    resources::ResourcesRepo,
-};
 use async_trait::async_trait;
 use std::sync::Arc;
 use std::time::Duration;
 use std::{collections::HashMap, convert::TryFrom};
 use tokio::sync::{mpsc, RwLock};
 use wavesexchange_log::{error, info};
+use wavesexchange_topic::{
+    Topic, TransactionByAddress, TransactionExchange, TransactionType as Type,
+};
 
 pub struct Provider {
-    watchlist: Arc<RwLock<WatchList<models::Transaction>>>,
+    watchlist: Arc<RwLock<WatchList<wavesexchange_topic::Transaction>>>,
     resources_repo: TSResourcesRepoImpl,
-    last_values: TSUpdatesProviderLastValues<models::Transaction>,
+    last_values: TSUpdatesProviderLastValues<wavesexchange_topic::Transaction>,
     rx: mpsc::Receiver<Arc<Vec<BlockchainUpdate>>>,
     transactions_repo: Arc<TransactionsRepoPoolImpl>,
     clean_timeout: Duration,
@@ -109,14 +109,20 @@ impl Provider {
                 address: address.0.clone(),
                 tx_type: tx.tx_type.into(),
             };
-            self.check_in_watchlist(models::Transaction::ByAddress(data), tx.id.clone())
-                .await?;
+            self.check_in_watchlist(
+                wavesexchange_topic::Transaction::ByAddress(data),
+                tx.id.clone(),
+            )
+            .await?;
             let data = TransactionByAddress {
                 address: address.0,
                 tx_type: Type::All,
             };
-            self.check_in_watchlist(models::Transaction::ByAddress(data), tx.id.clone())
-                .await?;
+            self.check_in_watchlist(
+                wavesexchange_topic::Transaction::ByAddress(data),
+                tx.id.clone(),
+            )
+            .await?;
         }
 
         Ok(())
@@ -137,7 +143,7 @@ impl Provider {
             .as_ref()
             .map(|x| x.to_owned())
             .unwrap_or_else(|| "WAVES".to_string());
-        let data = models::Transaction::Exchange(TransactionExchange {
+        let data = wavesexchange_topic::Transaction::Exchange(TransactionExchange {
             amount_asset,
             price_asset,
         });
@@ -148,7 +154,7 @@ impl Provider {
 
     async fn check_in_watchlist(
         &mut self,
-        data: models::Transaction,
+        data: wavesexchange_topic::Transaction,
         current_value: String,
     ) -> Result<()> {
         if self.watchlist.read().await.contains_key(&data) {
@@ -166,12 +172,12 @@ impl Provider {
 }
 
 #[async_trait]
-impl UpdatesProvider<models::Transaction> for Provider {
+impl UpdatesProvider<wavesexchange_topic::Transaction> for Provider {
     async fn fetch_updates(
         mut self,
-    ) -> Result<mpsc::UnboundedSender<WatchListUpdate<models::Transaction>>> {
+    ) -> Result<mpsc::UnboundedSender<WatchListUpdate<wavesexchange_topic::Transaction>>> {
         let (subscriptions_updates_sender, mut subscriptions_updates_receiver) =
-            mpsc::unbounded_channel::<WatchListUpdate<models::Transaction>>();
+            mpsc::unbounded_channel::<WatchListUpdate<wavesexchange_topic::Transaction>>();
 
         let watchlist = self.watchlist.clone();
         let resources_repo = self.resources_repo.clone();
@@ -203,10 +209,10 @@ impl UpdatesProvider<models::Transaction> for Provider {
     }
 
     async fn watchlist_process(
-        data: &models::Transaction,
+        data: &wavesexchange_topic::Transaction,
         current_value: String,
         resources_repo: &TSResourcesRepoImpl,
-        last_values: &TSUpdatesProviderLastValues<models::Transaction>,
+        last_values: &TSUpdatesProviderLastValues<wavesexchange_topic::Transaction>,
     ) -> Result<()> {
         let resource: Topic = data.clone().into();
         info!("insert new value {:?}", resource);
@@ -223,12 +229,12 @@ impl UpdatesProvider<models::Transaction> for Provider {
 async fn check_and_maybe_insert(
     resources_repo: &TSResourcesRepoImpl,
     transactions_repo: &Arc<TransactionsRepoPoolImpl>,
-    value: models::Transaction,
+    value: wavesexchange_topic::Transaction,
 ) -> Result<()> {
     let topic = value.clone().into();
     if resources_repo.get(&topic)?.is_none() {
         let new_value = match value {
-            models::Transaction::ByAddress(TransactionByAddress {
+            wavesexchange_topic::Transaction::ByAddress(TransactionByAddress {
                 tx_type: Type::All,
                 address,
             }) => {
@@ -240,7 +246,10 @@ async fn check_and_maybe_insert(
                     None
                 }
             }
-            models::Transaction::ByAddress(TransactionByAddress { tx_type, address }) => {
+            wavesexchange_topic::Transaction::ByAddress(TransactionByAddress {
+                tx_type,
+                address,
+            }) => {
                 let transaction_type = TransactionType::try_from(tx_type)?;
                 if let Some(Transaction { id, .. }) = transactions_repo
                     .last_transaction_by_address_and_type(address, transaction_type)?
@@ -250,7 +259,7 @@ async fn check_and_maybe_insert(
                     None
                 }
             }
-            models::Transaction::Exchange(TransactionExchange {
+            wavesexchange_topic::Transaction::Exchange(TransactionExchange {
                 amount_asset,
                 price_asset,
             }) => {

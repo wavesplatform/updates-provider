@@ -2124,6 +2124,7 @@ dependencies = [
  "warp",
  "waves-protobuf-schemas",
  "wavesexchange_log 0.2.0 (git+https://github.com/waves-exchange/wavesexchange-rs?tag=wavesexchange_log/0.2.0)",
+ "wavesexchange_topic",
  "wavesexchange_warp",
 ]
 
@@ -2312,6 +2313,15 @@ dependencies = [
  "slog-envlogger",
  "slog-json",
  "slog-term",
+]
+
+[[package]]
+name = "wavesexchange_topic"
+version = "0.1.0"
+source = "git+https://github.com/waves-exchange/wavesexchange-rs?tag=wavesexchange_topic/0.1.0#e957a31ec7a5ae072a079da9d1ec3ea4e63944bb"
+dependencies = [
+ "thiserror",
+ "url",
 ]
 
 [[package]]
