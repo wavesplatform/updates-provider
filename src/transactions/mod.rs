@@ -234,7 +234,9 @@ pub struct DataEntry {
 #[derive(Debug, Clone, Serialize)]
 pub struct LeasingBalance {
     pub address: String,
+    #[serde(rename = "in")]
     pub balance_in: i64,
+    #[serde(rename = "out")]
     pub balance_out: i64,
 }
 
