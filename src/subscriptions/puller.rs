@@ -63,6 +63,8 @@ impl PullerImpl {
         let redis_client = self.redis_client.clone();
         let subscriptions_repo = self.subscriptions_repo.clone();
 
+        let (tx, mut rx) = tokio::sync::mpsc::channel(20);
+
         tokio::task::spawn_blocking(move || {
             let mut con = redis_client.get_connection().unwrap();
             let mut pubsub = con.as_pubsub();
@@ -78,6 +80,40 @@ impl PullerImpl {
                 });
 
             while let Ok(_msg) = pubsub.get_message() {
+                let tx_ref = &tx;
+                futures::executor::block_on(async move {
+                    tx_ref.send(()).await.unwrap();
+                })
+            }
+        });
+
+        tokio::spawn(async move {
+            'base: loop {
+                let sleep = tokio::time::sleep(std::time::Duration::from_secs(3));
+                tokio::pin!(sleep);
+                let mut status = ListenStatus::Null;
+                loop {
+                    tokio::select! {
+                        msg = rx.recv() => {
+                            if let None = msg {
+                                break 'base;
+                            }
+                            if let ListenStatus::Timeout = status {
+                                break;
+                            } else {
+                                status = ListenStatus::Message
+                            }
+                        }
+                        _ = &mut sleep => {
+                            if let ListenStatus::Message = status {
+                                break;
+                            } else {
+                                status = ListenStatus::Timeout
+                            }
+                        }
+                    }
+                }
+
                 let updated_subscriptions = subscriptions_repo
                     .get_subscriptions()
                     .expect("Subscriptions has to be a hash map");
@@ -98,6 +134,12 @@ impl PullerImpl {
 
         Ok(subscriptions_updates_receiver)
     }
+}
+
+enum ListenStatus {
+    Timeout,
+    Message,
+    Null,
 }
 
 fn subscription_updates_diff(
