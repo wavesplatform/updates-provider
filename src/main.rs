@@ -33,7 +33,6 @@ async fn tokio_main() -> Result<(), Error> {
     metrics::register_metrics();
     let redis_config = config::load_redis()?;
     let postgres_config = config::load_postgres()?;
-    let subscriptions_config = config::load_subscriptions()?;
     let configs_updater_config = config::load_configs_updater()?;
     let test_resources_config = config::load_test_resources_updater()?;
     let blockchain_config = config::load_blockchain()?;
@@ -163,7 +162,6 @@ async fn tokio_main() -> Result<(), Error> {
 
     let subscriptions_repo = subscriptions::repo::SubscriptionsRepoImpl::new(
         redis_pool.clone(),
-        subscriptions_config.subscriptions_key.clone(),
     );
     let subscriptions_repo = Arc::new(subscriptions_repo);
     // r2d2 cannot extract dedicated connection for using for redis pubsub
@@ -172,7 +170,6 @@ async fn tokio_main() -> Result<(), Error> {
     let notifications_puller = subscriptions::puller::PullerImpl::new(
         subscriptions_repo.clone(),
         redis_client,
-        subscriptions_config.subscriptions_key.clone(),
     );
 
     let subscriptions_updates_receiver = notifications_puller.run().await?;

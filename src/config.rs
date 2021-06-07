@@ -1,5 +1,5 @@
 use crate::error::Error;
-use crate::{providers, subscriptions};
+use crate::providers;
 use serde::Deserialize;
 use std::time::Duration;
 
@@ -65,11 +65,6 @@ pub struct PostgresConfig {
 }
 
 #[derive(Deserialize)]
-struct FlatSubscriptionsConfig {
-    pub key: String,
-}
-
-#[derive(Deserialize)]
 struct FlatConfigsUpdaterConfig {
     pub configs_base_url: String,
     pub polling_delay: u64,
@@ -124,14 +119,6 @@ pub fn load_postgres() -> Result<PostgresConfig, Error> {
     envy::prefixed("POSTGRES__")
         .from_env::<PostgresConfig>()
         .map_err(Error::from)
-}
-
-pub fn load_subscriptions() -> Result<subscriptions::Config, Error> {
-    let flat_config = envy::prefixed("SUBSCRIPTIONS__").from_env::<FlatSubscriptionsConfig>()?;
-
-    Ok(subscriptions::Config {
-        subscriptions_key: flat_config.key,
-    })
 }
 
 pub fn load_configs_updater() -> Result<providers::polling::configs::Config, Error> {

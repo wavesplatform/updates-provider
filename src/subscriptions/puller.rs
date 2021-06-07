@@ -1,26 +1,24 @@
-use super::{SubscriptionUpdate, Subscriptions, SubscriptionsRepo};
+use super::{SubscriptionUpdate, SubscriptionsRepo};
 use crate::error::Error;
 use r2d2_redis::redis;
 use std::convert::TryFrom;
-use wavesexchange_log::info;
+use std::sync::Arc;
+use wavesexchange_log::{debug, info};
 use wavesexchange_topic::Topic;
 
 pub struct PullerImpl {
-    subscriptions_repo: std::sync::Arc<dyn SubscriptionsRepo + Send + Sync + 'static>,
+    subscriptions_repo: Arc<dyn SubscriptionsRepo + Send + Sync + 'static>,
     redis_client: redis::Client,
-    subscriptions_key: String,
 }
 
 impl PullerImpl {
     pub fn new<S: SubscriptionsRepo + Send + Sync + 'static>(
-        subscriptions_repo: std::sync::Arc<S>,
+        subscriptions_repo: Arc<S>,
         redis_client: redis::Client,
-        subscriptions_key: String,
     ) -> Self {
         Self {
             subscriptions_repo,
             redis_client,
-            subscriptions_key,
         }
     }
 
@@ -32,44 +30,11 @@ impl PullerImpl {
         let (subscriptions_updates_sender, subscriptions_updates_receiver) =
             tokio::sync::mpsc::unbounded_channel::<SubscriptionUpdate>();
 
-        // includes unactive subscriptions (subscribers_count = 0)
-        let mut current_subscriptions: Subscriptions =
-            self.subscriptions_repo.get_subscriptions()?;
-
-        let initial_subscriptions_updates: Vec<SubscriptionUpdate> = current_subscriptions
-            .iter()
-            .filter(|(_, &count)| count > 0)
-            .filter_map(|(subscriptions_key, &subscribers_count)| {
-                match Topic::try_from(subscriptions_key.as_ref()) {
-                    Ok(topic) => Some(SubscriptionUpdate::New {
-                        topic,
-                        subscribers_count,
-                    }),
-                    _ => None,
-                }
-            })
-            .collect();
-
-        info!(
-            "initial subscriptions count: {}",
-            initial_subscriptions_updates.len()
-        );
-
-        initial_subscriptions_updates
-            .into_iter()
-            .try_for_each(|update| subscriptions_updates_sender.send(update))
-            .map_err(|error| Error::SendError(format!("{:?}", error)))?;
-
-        let redis_client = self.redis_client.clone();
-        let subscriptions_repo = self.subscriptions_repo.clone();
-
-        let (tx, mut rx) = tokio::sync::mpsc::channel(20);
-
         tokio::task::spawn_blocking(move || {
-            let mut con = redis_client.get_connection().unwrap();
+            let mut con = self.redis_client.get_connection().unwrap();
             let mut pubsub = con.as_pubsub();
 
-            let subscription_pattern = format!("__keyspace*__:{}", self.subscriptions_key);
+            let subscription_pattern = format!("__keyspace*__:sub:*");
             pubsub
                 .psubscribe(subscription_pattern.clone())
                 .unwrap_or_else(|_| {
@@ -79,56 +44,32 @@ impl PullerImpl {
                     )
                 });
 
-            while let Ok(_msg) = pubsub.get_message() {
-                let tx_ref = &tx;
-                futures::executor::block_on(async move {
-                    tx_ref.send(()).await.unwrap();
-                })
-            }
-        });
+            let initial_subscriptions_updates =
+                get_initial_subscriptions(&self.subscriptions_repo).unwrap();
 
-        tokio::spawn(async move {
-            'base: loop {
-                let sleep = tokio::time::sleep(std::time::Duration::from_secs(3));
-                tokio::pin!(sleep);
-                let mut status = ListenStatus::Null;
-                loop {
-                    tokio::select! {
-                        msg = rx.recv() => {
-                            if let None = msg {
-                                break 'base;
-                            }
-                            if let ListenStatus::Timeout = status {
-                                break;
-                            } else {
-                                status = ListenStatus::Message
-                            }
-                        }
-                        _ = &mut sleep => {
-                            if let ListenStatus::Message = status {
-                                break;
-                            } else {
-                                status = ListenStatus::Timeout
-                            }
-                        }
-                    }
+            initial_subscriptions_updates
+                .into_iter()
+                .try_for_each(|update| subscriptions_updates_sender.send(update))
+                .map_err(|error| Error::SendError(format!("{:?}", error)))
+                .unwrap();
+
+            while let Ok(msg) = pubsub.get_message() {
+                let payload = msg.get_payload::<String>().unwrap();
+                if let "set" | "del" | "expired" = payload.as_str() {
+                    debug!("redis msg: {:?}", msg);
+                    let subscriptions_updates_sender_ref = &subscriptions_updates_sender;
+                    let channel = msg.get_channel::<String>().unwrap();
+                    let subscribe_key = channel
+                        .strip_prefix("__keyspace@0__:sub:")
+                        .unwrap_or_else(|| panic!("wrong redis subscribe channel: {:?}", channel));
+                    let topic = Topic::try_from(subscribe_key).unwrap();
+                    let update = if let "set" = payload.as_str() {
+                        SubscriptionUpdate::New { topic }
+                    } else {
+                        SubscriptionUpdate::Delete { topic }
+                    };
+                    subscriptions_updates_sender_ref.send(update).unwrap();
                 }
-
-                let updated_subscriptions = subscriptions_repo
-                    .get_subscriptions()
-                    .expect("Subscriptions has to be a hash map");
-
-                let diff =
-                    subscription_updates_diff(&current_subscriptions, &updated_subscriptions)
-                        .expect("Cannot calculate subscriptions diff");
-
-                diff.iter()
-                    .try_for_each(|update| subscriptions_updates_sender.send(update.to_owned()))
-                    .expect("Cannot send a subscription update");
-
-                // info!("subscriptions were updated");
-
-                current_subscriptions = updated_subscriptions;
             }
         });
 
@@ -136,60 +77,27 @@ impl PullerImpl {
     }
 }
 
-enum ListenStatus {
-    Timeout,
-    Message,
-    Null,
-}
-
-fn subscription_updates_diff(
-    current: &Subscriptions,
-    new: &Subscriptions,
+fn get_initial_subscriptions(
+    subscriptions_repo: &Arc<dyn SubscriptionsRepo + Send + Sync>,
 ) -> Result<Vec<SubscriptionUpdate>, Error> {
-    let mut updated = new
+    let current_subscriptions = subscriptions_repo.get_subscriptions()?;
+
+    let initial_subscriptions_updates: Vec<SubscriptionUpdate> = current_subscriptions
         .iter()
-        .try_fold::<_, _, Result<&mut Vec<SubscriptionUpdate>, Error>>(
-            &mut vec![],
-            |acc, (subscription_key, &subscribers_count)| {
-                if let Ok(topic) = Topic::try_from(subscription_key.as_ref()) {
-                    if let Some(&current_count) = current.get(subscription_key) {
-                        if current_count != subscribers_count {
-                            if subscribers_count > 0 {
-                                if current_count == 0 {
-                                    acc.push(SubscriptionUpdate::New {
-                                        topic,
-                                        subscribers_count,
-                                    })
-                                } else {
-                                    acc.push(SubscriptionUpdate::Change {
-                                        topic,
-                                        subscribers_count,
-                                    })
-                                }
-                            } else {
-                                acc.push(SubscriptionUpdate::Delete { topic })
-                            }
-                        }
-                    } else if subscribers_count > 0 {
-                        acc.push(SubscriptionUpdate::New {
-                            topic,
-                            subscribers_count,
-                        });
-                    }
+        .filter_map(|subscriptions_key| {
+            if let Some(key) = subscriptions_key.strip_prefix("sub:") {
+                if let Ok(topic) = Topic::try_from(key) {
+                    return Some(SubscriptionUpdate::New { topic });
                 }
-                Ok(acc)
-            },
-        )
-        .map(|vec| vec.to_owned())?;
-
-    // handle deleted subscriptions
-    current.iter().for_each(|(subscription_key, _)| {
-        if let Ok(topic) = Topic::try_from(subscription_key.as_ref()) {
-            if !new.contains_key(subscription_key) {
-                updated.push(SubscriptionUpdate::Delete { topic });
             }
-        }
-    });
+            return None;
+        })
+        .collect();
 
-    Ok(updated)
+    info!(
+        "initial subscriptions count: {}",
+        initial_subscriptions_updates.len()
+    );
+
+    Ok(initial_subscriptions_updates)
 }

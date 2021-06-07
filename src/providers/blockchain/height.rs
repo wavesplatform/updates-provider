@@ -50,14 +50,10 @@ impl Provider {
 
 fn get_last_height(resources_repo: TSResourcesRepoImpl) -> Result<i32, Error> {
     let topic = Topic::BlockchainHeight;
-    match resources_repo.get(&topic)? {
-        Some(height) => {
-            if let Ok(x) = height.parse() {
-                Ok(x)
-            } else {
-                Ok(1)
-            }
+    if let Some(height) = resources_repo.get(&topic)? {
+        if let Ok(x) = height.parse() {
+            return Ok(x);
         }
-        None => Ok(1),
     }
+    return Ok(1);
 }

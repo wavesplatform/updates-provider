@@ -3,10 +3,9 @@ pub mod pusher;
 pub mod repo;
 
 use crate::error::Error;
-use std::collections::HashMap;
 use wavesexchange_topic::Topic;
 
-type Subscriptions = HashMap<String, i64>;
+type Subscriptions = Vec<String>;
 
 #[derive(Debug)]
 pub struct Config {
@@ -15,17 +14,8 @@ pub struct Config {
 
 #[derive(Clone, Debug)]
 pub enum SubscriptionUpdate {
-    New {
-        topic: Topic,
-        subscribers_count: i64,
-    },
-    Change {
-        topic: Topic,
-        subscribers_count: i64,
-    },
-    Delete {
-        topic: Topic,
-    },
+    New { topic: Topic },
+    Delete { topic: Topic },
 }
 
 pub trait SubscriptionsRepo {
