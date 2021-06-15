@@ -1,5 +1,5 @@
 use super::super::watchlist::{WatchList, WatchListUpdate};
-use super::super::{TSResourcesRepoImpl, TSUpdatesProviderLastValues, UpdatesProvider};
+use super::super::{TSResourcesRepoImpl, UpdatesProvider};
 use crate::resources::ResourcesRepo;
 use crate::transactions::repo::TransactionsRepoPoolImpl;
 use crate::transactions::{BlockMicroblockAppend, BlockchainUpdate, Transaction, TransactionType};
@@ -9,9 +9,9 @@ use crate::{
     transactions::{exchange::ExchangeData, Address, TransactionUpdate, TransactionsRepo},
 };
 use async_trait::async_trait;
+use std::convert::TryFrom;
 use std::sync::Arc;
 use std::time::Duration;
-use std::{collections::HashMap, convert::TryFrom};
 use tokio::sync::{mpsc, RwLock};
 use wavesexchange_log::{error, info};
 use wavesexchange_topic::{
@@ -21,7 +21,6 @@ use wavesexchange_topic::{
 pub struct Provider {
     watchlist: Arc<RwLock<WatchList<wavesexchange_topic::Transaction>>>,
     resources_repo: TSResourcesRepoImpl,
-    last_values: TSUpdatesProviderLastValues<wavesexchange_topic::Transaction>,
     rx: mpsc::Receiver<Arc<Vec<BlockchainUpdate>>>,
     transactions_repo: Arc<TransactionsRepoPoolImpl>,
     clean_timeout: Duration,
@@ -34,17 +33,14 @@ impl Provider {
         transactions_repo: Arc<TransactionsRepoPoolImpl>,
         rx: mpsc::Receiver<Arc<Vec<BlockchainUpdate>>>,
     ) -> Self {
-        let last_values = Arc::new(RwLock::new(HashMap::new()));
         let watchlist = Arc::new(RwLock::new(WatchList::new(
             resources_repo.clone(),
-            last_values.clone(),
             delete_timeout,
         )));
         let clean_timeout = clean_timeout(delete_timeout);
         Self {
             watchlist,
             resources_repo,
-            last_values,
             rx,
             transactions_repo,
             clean_timeout,
@@ -158,13 +154,8 @@ impl Provider {
         current_value: String,
     ) -> Result<()> {
         if self.watchlist.read().await.contains_key(&data) {
-            Self::watchlist_process(
-                &data,
-                current_value,
-                &self.resources_repo,
-                &self.last_values,
-            )
-            .await
+            Self::watchlist_process(&data, current_value, &self.resources_repo, &self.watchlist)
+                .await
         } else {
             Ok(())
         }
@@ -175,9 +166,9 @@ impl Provider {
 impl UpdatesProvider<wavesexchange_topic::Transaction> for Provider {
     async fn fetch_updates(
         mut self,
-    ) -> Result<mpsc::UnboundedSender<WatchListUpdate<wavesexchange_topic::Transaction>>> {
+    ) -> Result<mpsc::Sender<WatchListUpdate<wavesexchange_topic::Transaction>>> {
         let (subscriptions_updates_sender, mut subscriptions_updates_receiver) =
-            mpsc::unbounded_channel::<WatchListUpdate<wavesexchange_topic::Transaction>>();
+            mpsc::channel::<WatchListUpdate<wavesexchange_topic::Transaction>>(20);
 
         let watchlist = self.watchlist.clone();
         let resources_repo = self.resources_repo.clone();
@@ -212,14 +203,14 @@ impl UpdatesProvider<wavesexchange_topic::Transaction> for Provider {
         data: &wavesexchange_topic::Transaction,
         current_value: String,
         resources_repo: &TSResourcesRepoImpl,
-        last_values: &TSUpdatesProviderLastValues<wavesexchange_topic::Transaction>,
+        watchlist: &Arc<RwLock<WatchList<wavesexchange_topic::Transaction>>>,
     ) -> Result<()> {
         let resource: Topic = data.clone().into();
         info!("insert new value {:?}", resource);
-        last_values
+        watchlist
             .write()
             .await
-            .insert(data.to_owned(), current_value.clone());
+            .insert_value(data, current_value.clone());
         resources_repo.set(resource.clone(), current_value.clone())?;
         resources_repo.push(resource, current_value)?;
         Ok(())

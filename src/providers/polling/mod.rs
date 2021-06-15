@@ -3,12 +3,11 @@ pub mod requester;
 pub mod test_resources;
 
 use super::watchlist::{WatchList, WatchListItem, WatchListUpdate};
-use super::{TSResourcesRepoImpl, TSUpdatesProviderLastValues, UpdatesProvider};
+use super::{TSResourcesRepoImpl, UpdatesProvider};
 use crate::error::Error;
 use async_trait::async_trait;
 use futures::stream::{self, StreamExt, TryStreamExt};
 use requester::Requester;
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, RwLock};
@@ -19,7 +18,6 @@ pub struct PollProvider<T: WatchListItem> {
     resources_repo: TSResourcesRepoImpl,
     polling_delay: Duration,
     watchlist: Arc<RwLock<WatchList<T>>>,
-    last_values: TSUpdatesProviderLastValues<T>,
 }
 
 impl<T: WatchListItem> PollProvider<T> {
@@ -29,10 +27,8 @@ impl<T: WatchListItem> PollProvider<T> {
         delete_timeout: Duration,
         resources_repo: TSResourcesRepoImpl,
     ) -> Self {
-        let last_values = Arc::new(RwLock::new(HashMap::new()));
         let watchlist = Arc::new(RwLock::new(WatchList::new(
             resources_repo.clone(),
-            last_values.clone(),
             delete_timeout,
         )));
         Self {
@@ -40,7 +36,6 @@ impl<T: WatchListItem> PollProvider<T> {
             resources_repo,
             polling_delay,
             watchlist,
-            last_values,
         }
     }
 }
@@ -50,9 +45,8 @@ impl<T> UpdatesProvider<T> for PollProvider<T>
 where
     T: WatchListItem + Send + Sync + 'static,
 {
-    async fn fetch_updates(self) -> Result<mpsc::UnboundedSender<WatchListUpdate<T>>, Error> {
-        let (subscriptions_updates_sender, mut subscriptions_updates_receiver) =
-            mpsc::unbounded_channel();
+    async fn fetch_updates(self) -> Result<mpsc::Sender<WatchListUpdate<T>>, Error> {
+        let (subscriptions_updates_sender, mut subscriptions_updates_receiver) = mpsc::channel(20);
 
         let watchlist = self.watchlist.clone();
         tokio::task::spawn(async move {
@@ -87,18 +81,18 @@ impl<T: WatchListItem + Send + Sync + 'static> PollProvider<T> {
                             data,
                             &self.requester,
                             &self.resources_repo,
-                            &self.last_values,
+                            &self.watchlist,
                         ))
                     })
                     .try_for_each_concurrent(
                         5,
-                        |(data, requester, resources_repo, last_values)| async move {
+                        |(data, requester, resources_repo, watchlist)| async move {
                             let current_value = requester.get(data).await?;
                             Self::watchlist_process(
                                 data,
                                 current_value,
                                 resources_repo,
-                                last_values,
+                                watchlist,
                             )
                             .await?;
                             Ok::<(), Error>(())

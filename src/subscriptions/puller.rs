@@ -24,17 +24,15 @@ impl PullerImpl {
 
     // NB: redis server have to be configured to publish keyspace notifications:
     // https://redis.io/topics/notifications
-    pub async fn run(
-        self,
-    ) -> Result<tokio::sync::mpsc::UnboundedReceiver<SubscriptionUpdate>, Error> {
+    pub async fn run(self) -> Result<tokio::sync::mpsc::Receiver<SubscriptionUpdate>, Error> {
         let (subscriptions_updates_sender, subscriptions_updates_receiver) =
-            tokio::sync::mpsc::unbounded_channel::<SubscriptionUpdate>();
+            tokio::sync::mpsc::channel(100);
 
         tokio::task::spawn_blocking(move || {
             let mut con = self.redis_client.get_connection().unwrap();
             let mut pubsub = con.as_pubsub();
 
-            let subscription_pattern = format!("__keyspace*__:sub:*");
+            let subscription_pattern = "__keyspace*__:sub:*".to_string();
             pubsub
                 .psubscribe(subscription_pattern.clone())
                 .unwrap_or_else(|_| {
@@ -47,11 +45,11 @@ impl PullerImpl {
             let initial_subscriptions_updates =
                 get_initial_subscriptions(&self.subscriptions_repo).unwrap();
 
-            initial_subscriptions_updates
-                .into_iter()
-                .try_for_each(|update| subscriptions_updates_sender.send(update))
-                .map_err(|error| Error::SendError(format!("{:?}", error)))
-                .unwrap();
+            tokio::runtime::Handle::current().block_on(async {
+                for update in initial_subscriptions_updates.into_iter() {
+                    subscriptions_updates_sender.send(update).await.unwrap()
+                }
+            });
 
             while let Ok(msg) = pubsub.get_message() {
                 let payload = msg.get_payload::<String>().unwrap();
@@ -68,7 +66,9 @@ impl PullerImpl {
                     } else {
                         SubscriptionUpdate::Delete { topic }
                     };
-                    subscriptions_updates_sender_ref.send(update).unwrap();
+                    tokio::runtime::Handle::current().block_on(async {
+                        subscriptions_updates_sender_ref.send(update).await.unwrap();
+                    })
                 }
             }
         });
@@ -90,7 +90,7 @@ fn get_initial_subscriptions(
                     return Some(SubscriptionUpdate::New { topic });
                 }
             }
-            return None;
+            None
         })
         .collect();
 

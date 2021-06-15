@@ -55,5 +55,5 @@ fn get_last_height(resources_repo: TSResourcesRepoImpl) -> Result<i32, Error> {
             return Ok(x);
         }
     }
-    return Ok(1);
+    Ok(1)
 }

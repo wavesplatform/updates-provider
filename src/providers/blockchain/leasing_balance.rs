@@ -1,5 +1,5 @@
 use super::super::watchlist::{WatchList, WatchListUpdate};
-use super::super::{TSResourcesRepoImpl, TSUpdatesProviderLastValues, UpdatesProvider};
+use super::super::{TSResourcesRepoImpl, UpdatesProvider};
 use crate::resources::ResourcesRepo;
 use crate::transactions::repo::TransactionsRepoPoolImpl;
 use crate::transactions::LeasingBalance as LeasingBalanceDB;
@@ -7,7 +7,6 @@ use crate::transactions::{BlockMicroblockAppend, BlockchainUpdate};
 use crate::utils::clean_timeout;
 use crate::{error::Result, transactions::TransactionsRepo};
 use async_trait::async_trait;
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, RwLock};
@@ -17,7 +16,6 @@ use wavesexchange_topic::{LeasingBalance, Topic};
 pub struct Provider {
     watchlist: Arc<RwLock<WatchList<LeasingBalance>>>,
     resources_repo: TSResourcesRepoImpl,
-    last_values: Arc<RwLock<HashMap<LeasingBalance, String>>>,
     rx: mpsc::Receiver<Arc<Vec<BlockchainUpdate>>>,
     transactions_repo: Arc<TransactionsRepoPoolImpl>,
     clean_timeout: Duration,
@@ -30,17 +28,14 @@ impl Provider {
         transactions_repo: Arc<TransactionsRepoPoolImpl>,
         rx: mpsc::Receiver<Arc<Vec<BlockchainUpdate>>>,
     ) -> Self {
-        let last_values = Arc::new(RwLock::new(HashMap::new()));
         let watchlist = Arc::new(RwLock::new(WatchList::new(
             resources_repo.clone(),
-            last_values.clone(),
             delete_timeout,
         )));
         let clean_timeout = clean_timeout(delete_timeout);
         Self {
             watchlist,
             resources_repo,
-            last_values,
             rx,
             transactions_repo,
             clean_timeout,
@@ -107,7 +102,7 @@ impl Provider {
                 &data,
                 current_value,
                 &self.resources_repo,
-                &self.last_values,
+                &self.watchlist,
             )
             .await?;
         }
@@ -117,11 +112,8 @@ impl Provider {
 
 #[async_trait]
 impl UpdatesProvider<LeasingBalance> for Provider {
-    async fn fetch_updates(
-        mut self,
-    ) -> Result<mpsc::UnboundedSender<WatchListUpdate<LeasingBalance>>> {
-        let (subscriptions_updates_sender, mut subscriptions_updates_receiver) =
-            mpsc::unbounded_channel::<WatchListUpdate<LeasingBalance>>();
+    async fn fetch_updates(mut self) -> Result<mpsc::Sender<WatchListUpdate<LeasingBalance>>> {
+        let (subscriptions_updates_sender, mut subscriptions_updates_receiver) = mpsc::channel(20);
 
         let watchlist = self.watchlist.clone();
         let resources_repo = self.resources_repo.clone();
@@ -156,14 +148,14 @@ impl UpdatesProvider<LeasingBalance> for Provider {
         data: &LeasingBalance,
         current_value: String,
         resources_repo: &TSResourcesRepoImpl,
-        last_values: &TSUpdatesProviderLastValues<LeasingBalance>,
+        watchlist: &Arc<RwLock<WatchList<LeasingBalance>>>,
     ) -> Result<()> {
         let resource: Topic = data.clone().into();
         info!("insert new value {:?}", resource);
-        last_values
+        watchlist
             .write()
             .await
-            .insert(data.to_owned(), current_value.clone());
+            .insert_value(data, current_value.clone());
         resources_repo.set(resource, current_value)?;
         Ok(())
     }

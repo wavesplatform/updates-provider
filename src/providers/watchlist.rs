@@ -1,22 +1,29 @@
-use super::{TSResourcesRepoImpl, TSUpdatesProviderLastValues};
+use super::TSResourcesRepoImpl;
 use crate::metrics::WATCHLISTS_TOPICS;
 use crate::subscriptions::SubscriptionUpdate;
 use crate::{error::Error, resources::ResourcesRepo};
 use std::time::{Duration, Instant};
-use std::{
-    collections::{HashMap, HashSet},
-    hash::Hash,
-};
+use std::{collections::HashMap, hash::Hash};
 use wavesexchange_topic::Topic;
 
 #[derive(Debug)]
 pub struct WatchList<T: WatchListItem> {
-    items: HashSet<T>,
-    deletable_items: HashMap<T, Instant>,
-    last_values: TSUpdatesProviderLastValues<T>,
+    items: HashMap<T, ItemInfo>,
     repo: TSResourcesRepoImpl,
     delete_timeout: Duration,
     type_name: String,
+}
+
+#[derive(Debug, Default)]
+struct ItemInfo {
+    last_value: String,
+    maybe_delete: Option<Instant>,
+}
+
+impl ItemInfo {
+    fn deletable(&mut self, delete_timestamp: Instant) {
+        self.maybe_delete = Some(delete_timestamp)
+    }
 }
 
 pub trait WatchListItem: Eq + Hash + Into<Topic> + MaybeFromTopic + Into<String> + Clone {}
@@ -51,18 +58,11 @@ pub trait MaybeFromTopic: Sized {
 }
 
 impl<T: WatchListItem> WatchList<T> {
-    pub fn new(
-        repo: TSResourcesRepoImpl,
-        last_values: TSUpdatesProviderLastValues<T>,
-        delete_timeout: Duration,
-    ) -> Self {
-        let items = HashSet::new();
-        let deletable_items = HashMap::new();
+    pub fn new(repo: TSResourcesRepoImpl, delete_timeout: Duration) -> Self {
+        let items = HashMap::new();
         let type_name = std::any::type_name::<T>().to_string();
         Self {
             items,
-            deletable_items,
-            last_values,
             repo,
             delete_timeout,
             type_name,
@@ -72,17 +72,15 @@ impl<T: WatchListItem> WatchList<T> {
     pub fn on_update(&mut self, update: &WatchListUpdate<T>) -> Result<(), Error> {
         match update {
             WatchListUpdate::New { item } => {
-                self.deletable_items.remove(item);
-                self.items.insert(item.to_owned());
+                self.items.insert(item.to_owned(), ItemInfo::default());
                 WATCHLISTS_TOPICS
                     .with_label_values(&[&self.type_name])
                     .inc();
             }
             WatchListUpdate::Delete { item } => {
-                if self.items.contains(item) {
+                if let Some(item_info) = self.items.get_mut(item) {
                     let delete_timestamp = Instant::now() + self.delete_timeout;
-                    self.deletable_items
-                        .insert(item.to_owned(), delete_timestamp);
+                    item_info.deletable(delete_timestamp)
                 }
             }
         }
@@ -92,14 +90,15 @@ impl<T: WatchListItem> WatchList<T> {
     pub async fn delete_old(&mut self) {
         let now = Instant::now();
         let keys = self
-            .deletable_items
+            .items
             .iter()
-            .filter_map(|(item, delete_timestamp)| {
-                if delete_timestamp < &now {
-                    Some(item.clone())
-                } else {
-                    None
+            .filter_map(|(item, item_info)| {
+                if let Some(ref delete_timestamp) = item_info.maybe_delete {
+                    if delete_timestamp < &now {
+                        return Some(item.clone());
+                    }
                 }
+                None
             })
             .collect::<Vec<_>>();
         for item in keys {
@@ -107,25 +106,48 @@ impl<T: WatchListItem> WatchList<T> {
             WATCHLISTS_TOPICS
                 .with_label_values(&[&self.type_name])
                 .dec();
-            self.deletable_items.remove(&item);
-            self.last_values.write().await.remove(&item);
             let _ = self.repo.del(T::into(item));
         }
     }
 
     pub fn contains_key(&self, key: &T) -> bool {
-        self.items.contains(key)
+        self.items.contains_key(key)
+    }
+
+    pub fn get_value(&self, key: &T) -> Option<&String> {
+        self.items.get(key).map(|x| &x.last_value)
+    }
+
+    pub fn insert_value(&mut self, key: &T, value: String) {
+        if let Some(item_info) = self.items.get_mut(key) {
+            item_info.last_value = value;
+        }
     }
 }
 
-impl<'a, T> IntoIterator for &'a WatchList<T>
+impl<'a, T: 'a> IntoIterator for &'a WatchList<T>
 where
     T: WatchListItem,
 {
     type Item = &'a T;
-    type IntoIter = std::collections::hash_set::Iter<'a, T>;
+    type IntoIter = WatchListIter<'a, T>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.items.iter()
+        WatchListIter {
+            inner: self.items.keys(),
+        }
+    }
+}
+
+pub struct WatchListIter<'a, T: 'a> {
+    inner: std::collections::hash_map::Keys<'a, T, ItemInfo>,
+}
+
+impl<'a, T> Iterator for WatchListIter<'a, T> {
+    type Item = &'a T;
+
+    #[inline]
+    fn next(&mut self) -> Option<&'a T> {
+        self.inner.next()
     }
 }
