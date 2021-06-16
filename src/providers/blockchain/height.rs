@@ -1,8 +1,9 @@
 use super::super::TSResourcesRepoImpl;
-use crate::{error::Error, models::Topic, resources::ResourcesRepo};
+use crate::{error::Error, resources::ResourcesRepo};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use waves_protobuf_schemas::waves::events::BlockchainUpdated;
+use wavesexchange_topic::Topic;
 
 pub struct Provider {
     resources_repo: TSResourcesRepoImpl,
@@ -49,14 +50,10 @@ impl Provider {
 
 fn get_last_height(resources_repo: TSResourcesRepoImpl) -> Result<i32, Error> {
     let topic = Topic::BlockchainHeight;
-    match resources_repo.get(&topic)? {
-        Some(height) => {
-            if let Ok(x) = height.parse() {
-                Ok(x)
-            } else {
-                Ok(1)
-            }
+    if let Some(height) = resources_repo.get(&topic)? {
+        if let Ok(x) = height.parse() {
+            return Ok(x);
         }
-        None => Ok(1),
     }
+    Ok(1)
 }

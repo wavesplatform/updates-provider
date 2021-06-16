@@ -33,7 +33,6 @@ async fn tokio_main() -> Result<(), Error> {
     metrics::register_metrics();
     let redis_config = config::load_redis()?;
     let postgres_config = config::load_postgres()?;
-    let subscriptions_config = config::load_subscriptions()?;
     let configs_updater_config = config::load_configs_updater()?;
     let test_resources_config = config::load_test_resources_updater()?;
     let blockchain_config = config::load_blockchain()?;
@@ -132,6 +131,18 @@ async fn tokio_main() -> Result<(), Error> {
     // random channel buffer size
     let (tx, rx) = tokio::sync::mpsc::channel(20);
     let provider = blockchain::state::Provider::new(
+        resources_repo.clone(),
+        blockchain_config.state_delete_timeout,
+        transactions_repo.clone(),
+        rx,
+    );
+
+    updater.add_provider(tx);
+
+    let states_subscriptions_updates_sender = provider.fetch_updates().await?;
+
+    let (tx, rx) = tokio::sync::mpsc::channel(20);
+    let provider = blockchain::leasing_balance::Provider::new(
         resources_repo,
         blockchain_config.state_delete_timeout,
         transactions_repo,
@@ -140,7 +151,7 @@ async fn tokio_main() -> Result<(), Error> {
 
     updater.add_provider(tx);
 
-    let states_subscriptions_updates_sender = provider.fetch_updates().await?;
+    let leasing_balances_subscriptions_updates_sender = provider.fetch_updates().await?;
 
     let blockchain_updater_handle = tokio::spawn(async move { updater.run().await });
 
@@ -149,19 +160,13 @@ async fn tokio_main() -> Result<(), Error> {
         blockchain_puller.run().await
     });
 
-    let subscriptions_repo = subscriptions::repo::SubscriptionsRepoImpl::new(
-        redis_pool.clone(),
-        subscriptions_config.subscriptions_key.clone(),
-    );
+    let subscriptions_repo = subscriptions::repo::SubscriptionsRepoImpl::new(redis_pool.clone());
     let subscriptions_repo = Arc::new(subscriptions_repo);
     // r2d2 cannot extract dedicated connection for using for redis pubsub
     // therefore its need to use a separated redis client
     let redis_client = redis::Client::open(redis_connection_url)?;
-    let notifications_puller = subscriptions::puller::PullerImpl::new(
-        subscriptions_repo.clone(),
-        redis_client,
-        subscriptions_config.subscriptions_key.clone(),
-    );
+    let notifications_puller =
+        subscriptions::puller::PullerImpl::new(subscriptions_repo.clone(), redis_client);
 
     let subscriptions_updates_receiver = notifications_puller.run().await?;
 
@@ -172,6 +177,7 @@ async fn tokio_main() -> Result<(), Error> {
     subscriptions_updates_pusher.add_observer(test_resources_subscriptions_updates_sender);
     subscriptions_updates_pusher.add_observer(transactions_subscriptions_updates_sender);
     subscriptions_updates_pusher.add_observer(states_subscriptions_updates_sender);
+    subscriptions_updates_pusher.add_observer(leasing_balances_subscriptions_updates_sender);
 
     let subscriptions_updates_pusher_handle = tokio::spawn(async move {
         info!("starting subscriptions updates pusher");

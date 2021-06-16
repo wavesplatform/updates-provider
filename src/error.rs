@@ -58,6 +58,8 @@ pub enum Error {
     InvalidOrderVersion(i32),
     #[error("SendErrorVecBlockchainUpdate")]
     SendErrorVecBlockchainUpdate,
+    #[error("InvalidLeasingPath: {0}")]
+    InvalidLeasingPath(String),
 }
 
 #[derive(Debug)]

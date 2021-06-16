@@ -1,5 +1,5 @@
 use crate::error::Error;
-use crate::{providers, subscriptions};
+use crate::providers;
 use serde::Deserialize;
 use std::time::Duration;
 
@@ -65,11 +65,6 @@ pub struct PostgresConfig {
 }
 
 #[derive(Deserialize)]
-struct FlatSubscriptionsConfig {
-    pub key: String,
-}
-
-#[derive(Deserialize)]
 struct FlatConfigsUpdaterConfig {
     pub configs_base_url: String,
     pub polling_delay: u64,
@@ -94,6 +89,8 @@ struct FlatBlockchainUpdaterConfig {
     pub transaction_delete_timeout: u64,
     #[serde(default = "default_delete_timeout")]
     pub state_delete_timeout: u64,
+    #[serde(default = "default_delete_timeout")]
+    pub leasing_balance_delete_timeout: u64,
     #[serde(default = "default_updates_buffer_size")]
     pub updates_buffer_size: usize,
     #[serde(default = "default_transactions_count_threshold")]
@@ -122,14 +119,6 @@ pub fn load_postgres() -> Result<PostgresConfig, Error> {
     envy::prefixed("POSTGRES__")
         .from_env::<PostgresConfig>()
         .map_err(Error::from)
-}
-
-pub fn load_subscriptions() -> Result<subscriptions::Config, Error> {
-    let flat_config = envy::prefixed("SUBSCRIPTIONS__").from_env::<FlatSubscriptionsConfig>()?;
-
-    Ok(subscriptions::Config {
-        subscriptions_key: flat_config.key,
-    })
 }
 
 pub fn load_configs_updater() -> Result<providers::polling::configs::Config, Error> {
@@ -163,6 +152,9 @@ pub fn load_blockchain() -> Result<providers::blockchain::Config, Error> {
         updates_url: flat_config.url,
         transaction_delete_timeout: Duration::from_secs(flat_config.transaction_delete_timeout),
         state_delete_timeout: Duration::from_secs(flat_config.state_delete_timeout),
+        leasing_balance_delete_timeout: Duration::from_secs(
+            flat_config.leasing_balance_delete_timeout,
+        ),
         updates_buffer_size: flat_config.updates_buffer_size,
         transactions_count_threshold: flat_config.transactions_count_threshold,
         associated_addresses_count_threshold: flat_config.associated_addresses_count_threshold,

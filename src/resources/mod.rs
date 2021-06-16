@@ -1,7 +1,7 @@
 pub mod repo;
 
 use crate::error::Error;
-use crate::models::Topic;
+use wavesexchange_topic::Topic;
 
 pub trait ResourcesRepo {
     fn get(&self, resource: &Topic) -> Result<Option<String>, Error>;

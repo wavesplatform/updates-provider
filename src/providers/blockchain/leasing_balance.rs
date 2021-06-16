@@ -2,21 +2,19 @@ use super::super::watchlist::{WatchList, WatchListUpdate};
 use super::super::{TSResourcesRepoImpl, UpdatesProvider};
 use crate::resources::ResourcesRepo;
 use crate::transactions::repo::TransactionsRepoPoolImpl;
+use crate::transactions::LeasingBalance as LeasingBalanceDB;
 use crate::transactions::{BlockMicroblockAppend, BlockchainUpdate};
 use crate::utils::clean_timeout;
-use crate::{
-    error::Result,
-    transactions::{DataEntry, TransactionsRepo},
-};
+use crate::{error::Result, transactions::TransactionsRepo};
 use async_trait::async_trait;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, RwLock};
 use wavesexchange_log::{error, info};
-use wavesexchange_topic::{State, Topic};
+use wavesexchange_topic::{LeasingBalance, Topic};
 
 pub struct Provider {
-    watchlist: Arc<RwLock<WatchList<State>>>,
+    watchlist: Arc<RwLock<WatchList<LeasingBalance>>>,
     resources_repo: TSResourcesRepoImpl,
     rx: mpsc::Receiver<Arc<Vec<BlockchainUpdate>>>,
     transactions_repo: Arc<TransactionsRepoPoolImpl>,
@@ -70,10 +68,12 @@ impl Provider {
     ) -> Result<()> {
         for blockchain_update in blockchain_updates.iter() {
             match blockchain_update {
-                BlockchainUpdate::Block(BlockMicroblockAppend { data_entries, .. })
-                | BlockchainUpdate::Microblock(BlockMicroblockAppend { data_entries, .. }) => {
-                    self.check_data_entries(data_entries).await?
-                }
+                BlockchainUpdate::Block(BlockMicroblockAppend {
+                    leasing_balances, ..
+                })
+                | BlockchainUpdate::Microblock(BlockMicroblockAppend {
+                    leasing_balances, ..
+                }) => self.check_leasing_balances(leasing_balances).await?,
                 BlockchainUpdate::Rollback(_) => (),
             }
         }
@@ -81,33 +81,34 @@ impl Provider {
         Ok(())
     }
 
-    async fn check_data_entries(&mut self, data_entries: &[DataEntry]) -> Result<()> {
-        for de in data_entries.iter() {
-            let data = State {
-                address: de.address.to_owned(),
-                key: de.key.to_owned(),
-            };
-            if self.watchlist.read().await.contains_key(&data) {
-                let current_value = serde_json::to_string(de)?;
-                Self::watchlist_process(
-                    &data,
-                    current_value,
-                    &self.resources_repo,
-                    &self.watchlist,
-                )
-                .await?;
-            }
+    async fn check_leasing_balances(
+        &mut self,
+        leasing_balances: &[LeasingBalanceDB],
+    ) -> Result<()> {
+        for lb in leasing_balances.iter() {
+            self.check_leasing_balance(lb).await?;
         }
 
+        Ok(())
+    }
+
+    async fn check_leasing_balance(&mut self, lb: &LeasingBalanceDB) -> Result<()> {
+        let data = LeasingBalance {
+            address: lb.address.to_owned(),
+        };
+        if self.watchlist.read().await.contains_key(&data) {
+            let current_value = serde_json::to_string(lb)?;
+            Self::watchlist_process(&data, current_value, &self.resources_repo, &self.watchlist)
+                .await?;
+        }
         Ok(())
     }
 }
 
 #[async_trait]
-impl UpdatesProvider<State> for Provider {
-    async fn fetch_updates(mut self) -> Result<mpsc::Sender<WatchListUpdate<State>>> {
-        let (subscriptions_updates_sender, mut subscriptions_updates_receiver) =
-            mpsc::channel::<WatchListUpdate<State>>(20);
+impl UpdatesProvider<LeasingBalance> for Provider {
+    async fn fetch_updates(mut self) -> Result<mpsc::Sender<WatchListUpdate<LeasingBalance>>> {
+        let (subscriptions_updates_sender, mut subscriptions_updates_receiver) = mpsc::channel(20);
 
         let watchlist = self.watchlist.clone();
         let resources_repo = self.resources_repo.clone();
@@ -139,10 +140,10 @@ impl UpdatesProvider<State> for Provider {
     }
 
     async fn watchlist_process(
-        data: &State,
+        data: &LeasingBalance,
         current_value: String,
         resources_repo: &TSResourcesRepoImpl,
-        watchlist: &Arc<RwLock<WatchList<State>>>,
+        watchlist: &Arc<RwLock<WatchList<LeasingBalance>>>,
     ) -> Result<()> {
         let resource: Topic = data.clone().into();
         info!("insert new value {:?}", resource);
@@ -158,7 +159,7 @@ impl UpdatesProvider<State> for Provider {
 async fn check_and_maybe_insert(
     resources_repo: &TSResourcesRepoImpl,
     transactions_repo: &Arc<TransactionsRepoPoolImpl>,
-    value: State,
+    value: LeasingBalance,
 ) -> Result<()> {
     let topic = value.clone().into();
     if resources_repo.get(&topic)?.is_none() {
@@ -169,13 +170,16 @@ async fn check_and_maybe_insert(
     Ok(())
 }
 
-fn get_last(transactions_repo: &Arc<TransactionsRepoPoolImpl>, value: State) -> Result<String> {
+fn get_last(
+    transactions_repo: &Arc<TransactionsRepoPoolImpl>,
+    value: LeasingBalance,
+) -> Result<String> {
     Ok(
-        if let Some(ide) = transactions_repo.last_data_entry(value.address, value.key)? {
-            let de = DataEntry::from(ide);
-            serde_json::to_string(&de)?
+        if let Some(ilb) = transactions_repo.last_leasing_balance(value.address)? {
+            let lb = LeasingBalanceDB::from(ilb);
+            serde_json::to_string(&lb)?
         } else {
-            serde_json::to_string(&None::<DataEntry>)?
+            serde_json::to_string(&None::<LeasingBalanceDB>)?
         },
     )
 }
