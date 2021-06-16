@@ -98,13 +98,8 @@ impl Provider {
         };
         if self.watchlist.read().await.contains_key(&data) {
             let current_value = serde_json::to_string(lb)?;
-            Self::watchlist_process(
-                &data,
-                current_value,
-                &self.resources_repo,
-                &self.watchlist,
-            )
-            .await?;
+            Self::watchlist_process(&data, current_value, &self.resources_repo, &self.watchlist)
+                .await?;
         }
         Ok(())
     }

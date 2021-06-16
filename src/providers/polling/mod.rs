@@ -62,6 +62,7 @@ where
             let data_type = std::any::type_name::<T>();
             info!("starting {} updater", data_type);
             self.run().await;
+            info!("{} updater stopped", data_type);
         });
 
         Ok(subscriptions_updates_sender)
@@ -72,29 +73,23 @@ impl<T: WatchListItem + Send + Sync + 'static> PollProvider<T> {
     async fn run(self) {
         loop {
             {
-                let mut watchlist_guard = self.watchlist.write().await;
-                watchlist_guard.delete_old().await;
+                let keys = {
+                    let mut watchlist_guard = self.watchlist.write().await;
+                    watchlist_guard.delete_old().await;
+                    watchlist_guard
+                        .into_iter()
+                        .map(|x| x.to_owned())
+                        .collect::<Vec<_>>()
+                };
 
-                if let Err(error) = stream::iter(watchlist_guard.into_iter())
-                    .map(|data| {
-                        Ok((
-                            data,
-                            &self.requester,
-                            &self.resources_repo,
-                            &self.watchlist,
-                        ))
-                    })
+                if let Err(error) = stream::iter(&keys)
+                    .map(|data| Ok((data, &self.requester, &self.resources_repo, &self.watchlist)))
                     .try_for_each_concurrent(
                         5,
                         |(data, requester, resources_repo, watchlist)| async move {
                             let current_value = requester.get(data).await?;
-                            Self::watchlist_process(
-                                data,
-                                current_value,
-                                resources_repo,
-                                watchlist,
-                            )
-                            .await?;
+                            Self::watchlist_process(data, current_value, resources_repo, watchlist)
+                                .await?;
                             Ok::<(), Error>(())
                         },
                     )

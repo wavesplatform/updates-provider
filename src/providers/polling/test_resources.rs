@@ -44,7 +44,7 @@ impl Requester<TestResource> for TestResourcesRequester {
                 "{}/{}",
                 self.test_resources_base_url,
                 String::from(test_resource.to_owned())
-                    .strip_prefix("/")
+                    .strip_prefix("test_resource/")
                     .unwrap(),
             )
             .as_ref(),
