@@ -46,7 +46,7 @@ impl ConfigRequester {
 impl Requester<ConfigFile> for ConfigRequester {
     async fn get(&self, config_file: &ConfigFile) -> Result<String, Error> {
         let config_file_path = String::from(config_file.to_owned());
-        let config_file_path = config_file_path.trim_start_matches('/');
+        let config_file_path = config_file_path.trim_start_matches("config/");
         let config_file_path = percent_encoding::percent_encode(
             config_file_path.as_bytes(),
             percent_encoding::NON_ALPHANUMERIC,
