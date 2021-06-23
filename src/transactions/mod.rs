@@ -1,19 +1,28 @@
 use crate::error::{Error, Result};
-use crate::schema::{associated_addresses, blocks_microblocks, transactions};
+use crate::schema::{
+    associated_addresses, blocks_microblocks, data_entries, leasing_balances, transactions,
+};
 use diesel::{
     deserialize::FromSql,
     serialize::{Output, ToSql},
     sql_types::*,
     Insertable, Queryable,
 };
+use serde::Serialize;
 use std::convert::{TryFrom, TryInto};
+use std::hash::{Hash, Hasher};
 use waves_protobuf_schemas::waves;
+use waves_protobuf_schemas::waves::data_transaction_data::data_entry::Value;
 use waves_protobuf_schemas::waves::events::blockchain_updated::append::{
     BlockAppend, Body, MicroBlockAppend,
 };
 use waves_protobuf_schemas::waves::events::blockchain_updated::{Append, Update};
 use waves_protobuf_schemas::waves::events::BlockchainUpdated;
 use waves_protobuf_schemas::waves::transaction::Data;
+
+pub const FRAGMENT_SEPARATOR: &str = "__";
+pub const STRING_DESCRIPTOR: &str = "s";
+pub const INTEGER_DESCRIPTOR: &str = "d";
 
 pub mod exchange;
 pub mod repo;
@@ -140,29 +149,33 @@ impl From<&Data> for TransactionType {
     }
 }
 
-impl TryFrom<crate::models::Type> for TransactionType {
+impl TryFrom<wavesexchange_topic::TransactionType> for TransactionType {
     type Error = Error;
 
-    fn try_from(value: crate::models::Type) -> core::result::Result<Self, Self::Error> {
+    fn try_from(
+        value: wavesexchange_topic::TransactionType,
+    ) -> core::result::Result<Self, Self::Error> {
         match value {
-            crate::models::Type::All => Err(Error::InvalidDBTransactionType(value.to_string())),
-            crate::models::Type::Genesis => Ok(Self::Genesis),
-            crate::models::Type::Payment => Ok(Self::Payment),
-            crate::models::Type::Issue => Ok(Self::Issue),
-            crate::models::Type::Transfer => Ok(Self::Transfer),
-            crate::models::Type::Reissue => Ok(Self::Reissue),
-            crate::models::Type::Burn => Ok(Self::Burn),
-            crate::models::Type::Exchange => Ok(Self::Exchange),
-            crate::models::Type::Lease => Ok(Self::Lease),
-            crate::models::Type::LeaseCancel => Ok(Self::LeaseCancel),
-            crate::models::Type::Alias => Ok(Self::Alias),
-            crate::models::Type::MassTransfer => Ok(Self::MassTransfer),
-            crate::models::Type::Data => Ok(Self::Data),
-            crate::models::Type::SetScript => Ok(Self::SetScript),
-            crate::models::Type::Sponsorship => Ok(Self::Sponsorship),
-            crate::models::Type::SetAssetScript => Ok(Self::SetAssetScript),
-            crate::models::Type::InvokeScript => Ok(Self::InvokeScript),
-            crate::models::Type::UpdateAssetInfo => Ok(Self::UpdateAssetInfo),
+            wavesexchange_topic::TransactionType::All => {
+                Err(Error::InvalidDBTransactionType(value.to_string()))
+            }
+            wavesexchange_topic::TransactionType::Genesis => Ok(Self::Genesis),
+            wavesexchange_topic::TransactionType::Payment => Ok(Self::Payment),
+            wavesexchange_topic::TransactionType::Issue => Ok(Self::Issue),
+            wavesexchange_topic::TransactionType::Transfer => Ok(Self::Transfer),
+            wavesexchange_topic::TransactionType::Reissue => Ok(Self::Reissue),
+            wavesexchange_topic::TransactionType::Burn => Ok(Self::Burn),
+            wavesexchange_topic::TransactionType::Exchange => Ok(Self::Exchange),
+            wavesexchange_topic::TransactionType::Lease => Ok(Self::Lease),
+            wavesexchange_topic::TransactionType::LeaseCancel => Ok(Self::LeaseCancel),
+            wavesexchange_topic::TransactionType::Alias => Ok(Self::Alias),
+            wavesexchange_topic::TransactionType::MassTransfer => Ok(Self::MassTransfer),
+            wavesexchange_topic::TransactionType::Data => Ok(Self::Data),
+            wavesexchange_topic::TransactionType::SetScript => Ok(Self::SetScript),
+            wavesexchange_topic::TransactionType::Sponsorship => Ok(Self::Sponsorship),
+            wavesexchange_topic::TransactionType::SetAssetScript => Ok(Self::SetAssetScript),
+            wavesexchange_topic::TransactionType::InvokeScript => Ok(Self::InvokeScript),
+            wavesexchange_topic::TransactionType::UpdateAssetInfo => Ok(Self::UpdateAssetInfo),
         }
     }
 }
@@ -180,6 +193,8 @@ pub struct BlockMicroblockAppend {
     time_stamp: Option<i64>,
     pub height: i32,
     pub transactions: Vec<TransactionUpdate>,
+    pub data_entries: Vec<DataEntry>,
+    pub leasing_balances: Vec<LeasingBalance>,
 }
 
 #[derive(Debug, Clone)]
@@ -204,8 +219,105 @@ pub struct Amount {
     pub amount: i64,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Address(pub String);
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DataEntry {
+    pub address: String,
+    pub key: String,
+    pub transaction_id: String,
+    pub value: ValueDataEntry,
+    pub fragments: Fragments,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct LeasingBalance {
+    pub address: String,
+    #[serde(rename = "in")]
+    pub balance_in: i64,
+    #[serde(rename = "out")]
+    pub balance_out: i64,
+}
+
+#[derive(Clone, Debug, Insertable)]
+#[table_name = "leasing_balances"]
+pub struct LeasingBalanceUpdate {
+    pub superseded_by: i64,
+    pub address: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct DeletedLeasingBalance {
+    pub uid: i64,
+    pub address: String,
+}
+
+impl PartialEq for DeletedLeasingBalance {
+    fn eq(&self, other: &DeletedLeasingBalance) -> bool {
+        self.address == other.address
+    }
+}
+
+impl Eq for DeletedLeasingBalance {}
+
+impl Hash for DeletedLeasingBalance {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.address.hash(state);
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(untagged)]
+pub enum ValueDataEntry {
+    Binary(Vec<u8>),
+    Bool(bool),
+    Integer(i64),
+    String(String),
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct Fragments {
+    pub key: Vec<DataEntryFragment>,
+    pub value: Vec<DataEntryFragment>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum DataEntryFragment {
+    String { value: String },
+    Integer { value: i64 },
+}
+
+#[derive(Clone, Debug, Insertable)]
+#[table_name = "data_entries"]
+pub struct DataEntryUpdate {
+    pub superseded_by: i64,
+    pub address: String,
+    pub key: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct DeletedDataEntry {
+    pub uid: i64,
+    pub address: String,
+    pub key: String,
+}
+
+impl PartialEq for DeletedDataEntry {
+    fn eq(&self, other: &DeletedDataEntry) -> bool {
+        (&self.address, &self.key) == (&other.address, &other.key)
+    }
+}
+
+impl Eq for DeletedDataEntry {}
+
+impl Hash for DeletedDataEntry {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.address.hash(state);
+        self.key.hash(state);
+    }
+}
 
 #[derive(Clone, Debug)]
 pub enum BlockchainUpdate {
@@ -226,9 +338,66 @@ pub struct PrevHandledHeight {
     pub height: i32,
 }
 
-pub trait TransactionsRepo {
-    fn transaction(&self, f: impl FnOnce() -> Result<()>) -> Result<()>;
+#[derive(Clone, Debug, Insertable, QueryableByName, Queryable)]
+#[table_name = "data_entries"]
+pub struct InsertableDataEntry {
+    pub block_uid: i64,
+    pub transaction_id: String,
+    pub uid: i64,
+    pub superseded_by: i64,
+    pub address: String,
+    pub key: String,
+    pub value_binary: Option<Vec<u8>>,
+    pub value_bool: Option<bool>,
+    pub value_integer: Option<i64>,
+    pub value_string: Option<String>,
+}
 
+impl PartialEq for InsertableDataEntry {
+    fn eq(&self, other: &InsertableDataEntry) -> bool {
+        (&self.address, &self.key) == (&other.address, &other.key)
+    }
+}
+
+impl Eq for InsertableDataEntry {}
+
+impl Hash for InsertableDataEntry {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.address.hash(state);
+        self.key.hash(state);
+    }
+}
+
+#[derive(Clone, Debug, Insertable, QueryableByName, Queryable)]
+#[table_name = "leasing_balances"]
+pub struct InsertableLeasingBalance {
+    pub block_uid: i64,
+    pub uid: i64,
+    pub superseded_by: i64,
+    pub address: String,
+    pub balance_in: i64,
+    pub balance_out: i64,
+}
+
+impl PartialEq for InsertableLeasingBalance {
+    fn eq(&self, other: &InsertableLeasingBalance) -> bool {
+        self.address == other.address
+    }
+}
+
+impl Eq for InsertableLeasingBalance {}
+
+impl Hash for InsertableLeasingBalance {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.address.hash(state);
+    }
+}
+
+pub trait TransactionsRepoPool {
+    fn transaction(&self, f: impl FnOnce(&dyn TransactionsRepo) -> Result<()>) -> Result<()>;
+}
+
+pub trait TransactionsRepo {
     fn get_prev_handled_height(&self) -> Result<Option<PrevHandledHeight>>;
 
     fn get_block_uid(&self, block_id: &str) -> Result<i64>;
@@ -237,24 +406,22 @@ pub trait TransactionsRepo {
 
     fn get_total_block_id(&self) -> Result<Option<String>>;
 
-    // fn get_next_update_uid(&self) -> Result<i64>;
+    fn get_next_update_uid(&self) -> Result<i64>;
 
-    fn insert_blocks_or_microblocks(&self, blocks: &Vec<BlockMicroblock>) -> Result<Vec<i64>>;
+    fn insert_blocks_or_microblocks(&self, blocks: &[BlockMicroblock]) -> Result<Vec<i64>>;
 
-    fn insert_transactions(&self, transactions: &Vec<Transaction>) -> Result<()>;
+    fn insert_transactions(&self, transactions: &[Transaction]) -> Result<()>;
 
-    fn insert_associated_addresses(
-        &self,
-        associated_addresses: &Vec<AssociatedAddress>,
-    ) -> Result<()>;
+    fn insert_associated_addresses(&self, associated_addresses: &[AssociatedAddress])
+        -> Result<()>;
 
-    // fn insert_data_entries(&self, entries: &Vec<InsertableDataEntry>) -> Result<()>;
+    fn insert_data_entries(&self, entries: &[InsertableDataEntry]) -> Result<()>;
 
-    // fn close_superseded_by(&self, updates: &Vec<DataEntryUpdate>) -> Result<()>;
+    fn close_superseded_by(&self, updates: &[DataEntryUpdate]) -> Result<()>;
 
-    // fn reopen_superseded_by(&self, current_superseded_by: &Vec<i64>) -> Result<()>;
+    fn reopen_superseded_by(&self, current_superseded_by: &[i64]) -> Result<()>;
 
-    // fn set_next_update_uid(&self, uid: i64) -> Result<()>;
+    fn set_next_update_uid(&self, uid: i64) -> Result<()>;
 
     fn change_block_id(&self, block_uid: &i64, new_block_id: &str) -> Result<()>;
 
@@ -264,7 +431,7 @@ pub trait TransactionsRepo {
 
     fn rollback_blocks_microblocks(&self, block_uid: &i64) -> Result<()>;
 
-    // fn rollback_data_entries(&self, block_uid: &i64) -> Result<Vec<DeletedDataEntry>>;
+    fn rollback_data_entries(&self, block_uid: &i64) -> Result<Vec<DeletedDataEntry>>;
 
     fn last_transaction_by_address(&self, address: String) -> Result<Option<Transaction>>;
 
@@ -279,6 +446,26 @@ pub trait TransactionsRepo {
         amount_asset: String,
         price_asset: String,
     ) -> Result<Option<Transaction>>;
+
+    fn last_data_entry(&self, address: String, key: String) -> Result<Option<InsertableDataEntry>>;
+
+    fn update_data_entries_block_references(&self, block_uid: &i64) -> Result<()>;
+
+    fn close_lease_superseded_by(&self, updates: &[LeasingBalanceUpdate]) -> Result<()>;
+
+    fn reopen_lease_superseded_by(&self, current_superseded_by: &[i64]) -> Result<()>;
+
+    fn insert_leasing_balances(&self, entries: &[InsertableLeasingBalance]) -> Result<()>;
+
+    fn set_next_lease_update_uid(&self, new_uid: i64) -> Result<()>;
+
+    fn rollback_leasing_balances(&self, block_uid: &i64) -> Result<Vec<DeletedLeasingBalance>>;
+
+    fn update_leasing_balances_block_references(&self, block_uid: &i64) -> Result<()>;
+
+    fn get_next_lease_update_uid(&self) -> Result<i64>;
+
+    fn last_leasing_balance(&self, address: String) -> Result<Option<InsertableLeasingBalance>>;
 }
 
 impl TryFrom<std::sync::Arc<BlockchainUpdated>> for BlockchainUpdate {
@@ -289,9 +476,26 @@ impl TryFrom<std::sync::Arc<BlockchainUpdated>> for BlockchainUpdate {
             Some(Update::Append(Append {
                 body,
                 transaction_ids,
+                transaction_state_updates,
                 ..
             })) => {
                 let height = value.height;
+
+                let mut data_entries = vec![];
+                let mut leasing_balances = vec![];
+
+                for (idx, su) in transaction_state_updates.iter().enumerate() {
+                    let transaction_id =
+                        bs58::encode(&transaction_ids.get(idx).unwrap()).into_string();
+                    for deu in su.data_entries.iter() {
+                        let de = DataEntry::from((deu, &transaction_id));
+                        data_entries.push(de);
+                    }
+                    for lu in su.leasing_for_address.iter() {
+                        let l = LeasingBalance::from(lu);
+                        leasing_balances.push(l);
+                    }
+                }
 
                 match body {
                     Some(Body::Block(BlockAppend { block, .. })) => {
@@ -313,6 +517,8 @@ impl TryFrom<std::sync::Arc<BlockchainUpdated>> for BlockchainUpdate {
                                 .unwrap_or(None),
                             height,
                             transactions,
+                            data_entries,
+                            leasing_balances,
                         }))
                     }
                     Some(Body::MicroBlock(MicroBlockAppend { micro_block, .. })) => {
@@ -336,6 +542,8 @@ impl TryFrom<std::sync::Arc<BlockchainUpdated>> for BlockchainUpdate {
                             time_stamp: None,
                             height,
                             transactions,
+                            data_entries,
+                            leasing_balances,
                         }))
                     }
                     _ => Err(Error::GRPCBodyError("Append body is empty.".to_string())),
@@ -351,8 +559,198 @@ impl TryFrom<std::sync::Arc<BlockchainUpdated>> for BlockchainUpdate {
     }
 }
 
-fn encode_asset(asset: &Vec<u8>) -> String {
-    if asset.len() > 0 {
+// from data_entry with transaction_id
+impl From<(&waves::events::state_update::DataEntryUpdate, &String)> for DataEntry {
+    fn from(de: (&waves::events::state_update::DataEntryUpdate, &String)) -> Self {
+        let transaction_id = de.1.to_owned();
+        let deu = de.0.data_entry.as_ref().unwrap();
+
+        let value = match deu.value.as_ref() {
+            Some(Value::IntValue(v)) => ValueDataEntry::Integer(v.to_owned()),
+            Some(Value::BoolValue(v)) => ValueDataEntry::Bool(v.to_owned()),
+            Some(Value::BinaryValue(v)) => ValueDataEntry::Binary(v.to_owned()),
+            Some(Value::StringValue(v)) => ValueDataEntry::String(v.replace("\0", "\\0")),
+            None => ValueDataEntry::String("".to_string()),
+        };
+        // nul symbol is badly processed at least by PostgreSQL
+        // so escape this for safety
+        let key =
+            de.0.data_entry
+                .as_ref()
+                .unwrap()
+                .key
+                .clone()
+                .replace("\0", "\\0");
+
+        let fragments = Fragments::from((&key, &value));
+
+        Self {
+            address: bs58::encode(&de.0.address).into_string(),
+            key,
+            transaction_id,
+            value,
+            fragments,
+        }
+    }
+}
+
+impl From<(&String, &ValueDataEntry)> for Fragments {
+    fn from(v: (&String, &ValueDataEntry)) -> Self {
+        let key = split_fragments(v.0);
+        let value = if let ValueDataEntry::String(s) = v.1 {
+            split_fragments(s)
+        } else {
+            vec![]
+        };
+        Self { key, value }
+    }
+}
+
+fn split_fragments(value: &str) -> Vec<DataEntryFragment> {
+    let mut frs = value.split(FRAGMENT_SEPARATOR);
+
+    let types = frs
+        .next()
+        .map(|fragment| {
+            fragment
+                .split('%')
+                .into_iter()
+                .skip(1) // first item is empty
+                .collect()
+        })
+        .unwrap_or_else(Vec::new);
+
+    let mut result = vec![];
+    for (t, v) in types.into_iter().zip(frs) {
+        match t {
+            STRING_DESCRIPTOR => {
+                let fragment = DataEntryFragment::String {
+                    value: v.to_string(),
+                };
+                result.push(fragment)
+            }
+            INTEGER_DESCRIPTOR => {
+                if let Ok(value) = v.parse() {
+                    let fragment = DataEntryFragment::Integer { value };
+                    result.push(fragment)
+                } else {
+                    break;
+                }
+            }
+            _ => break,
+        }
+    }
+    result
+}
+
+impl From<InsertableDataEntry> for DataEntry {
+    fn from(ide: InsertableDataEntry) -> Self {
+        let value = match ide {
+            InsertableDataEntry {
+                value_binary: Some(v),
+                ..
+            } => ValueDataEntry::Binary(v),
+            InsertableDataEntry {
+                value_bool: Some(v),
+                ..
+            } => ValueDataEntry::Bool(v),
+            InsertableDataEntry {
+                value_integer: Some(v),
+                ..
+            } => ValueDataEntry::Integer(v),
+            InsertableDataEntry {
+                value_string: Some(v),
+                ..
+            } => ValueDataEntry::String(v),
+            _ => panic!("InsertableDataEntry without value: {:?}", ide),
+        };
+        let fragments = Fragments::from((&ide.key, &value));
+        Self {
+            address: ide.address,
+            key: ide.key,
+            transaction_id: ide.transaction_id,
+            value,
+            fragments,
+        }
+    }
+}
+
+// from data_entry, index and block_id
+impl From<(&DataEntry, i64, i64)> for InsertableDataEntry {
+    fn from(value: (&DataEntry, i64, i64)) -> Self {
+        let value_binary = if let ValueDataEntry::Binary(v) = &value.0.value {
+            Some(v.to_owned())
+        } else {
+            None
+        };
+        let value_bool = if let ValueDataEntry::Bool(v) = &value.0.value {
+            Some(v.to_owned())
+        } else {
+            None
+        };
+        let value_integer = if let ValueDataEntry::Integer(v) = &value.0.value {
+            Some(v.to_owned())
+        } else {
+            None
+        };
+        let value_string = if let ValueDataEntry::String(v) = &value.0.value {
+            Some(v.to_owned())
+        } else {
+            None
+        };
+        Self {
+            address: value.0.address.to_owned(),
+            key: value.0.key.to_owned(),
+            transaction_id: value.0.transaction_id.to_owned(),
+            value_binary,
+            value_bool,
+            value_integer,
+            value_string,
+            block_uid: value.2,
+            uid: value.1,
+            superseded_by: -1,
+        }
+    }
+}
+
+impl From<&waves::events::state_update::LeasingUpdate> for LeasingBalance {
+    fn from(lu: &waves::events::state_update::LeasingUpdate) -> Self {
+        let address = bs58::encode(&lu.address).into_string();
+        let balance_in = lu.in_after;
+        let balance_out = lu.out_after;
+        Self {
+            address,
+            balance_in,
+            balance_out,
+        }
+    }
+}
+
+impl From<(&LeasingBalance, i64, i64)> for InsertableLeasingBalance {
+    fn from(value: (&LeasingBalance, i64, i64)) -> Self {
+        Self {
+            address: value.0.address.to_owned(),
+            balance_in: value.0.balance_in,
+            balance_out: value.0.balance_out,
+            block_uid: value.2,
+            uid: value.1,
+            superseded_by: -1,
+        }
+    }
+}
+
+impl From<InsertableLeasingBalance> for LeasingBalance {
+    fn from(ilb: InsertableLeasingBalance) -> Self {
+        Self {
+            address: ilb.address,
+            balance_in: ilb.balance_in,
+            balance_out: ilb.balance_out,
+        }
+    }
+}
+
+fn encode_asset(asset: &[u8]) -> String {
+    if !asset.is_empty() {
         bs58::encode(asset).into_string()
     } else {
         "WAVES".to_string()
@@ -441,8 +839,8 @@ impl From<(String, &Address)> for AssociatedAddress {
 fn parse_transactions(
     block_uid: String,
     height: i32,
-    raw_transactions: &Vec<waves::SignedTransaction>,
-    transaction_ids: &Vec<Vec<u8>>,
+    raw_transactions: &[waves::SignedTransaction],
+    transaction_ids: &[Vec<u8>],
 ) -> Vec<TransactionUpdate> {
     transaction_ids
         .iter()
@@ -450,7 +848,7 @@ fn parse_transactions(
         .map(|(tx_id, tx)| {
             let transaction = tx.transaction.as_ref().unwrap();
             let sender_public_key = &transaction.sender_public_key;
-            let mut addresses = if sender_public_key.len() == 0 {
+            let mut addresses = if sender_public_key.is_empty() {
                 vec![]
             } else {
                 let sender = address_from_public_key(sender_public_key, transaction.chain_id as u8);
@@ -494,20 +892,18 @@ impl From<&waves_protobuf_schemas::waves::Amount> for Amount {
     }
 }
 
-pub fn address_from_public_key(pk: &Vec<u8>, chain_id: u8) -> Address {
+pub fn address_from_public_key(pk: &[u8], chain_id: u8) -> Address {
     let pkh = &keccak256(&blake2b256(&pk))[..20];
     address_from_public_key_hash(&pkh.to_vec(), chain_id)
 }
 
-fn address_from_public_key_hash(pkh: &Vec<u8>, chain_id: u8) -> Address {
+fn address_from_public_key_hash(pkh: &[u8], chain_id: u8) -> Address {
     let mut addr = [0u8; 26];
     addr[0] = 1;
     addr[1] = chain_id;
-    for i in 0..20 {
-        addr[i + 2] = pkh[i];
-    }
+    addr[2..22].clone_from_slice(&pkh[..20]);
     let chks = &keccak256(&blake2b256(&addr[..22]))[..4];
-    for (i, v) in chks.into_iter().enumerate() {
+    for (i, v) in chks.iter().enumerate() {
         addr[i + 22] = *v
     }
     Address(bs58::encode(addr).into_string())

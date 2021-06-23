@@ -25,5 +25,51 @@ table! {
     }
 }
 
+table! {
+    data_entries (superseded_by, address, key) {
+        block_uid -> BigInt,
+        transaction_id -> Varchar,
+        uid -> BigInt,
+        superseded_by -> BigInt,
+        address -> Varchar,
+        key -> Varchar,
+        value_binary -> Nullable<Binary>,
+        value_bool -> Nullable<Bool>,
+        value_integer -> Nullable<BigInt>,
+        value_string -> Nullable<Varchar>,
+    }
+}
+
+table! {
+    leasing_balances (superseded_by, address) {
+        block_uid -> BigInt,
+        // transaction_id -> Varchar,
+        uid -> BigInt,
+        superseded_by -> BigInt,
+        address -> Varchar,
+        balance_in -> BigInt,
+        balance_out -> BigInt,
+    }
+}
+
+table! {
+    data_entries_uid_seq (last_value) {
+        last_value -> BigInt,
+    }
+}
+
+table! {
+    leasing_balances_uid_seq (last_value) {
+        last_value -> BigInt,
+    }
+}
+
 joinable!(associated_addresses -> transactions (transaction_id));
-allow_tables_to_appear_in_same_query!(blocks_microblocks, transactions, associated_addresses);
+
+allow_tables_to_appear_in_same_query!(
+    blocks_microblocks,
+    transactions,
+    associated_addresses,
+    data_entries,
+    leasing_balances
+);
