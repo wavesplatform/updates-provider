@@ -171,7 +171,9 @@ async fn check_and_maybe_insert(
 
 fn get_last(transactions_repo: &Arc<TransactionsRepoPoolImpl>, value: State) -> Result<String> {
     Ok(
-        if let Some(ide) = transactions_repo.last_data_entry(value.address, value.key)? {
+        if let Some(ide) = tokio::task::block_in_place(move || {
+            transactions_repo.last_data_entry(value.address, value.key)
+        })? {
             let de = DataEntry::from(ide);
             serde_json::to_string(&de)?
         } else {

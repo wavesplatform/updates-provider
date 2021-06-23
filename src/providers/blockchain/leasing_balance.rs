@@ -175,7 +175,9 @@ fn get_last(
     value: LeasingBalance,
 ) -> Result<String> {
     Ok(
-        if let Some(ilb) = transactions_repo.last_leasing_balance(value.address)? {
+        if let Some(ilb) = tokio::task::block_in_place(move || {
+            transactions_repo.last_leasing_balance(value.address)
+        })? {
             let lb = LeasingBalanceDB::from(ilb);
             serde_json::to_string(&lb)?
         } else {

@@ -229,9 +229,9 @@ async fn check_and_maybe_insert(
                 tx_type: Type::All,
                 address,
             }) => {
-                if let Some(Transaction { id, .. }) =
-                    transactions_repo.last_transaction_by_address(address)?
-                {
+                if let Some(Transaction { id, .. }) = tokio::task::block_in_place(move || {
+                    transactions_repo.last_transaction_by_address(address)
+                })? {
                     Some(id)
                 } else {
                     None
@@ -257,8 +257,9 @@ async fn check_and_maybe_insert(
                 if let Some(Transaction {
                     body: Some(body_value),
                     ..
-                }) = transactions_repo.last_exchange_transaction(amount_asset, price_asset)?
-                {
+                }) = tokio::task::block_in_place(move || {
+                    transactions_repo.last_exchange_transaction(amount_asset, price_asset)
+                })? {
                     Some(serde_json::to_string(&body_value)?)
                 } else {
                     None

@@ -36,8 +36,10 @@ impl TransactionsRepoPoolImpl {
 
 impl TransactionsRepoPool for TransactionsRepoPoolImpl {
     fn transaction(&self, f: impl FnOnce(&dyn TransactionsRepo) -> Result<()>) -> Result<()> {
-        let conn = self.get_conn()?;
-        f(&conn)
+        tokio::task::block_in_place(move || {
+            let conn = self.get_conn()?;
+            conn.transaction(|| f(&conn))
+        })
     }
 }
 

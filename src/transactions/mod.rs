@@ -750,7 +750,7 @@ impl From<InsertableLeasingBalance> for LeasingBalance {
 }
 
 fn encode_asset(asset: &[u8]) -> String {
-    if asset.is_empty() {
+    if !asset.is_empty() {
         bs58::encode(asset).into_string()
     } else {
         "WAVES".to_string()
