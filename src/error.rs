@@ -1,6 +1,3 @@
-use std::sync::Arc;
-use tokio::sync::mpsc;
-use waves_protobuf_schemas::waves::events::BlockchainUpdated;
 use waves_protobuf_schemas::waves::transaction::Data;
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -39,8 +36,8 @@ pub enum Error {
     GRPCUriError(String),
     #[error("GRPCError: {0}")]
     GRPCError(#[from] tonic::Status),
-    #[error("SendErrorBlockchainUpdate: {0}")]
-    SendErrorBlockchainUpdate(#[from] mpsc::error::SendError<Arc<BlockchainUpdated>>),
+    #[error("SendErrorBlockchainUpdated")]
+    SendErrorBlockchainUpdated,
     #[error("InvalidTransactionType: {0}")]
     InvalidTransactionType(String),
     #[error("InvalidTransactionQuery: {0}")]
@@ -59,6 +56,10 @@ pub enum Error {
     InvalidOrderType(i32),
     #[error("InvalidOrderVersion: {0}")]
     InvalidOrderVersion(i32),
+    #[error("SendErrorVecBlockchainUpdate")]
+    SendErrorVecBlockchainUpdate,
+    #[error("InvalidLeasingPath: {0}")]
+    InvalidLeasingPath(String),
 }
 
 #[derive(Debug)]

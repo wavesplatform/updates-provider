@@ -1,13 +1,10 @@
-use super::super::watchlist_process;
 use super::requester::Requester;
-use super::{TSResourcesRepoImpl, TSUpdatesProviderLastValues};
 use crate::error::Error;
-use crate::models::ConfigFile;
 use async_trait::async_trait;
-use futures::stream::{self, StreamExt, TryStreamExt};
 use reqwest::{Client, ClientBuilder};
 use std::time::Duration;
 use wavesexchange_log::{debug, error};
+use wavesexchange_topic::ConfigFile;
 
 #[async_trait]
 pub trait ConfigsRepo {
@@ -43,10 +40,13 @@ impl ConfigRequester {
             gitlab_configs_branch: config.gitlab_configs_branch,
         }
     }
+}
 
+#[async_trait]
+impl Requester<ConfigFile> for ConfigRequester {
     async fn get(&self, config_file: &ConfigFile) -> Result<String, Error> {
-        let config_file_path = config_file.to_string();
-        let config_file_path = config_file_path.trim_start_matches("/");
+        let config_file_path = String::from(config_file.to_owned());
+        let config_file_path = config_file_path.trim_start_matches("config/");
         let config_file_path = percent_encoding::percent_encode(
             config_file_path.as_bytes(),
             percent_encoding::NON_ALPHANUMERIC,
@@ -68,10 +68,10 @@ impl ConfigRequester {
             .send()
             .await?;
         let status = res.status();
-        let text = res.text().await.map_err(|e| Error::from(e))?;
+        let text = res.text().await?;
         debug!("url = {}, status = {}", config_file_url, status);
         if status.is_success() {
-            Ok(text.to_owned())
+            Ok(text)
         } else if status == reqwest::StatusCode::NOT_FOUND {
             Ok("null".to_string())
         } else {
@@ -81,25 +81,5 @@ impl ConfigRequester {
             );
             Err(Error::ResourceFetchingError(config_file_path.to_owned()))
         }
-    }
-}
-
-#[async_trait]
-impl Requester<ConfigFile> for ConfigRequester {
-    async fn process<'a, I: Iterator<Item = &'a ConfigFile> + Send + Sync>(
-        &self,
-        items: I,
-        resources_repo: &TSResourcesRepoImpl,
-        last_values: &TSUpdatesProviderLastValues,
-    ) -> Result<(), Error> {
-        stream::iter(items)
-            .map(Ok)
-            .try_for_each_concurrent(5, |config_file| async move {
-                let current_value = self.get(config_file).await?;
-                watchlist_process(config_file, current_value, resources_repo, last_values).await?;
-                Ok::<(), Error>(())
-            })
-            .await?;
-        Ok(())
     }
 }
