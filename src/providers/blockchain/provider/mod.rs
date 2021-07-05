@@ -1,29 +1,32 @@
-use super::super::watchlist::{WatchList, WatchListUpdate};
+pub mod leasing_balance;
+pub mod state;
+pub mod transaction;
+
+use super::super::watchlist::{WatchList, WatchListItem, WatchListUpdate};
 use super::super::{TSResourcesRepoImpl, UpdatesProvider};
+use crate::error::Result;
 use crate::resources::ResourcesRepo;
 use crate::transactions::repo::TransactionsRepoPoolImpl;
 use crate::transactions::{BlockMicroblockAppend, BlockchainUpdate};
 use crate::utils::clean_timeout;
-use crate::{
-    error::Result,
-    transactions::{DataEntry, TransactionsRepo},
-};
 use async_trait::async_trait;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, RwLock};
 use wavesexchange_log::{error, info};
-use wavesexchange_topic::{State, Topic};
+use wavesexchange_topic::Topic;
 
-pub struct Provider {
-    watchlist: Arc<RwLock<WatchList<State>>>,
+pub trait Item: WatchListItem + Send + Sync + LastValue + DataFromBlock {}
+
+pub struct Provider<T: Item> {
+    watchlist: Arc<RwLock<WatchList<T>>>,
     resources_repo: TSResourcesRepoImpl,
     rx: mpsc::Receiver<Arc<Vec<BlockchainUpdate>>>,
     transactions_repo: Arc<TransactionsRepoPoolImpl>,
     clean_timeout: Duration,
 }
 
-impl Provider {
+impl<T: 'static + Item> Provider<T> {
     pub fn new(
         resources_repo: TSResourcesRepoImpl,
         delete_timeout: Duration,
@@ -70,9 +73,8 @@ impl Provider {
     ) -> Result<()> {
         for blockchain_update in blockchain_updates.iter() {
             match blockchain_update {
-                BlockchainUpdate::Block(BlockMicroblockAppend { data_entries, .. })
-                | BlockchainUpdate::Microblock(BlockMicroblockAppend { data_entries, .. }) => {
-                    self.check_data_entries(data_entries).await?
+                BlockchainUpdate::Block(block) | BlockchainUpdate::Microblock(block) => {
+                    self.check_and_process(block).await?
                 }
                 BlockchainUpdate::Rollback(_) => (),
             }
@@ -81,14 +83,9 @@ impl Provider {
         Ok(())
     }
 
-    async fn check_data_entries(&mut self, data_entries: &[DataEntry]) -> Result<()> {
-        for de in data_entries.iter() {
-            let data = State {
-                address: de.address.to_owned(),
-                key: de.key.to_owned(),
-            };
+    async fn check_and_process(&self, block: &BlockMicroblockAppend) -> Result<()> {
+        for (current_value, data) in T::data_from_block(block) {
             if self.watchlist.read().await.contains_key(&data) {
-                let current_value = serde_json::to_string(de)?;
                 Self::watchlist_process(
                     &data,
                     current_value,
@@ -98,16 +95,14 @@ impl Provider {
                 .await?;
             }
         }
-
         Ok(())
     }
 }
 
 #[async_trait]
-impl UpdatesProvider<State> for Provider {
-    async fn fetch_updates(mut self) -> Result<mpsc::Sender<WatchListUpdate<State>>> {
-        let (subscriptions_updates_sender, mut subscriptions_updates_receiver) =
-            mpsc::channel::<WatchListUpdate<State>>(20);
+impl<T: 'static + Item> UpdatesProvider<T> for Provider<T> {
+    async fn fetch_updates(mut self) -> Result<mpsc::Sender<WatchListUpdate<T>>> {
+        let (subscriptions_updates_sender, mut subscriptions_updates_receiver) = mpsc::channel(20);
 
         let watchlist = self.watchlist.clone();
         let resources_repo = self.resources_repo.clone();
@@ -139,10 +134,10 @@ impl UpdatesProvider<State> for Provider {
     }
 
     async fn watchlist_process(
-        data: &State,
+        data: &T,
         current_value: String,
         resources_repo: &TSResourcesRepoImpl,
-        watchlist: &Arc<RwLock<WatchList<State>>>,
+        watchlist: &Arc<RwLock<WatchList<T>>>,
     ) -> Result<()> {
         let resource: Topic = data.clone().into();
         info!("insert new value {:?}", resource);
@@ -150,34 +145,30 @@ impl UpdatesProvider<State> for Provider {
             .write()
             .await
             .insert_value(data, current_value.clone());
-        resources_repo.set(resource, current_value)?;
+        resources_repo.set_and_push(resource, current_value)?;
         Ok(())
     }
 }
 
-async fn check_and_maybe_insert(
+async fn check_and_maybe_insert<T: Item>(
     resources_repo: &TSResourcesRepoImpl,
     transactions_repo: &Arc<TransactionsRepoPoolImpl>,
-    value: State,
+    value: T,
 ) -> Result<()> {
     let topic = value.clone().into();
     if resources_repo.get(&topic)?.is_none() {
-        let new_value = get_last(transactions_repo, value)?;
-        resources_repo.set(topic, new_value)?;
+        let new_value = value.get_last(transactions_repo).await?;
+        resources_repo.set_and_push(topic, new_value)?;
     }
 
     Ok(())
 }
 
-fn get_last(transactions_repo: &Arc<TransactionsRepoPoolImpl>, value: State) -> Result<String> {
-    Ok(
-        if let Some(ide) = tokio::task::block_in_place(move || {
-            transactions_repo.last_data_entry(value.address, value.key)
-        })? {
-            let de = DataEntry::from(ide);
-            serde_json::to_string(&de)?
-        } else {
-            serde_json::to_string(&None::<DataEntry>)?
-        },
-    )
+pub trait DataFromBlock: Sized {
+    fn data_from_block(block: &BlockMicroblockAppend) -> Vec<(String, Self)>;
+}
+
+#[async_trait]
+pub trait LastValue {
+    async fn get_last(self, repo: &Arc<TransactionsRepoPoolImpl>) -> Result<String>;
 }
