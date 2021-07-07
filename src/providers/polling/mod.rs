@@ -1,5 +1,4 @@
 pub mod configs;
-pub mod requester;
 pub mod test_resources;
 
 use super::watchlist::{WatchList, WatchListItem, WatchListUpdate};
@@ -7,7 +6,6 @@ use super::{TSResourcesRepoImpl, UpdatesProvider};
 use crate::error::Error;
 use async_trait::async_trait;
 use futures::stream::{self, StreamExt, TryStreamExt};
-use requester::Requester;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, RwLock};
@@ -101,4 +99,9 @@ impl<T: WatchListItem + Send + Sync + 'static> PollProvider<T> {
             tokio::time::sleep(self.polling_delay).await;
         }
     }
+}
+
+#[async_trait]
+pub trait Requester<T: 'static>: Send + Sync {
+    async fn get(&self, data: &T) -> Result<String, Error>;
 }

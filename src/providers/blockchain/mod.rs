@@ -1,8 +1,6 @@
 pub mod handler;
 pub mod height;
-pub mod leasing_balance;
-pub mod state;
-pub mod transactions;
+pub mod provider;
 pub mod updater;
 use std::time::Duration;
 

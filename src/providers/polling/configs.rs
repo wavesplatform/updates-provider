@@ -1,4 +1,4 @@
-use super::requester::Requester;
+use super::Requester;
 use crate::error::Error;
 use async_trait::async_trait;
 use reqwest::{Client, ClientBuilder};

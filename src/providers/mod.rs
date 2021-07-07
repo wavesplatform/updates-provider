@@ -31,7 +31,7 @@ pub trait UpdatesProvider<T: WatchListItem + Clone + Send + Sync> {
                 info!("insert new value {:?}", resource);
                 watchlist_guard.insert_value(data, current_value.clone());
                 drop(watchlist_guard);
-                resources_repo.set(resource, current_value)?;
+                resources_repo.set_and_push(resource, current_value)?;
             }
         } else {
             watchlist_guard.insert_value(data, current_value.clone());
@@ -40,11 +40,11 @@ pub trait UpdatesProvider<T: WatchListItem + Clone + Send + Sync> {
             if let Some(last_updated_value) = resources_repo.get(&resource)? {
                 if current_value != last_updated_value {
                     info!("update value {:?}", resource);
-                    resources_repo.set(resource, current_value)?;
+                    resources_repo.set_and_push(resource, current_value)?;
                 }
             } else {
                 info!("update value {:?}", resource);
-                resources_repo.set(resource, current_value)?;
+                resources_repo.set_and_push(resource, current_value)?;
             }
         }
 

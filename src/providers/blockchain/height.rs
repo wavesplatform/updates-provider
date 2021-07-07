@@ -39,7 +39,7 @@ impl Provider {
             let height = blockchain_updated.height;
             if self.last_height != height {
                 self.resources_repo
-                    .set(Topic::BlockchainHeight, height.to_string())?;
+                    .set_and_push(Topic::BlockchainHeight, height.to_string())?;
                 self.last_height = height;
             }
         }
