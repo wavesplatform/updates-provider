@@ -5,7 +5,7 @@ use std::time::Duration;
 
 pub type PgPool = Pool<ConnectionManager<PgConnection>>;
 
-pub fn pool(config: &PostgresConfig) -> Result<PgPool, Error> {
+pub fn new(config: &PostgresConfig) -> Result<PgPool, Error> {
     let db_url = format!(
         "postgres://{}:{}@{}:{}/{}",
         config.user, config.password, config.host, config.port, config.database
