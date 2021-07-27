@@ -2289,8 +2289,8 @@ dependencies = [
 
 [[package]]
 name = "wavesexchange_log"
-version = "0.2.0"
-source = "git+https://github.com/waves-exchange/wavesexchange-rs?tag=wavesexchange_warp/0.7.1#a3238a2fe8cf674eef7f10d79e515b920f41a0ac"
+version = "0.3.0"
+source = "git+https://github.com/waves-exchange/wavesexchange-rs?tag=wavesexchange_warp/0.11.0#f214a002a13c82a12ac74fe30312b24e9a2070d7"
 dependencies = [
  "chrono",
  "once_cell",
@@ -2326,8 +2326,8 @@ dependencies = [
 
 [[package]]
 name = "wavesexchange_warp"
-version = "0.7.1"
-source = "git+https://github.com/waves-exchange/wavesexchange-rs?tag=wavesexchange_warp/0.7.1#a3238a2fe8cf674eef7f10d79e515b920f41a0ac"
+version = "0.11.0"
+source = "git+https://github.com/waves-exchange/wavesexchange-rs?tag=wavesexchange_warp/0.11.0#f214a002a13c82a12ac74fe30312b24e9a2070d7"
 dependencies = [
  "futures",
  "once_cell",
@@ -2335,7 +2335,7 @@ dependencies = [
  "serde_json",
  "serde_qs",
  "warp",
- "wavesexchange_log 0.2.0",
+ "wavesexchange_log 0.3.0",
 ]
 
 [[package]]
