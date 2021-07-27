@@ -1,16 +1,15 @@
-use super::{DataFromBlock, Item, LastValue};
-use crate::transactions::repo::TransactionsRepoPoolImpl;
-use crate::transactions::BlockMicroblockAppend;
-use crate::{
-    error::Result,
-    transactions::{DataEntry, TransactionsRepo},
-};
 use async_trait::async_trait;
 use std::sync::Arc;
 use wavesexchange_topic::State;
 
+use super::{DataFromBlock, Item, LastValue};
+use crate::db::repo::RepoImpl;
+use crate::db::Repo;
+use crate::error::Result;
+use crate::waves;
+
 impl DataFromBlock for State {
-    fn data_from_block(block: &BlockMicroblockAppend) -> Vec<(String, Self)> {
+    fn data_from_block(block: &waves::BlockMicroblockAppend) -> Vec<(String, Self)> {
         block
             .data_entries
             .iter()
@@ -28,15 +27,15 @@ impl DataFromBlock for State {
 
 #[async_trait]
 impl LastValue for State {
-    async fn get_last(self, repo: &Arc<TransactionsRepoPoolImpl>) -> Result<String> {
+    async fn get_last(self, repo: &Arc<RepoImpl>) -> Result<String> {
         Ok(
             if let Some(ide) =
                 tokio::task::block_in_place(move || repo.last_data_entry(self.address, self.key))?
             {
-                let de = DataEntry::from(ide);
+                let de = waves::DataEntry::from(ide);
                 serde_json::to_string(&de)?
             } else {
-                serde_json::to_string(&None::<DataEntry>)?
+                serde_json::to_string(&None::<waves::DataEntry>)?
             },
         )
     }

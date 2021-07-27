@@ -2,13 +2,6 @@ pub mod leasing_balance;
 pub mod state;
 pub mod transaction;
 
-use super::super::watchlist::{WatchList, WatchListItem, WatchListUpdate};
-use super::super::{TSResourcesRepoImpl, UpdatesProvider};
-use crate::error::Result;
-use crate::resources::ResourcesRepo;
-use crate::transactions::repo::TransactionsRepoPoolImpl;
-use crate::transactions::{BlockMicroblockAppend, BlockchainUpdate};
-use crate::utils::clean_timeout;
 use async_trait::async_trait;
 use std::sync::Arc;
 use std::time::Duration;
@@ -16,13 +9,22 @@ use tokio::sync::{mpsc, RwLock};
 use wavesexchange_log::{error, info};
 use wavesexchange_topic::Topic;
 
+use super::super::watchlist::{WatchList, WatchListItem, WatchListUpdate};
+use super::super::{TSResourcesRepoImpl, UpdatesProvider};
+use crate::db::repo::RepoImpl;
+use crate::db::BlockchainUpdate;
+use crate::error::Result;
+use crate::resources::ResourcesRepo;
+use crate::utils::clean_timeout;
+use crate::waves::BlockMicroblockAppend;
+
 pub trait Item: WatchListItem + Send + Sync + LastValue + DataFromBlock {}
 
 pub struct Provider<T: Item> {
     watchlist: Arc<RwLock<WatchList<T>>>,
     resources_repo: TSResourcesRepoImpl,
     rx: mpsc::Receiver<Arc<Vec<BlockchainUpdate>>>,
-    transactions_repo: Arc<TransactionsRepoPoolImpl>,
+    transactions_repo: Arc<RepoImpl>,
     clean_timeout: Duration,
 }
 
@@ -30,7 +32,7 @@ impl<T: 'static + Item> Provider<T> {
     pub fn new(
         resources_repo: TSResourcesRepoImpl,
         delete_timeout: Duration,
-        transactions_repo: Arc<TransactionsRepoPoolImpl>,
+        transactions_repo: Arc<RepoImpl>,
         rx: mpsc::Receiver<Arc<Vec<BlockchainUpdate>>>,
     ) -> Self {
         let watchlist = Arc::new(RwLock::new(WatchList::new(
@@ -152,7 +154,7 @@ impl<T: 'static + Item> UpdatesProvider<T> for Provider<T> {
 
 async fn check_and_maybe_insert<T: Item>(
     resources_repo: &TSResourcesRepoImpl,
-    transactions_repo: &Arc<TransactionsRepoPoolImpl>,
+    transactions_repo: &Arc<RepoImpl>,
     value: T,
 ) -> Result<()> {
     let topic = value.clone().into();
@@ -170,5 +172,5 @@ pub trait DataFromBlock: Sized {
 
 #[async_trait]
 pub trait LastValue {
-    async fn get_last(self, repo: &Arc<TransactionsRepoPoolImpl>) -> Result<String>;
+    async fn get_last(self, repo: &Arc<RepoImpl>) -> Result<String>;
 }
