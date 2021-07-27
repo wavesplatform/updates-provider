@@ -1,10 +1,12 @@
-use super::{Address, TransactionUpdate};
-use crate::error::Error;
 #[allow(unused_imports)]
 use prost::Message;
 use serde::Serialize;
 use std::convert::TryFrom;
 use waves_protobuf_schemas::waves::transaction::Data;
+
+use super::{Address, TransactionUpdate};
+use crate::error::Error;
+use crate::waves::blake2b256;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -247,7 +249,7 @@ impl Order {
             OrderVersion::V3 => self.bytes_v3(),
             OrderVersion::V4 => self.bytes_v4(),
         };
-        let id = bs58::encode(&super::blake2b256(bytes.as_slice())).into_string();
+        let id = bs58::encode(&blake2b256(bytes.as_slice())).into_string();
         self.id = id;
     }
 

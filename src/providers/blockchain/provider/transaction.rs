@@ -1,16 +1,15 @@
-use super::{DataFromBlock, Item, LastValue};
-use crate::transactions::repo::TransactionsRepoPoolImpl;
-use crate::transactions::{
-    Address, BlockMicroblockAppend, Transaction, TransactionType, TransactionUpdate,
-};
-use crate::{
-    error::Result,
-    transactions::{exchange::ExchangeData, TransactionsRepo},
-};
 use async_trait::async_trait;
 use std::convert::TryFrom;
 use std::sync::Arc;
 use wavesexchange_topic::{TransactionByAddress, TransactionExchange, TransactionType as Type};
+
+use super::{DataFromBlock, Item, LastValue};
+use crate::db::repo::RepoImpl;
+use crate::db::Repo;
+use crate::error::Result;
+use crate::waves::transactions::exchange::ExchangeData;
+use crate::waves::transactions::{Transaction, TransactionType, TransactionUpdate};
+use crate::waves::{Address, BlockMicroblockAppend};
 
 impl DataFromBlock for wavesexchange_topic::Transaction {
     fn data_from_block(block: &BlockMicroblockAppend) -> Vec<(String, Self)> {
@@ -65,7 +64,7 @@ impl DataFromBlock for wavesexchange_topic::Transaction {
 
 #[async_trait]
 impl LastValue for wavesexchange_topic::Transaction {
-    async fn get_last(self, repo: &Arc<TransactionsRepoPoolImpl>) -> Result<String> {
+    async fn get_last(self, repo: &Arc<RepoImpl>) -> Result<String> {
         Ok(match self {
             wavesexchange_topic::Transaction::ByAddress(TransactionByAddress {
                 tx_type: Type::All,

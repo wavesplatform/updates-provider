@@ -1,7 +1,12 @@
+use diesel::sql_types::{Array, BigInt, VarChar};
+use diesel::{prelude::*, r2d2::ConnectionManager};
+use r2d2::PooledConnection;
+
+use super::pool::PgPool;
 use super::{
-    AssociatedAddress, BlockMicroblock, DataEntryUpdate, DeletedDataEntry, DeletedLeasingBalance,
-    InsertableDataEntry, InsertableLeasingBalance, LeasingBalanceUpdate, PrevHandledHeight,
-    Transaction, TransactionType, TransactionsRepo, TransactionsRepoPool,
+    AssociatedAddress, BlockMicroblock, DataEntryUpdate, Db, DeletedDataEntry,
+    DeletedLeasingBalance, InsertableDataEntry, InsertableLeasingBalance, LeasingBalanceUpdate,
+    PrevHandledHeight, Repo, Transaction, TransactionType,
 };
 use crate::error::Result;
 use crate::schema::blocks_microblocks::dsl::*;
@@ -12,19 +17,16 @@ use crate::schema::leasing_balances_uid_seq::dsl::*;
 use crate::schema::{
     associated_addresses, blocks_microblocks, data_entries, leasing_balances, transactions,
 };
-use crate::{db::PgPool, utils::ToChunks};
-use diesel::sql_types::{Array, BigInt, VarChar};
-use diesel::{prelude::*, r2d2::ConnectionManager};
-use r2d2::PooledConnection;
+use crate::utils::ToChunks;
 
 const MAX_UID: i64 = std::i64::MAX - 1;
 
 #[derive(Clone)]
-pub struct TransactionsRepoPoolImpl {
+pub struct RepoImpl {
     pool: PgPool,
 }
 
-impl TransactionsRepoPoolImpl {
+impl RepoImpl {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }
@@ -34,8 +36,8 @@ impl TransactionsRepoPoolImpl {
     }
 }
 
-impl TransactionsRepoPool for TransactionsRepoPoolImpl {
-    fn transaction(&self, f: impl FnOnce(&dyn TransactionsRepo) -> Result<()>) -> Result<()> {
+impl Db for RepoImpl {
+    fn transaction(&self, f: impl FnOnce(&dyn Repo) -> Result<()>) -> Result<()> {
         tokio::task::block_in_place(move || {
             let conn = self.get_conn()?;
             conn.transaction(|| f(&conn))
@@ -43,7 +45,7 @@ impl TransactionsRepoPool for TransactionsRepoPoolImpl {
     }
 }
 
-impl TransactionsRepo for TransactionsRepoPoolImpl {
+impl Repo for RepoImpl {
     fn get_prev_handled_height(&self) -> Result<Option<PrevHandledHeight>> {
         self.get_conn()?.get_prev_handled_height()
     }
@@ -183,7 +185,7 @@ impl TransactionsRepo for TransactionsRepoPoolImpl {
     }
 }
 
-impl TransactionsRepo for PooledConnection<ConnectionManager<PgConnection>> {
+impl Repo for PooledConnection<ConnectionManager<PgConnection>> {
     fn get_prev_handled_height(&self) -> Result<Option<PrevHandledHeight>> {
         Ok(blocks_microblocks
             .select((blocks_microblocks::uid, blocks_microblocks::height))
@@ -403,7 +405,7 @@ impl TransactionsRepo for PooledConnection<ConnectionManager<PgConnection>> {
                     .or(data_entries::value_string.is_not_null()),
             )
             .select(data_entries::all_columns.nullable())
-            .order(data_entries::block_uid.desc())
+            .filter(data_entries::superseded_by.eq(MAX_UID))
             .first::<Option<InsertableDataEntry>>(self)
             .optional()?
             .flatten())
@@ -498,7 +500,7 @@ impl TransactionsRepo for PooledConnection<ConnectionManager<PgConnection>> {
         Ok(leasing_balances::table
             .filter(leasing_balances::address.eq(address))
             .select(leasing_balances::all_columns.nullable())
-            .order(leasing_balances::block_uid.desc())
+            .filter(leasing_balances::superseded_by.eq(MAX_UID))
             .first::<Option<InsertableLeasingBalance>>(self)
             .optional()?
             .flatten())
