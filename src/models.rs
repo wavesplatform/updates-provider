@@ -1,9 +1,10 @@
-use crate::providers::watchlist::{MaybeFromTopic, WatchListItem};
-use crate::transactions::TransactionType;
 use wavesexchange_topic::{
     BlockchainHeight, ConfigFile, ConfigParameters, LeasingBalance, State, TestResource, Topic,
     Transaction, TransactionByAddress, TransactionExchange, TransactionType as Type,
 };
+
+use crate::providers::watchlist::{MaybeFromTopic, WatchListItem};
+use crate::waves::transactions::TransactionType;
 
 impl MaybeFromTopic for ConfigFile {
     fn maybe_item(topic: &Topic) -> Option<Self> {
