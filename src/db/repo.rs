@@ -356,7 +356,7 @@ impl Repo for PooledConnection<ConnectionManager<PgConnection>> {
             .inner_join(transactions::table)
             .filter(associated_addresses::address.eq(address))
             .select(transactions::all_columns.nullable())
-            .order(transactions::block_uid.desc())
+            .order(transactions::uid.desc())
             .first::<Option<Transaction>>(self)
             .optional()?
             .flatten())
@@ -372,7 +372,7 @@ impl Repo for PooledConnection<ConnectionManager<PgConnection>> {
             .filter(associated_addresses::address.eq(address))
             .filter(transactions::tx_type.eq(transaction_type))
             .select(transactions::all_columns.nullable())
-            .order(transactions::block_uid.desc())
+            .order(transactions::uid.desc())
             .first::<Option<Transaction>>(self)
             .optional()?
             .flatten())
@@ -387,7 +387,7 @@ impl Repo for PooledConnection<ConnectionManager<PgConnection>> {
             .filter(transactions::exchange_amount_asset.eq(amount_asset))
             .filter(transactions::exchange_price_asset.eq(price_asset))
             .select(transactions::all_columns.nullable())
-            .order(transactions::block_uid.desc())
+            .order(transactions::uid.desc())
             .first::<Option<Transaction>>(self)
             .optional()?
             .flatten())

@@ -18,8 +18,9 @@ pub mod exchange;
 #[derive(Clone, Debug, Insertable, QueryableByName, Queryable)]
 #[table_name = "transactions"]
 pub struct Transaction {
-    pub id: String,
+    pub uid: i64,
     pub block_uid: i64,
+    pub id: String,
     pub tx_type: TransactionType,
     pub body: Option<serde_json::Value>,
     pub exchange_amount_asset: Option<String>,
@@ -174,9 +175,10 @@ impl TryFrom<(i64, &TransactionUpdate)> for Transaction {
 
     fn try_from(value: (i64, &TransactionUpdate)) -> Result<Self> {
         Ok(Self {
+            uid: 0,
+            block_uid: value.0,
             id: value.1.id.clone(),
             tx_type: value.1.tx_type,
-            block_uid: value.0,
             exchange_amount_asset: exchange_amount_asset_from_update(value.1),
             exchange_price_asset: exchange_price_asset_from_update(value.1),
             body: body_from_transaction_update(value.1)?,
