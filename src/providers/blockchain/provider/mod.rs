@@ -24,7 +24,7 @@ pub struct Provider<T: Item> {
     watchlist: Arc<RwLock<WatchList<T>>>,
     resources_repo: TSResourcesRepoImpl,
     rx: mpsc::Receiver<Arc<Vec<BlockchainUpdate>>>,
-    transactions_repo: Arc<RepoImpl>,
+    repo: Arc<RepoImpl>,
     clean_timeout: Duration,
 }
 
@@ -32,7 +32,7 @@ impl<T: 'static + Item> Provider<T> {
     pub fn new(
         resources_repo: TSResourcesRepoImpl,
         delete_timeout: Duration,
-        transactions_repo: Arc<RepoImpl>,
+        repo: Arc<RepoImpl>,
         rx: mpsc::Receiver<Arc<Vec<BlockchainUpdate>>>,
     ) -> Self {
         let watchlist = Arc::new(RwLock::new(WatchList::new(
@@ -44,7 +44,7 @@ impl<T: 'static + Item> Provider<T> {
             watchlist,
             resources_repo,
             rx,
-            transactions_repo,
+            repo,
             clean_timeout,
         }
     }
@@ -108,17 +108,15 @@ impl<T: 'static + Item> UpdatesProvider<T> for Provider<T> {
 
         let watchlist = self.watchlist.clone();
         let resources_repo = self.resources_repo.clone();
-        let transactions_repo = self.transactions_repo.clone();
+        let repo = self.repo.clone();
         tokio::task::spawn(async move {
-            info!("starting transactions subscriptions updates handler");
+            info!("starting subscriptions updates handler");
             while let Some(upd) = subscriptions_updates_receiver.recv().await {
                 if let Err(err) = watchlist.write().await.on_update(&upd) {
                     error!("error while updating watchlist: {:?}", err);
                 }
                 if let WatchListUpdate::New { item, .. } = upd {
-                    if let Err(err) =
-                        check_and_maybe_insert(&resources_repo, &transactions_repo, item).await
-                    {
+                    if let Err(err) = check_and_maybe_insert(&resources_repo, &repo, item).await {
                         error!("error while updating value: {:?}", err);
                     }
                 }
@@ -126,7 +124,7 @@ impl<T: 'static + Item> UpdatesProvider<T> for Provider<T> {
         });
 
         tokio::task::spawn(async move {
-            info!("starting transactions provider");
+            info!("starting provider");
             if let Err(error) = self.run().await {
                 error!("transaction provider return error: {:?}", error);
             }
@@ -154,12 +152,12 @@ impl<T: 'static + Item> UpdatesProvider<T> for Provider<T> {
 
 async fn check_and_maybe_insert<T: Item>(
     resources_repo: &TSResourcesRepoImpl,
-    transactions_repo: &Arc<RepoImpl>,
+    repo: &Arc<RepoImpl>,
     value: T,
 ) -> Result<()> {
     let topic = value.clone().into();
     if resources_repo.get(&topic)?.is_none() {
-        let new_value = value.get_last(transactions_repo).await?;
+        let new_value = value.get_last(repo).await?;
         resources_repo.set_and_push(topic, new_value)?;
     }
 

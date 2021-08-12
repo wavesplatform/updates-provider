@@ -203,10 +203,17 @@ impl Updater {
                 insert_blockchain_updates(&*self.transactions_repo, blockchain_updates.iter())?;
             }
         }
+
+        let elapsed = start.elapsed();
         info!(
-            "{} updates were handled in {} ms",
+            "{} updates were handled in {} ms ({} updates/s)",
             blockchain_updates.len(),
-            start.elapsed().as_millis()
+            elapsed.as_millis(),
+            if elapsed.as_secs() > 0 {
+                blockchain_updates.len() / elapsed.as_secs() as usize
+            } else {
+                (blockchain_updates.len() / elapsed.as_millis() as usize) * 1000
+            }
         );
 
         let sending = Arc::new(blockchain_updates);
@@ -248,19 +255,16 @@ fn insert_blockchain_updates<'a, P: Db>(
 
 fn insert_appends<U: Repo + ?Sized>(conn: &U, appends: Vec<&BlockMicroblockAppend>) -> Result<()> {
     if !appends.is_empty() {
-        let start = Instant::now();
         let h = appends.last().unwrap().height;
         let block_ids = insert_blocks(conn, &appends)?;
         let transaction_updates = appends.iter().map(|block| block.transactions.iter());
+
         insert_transactions(conn, transaction_updates.clone(), &block_ids)?;
         insert_addresses(conn, transaction_updates)?;
         insert_data_entries(conn, &appends, &block_ids)?;
         insert_leasing_balances(conn, &appends, &block_ids)?;
-        info!(
-            "last updates batch height {:?} persisted in {} ms",
-            h,
-            start.elapsed().as_millis()
-        );
+
+        info!("handled updates batch last height {:?}", h);
     }
     Ok(())
 }
