@@ -3,7 +3,7 @@ use wavesexchange_topic::{
     Transaction, TransactionByAddress, TransactionExchange, TransactionType as Type,
 };
 
-use crate::providers::watchlist::{MaybeFromTopic, WatchListItem};
+use crate::providers::watchlist::{KeyPattern, MaybeFromTopic, WatchListItem};
 use crate::waves::transactions::TransactionType;
 
 impl MaybeFromTopic for ConfigFile {
@@ -115,3 +115,48 @@ impl MaybeFromTopic for LeasingBalance {
 }
 
 impl WatchListItem for LeasingBalance {}
+
+impl KeyPattern for ConfigFile {
+    const PATTERNS_SUPPORTED: bool = false;
+    type PatternMatcher = ();
+
+    fn new_matcher(&self) -> Self::PatternMatcher {
+        ()
+    }
+}
+
+impl KeyPattern for TestResource {
+    const PATTERNS_SUPPORTED: bool = false;
+    type PatternMatcher = ();
+
+    fn new_matcher(&self) -> Self::PatternMatcher {
+        ()
+    }
+}
+
+impl KeyPattern for BlockchainHeight {
+    const PATTERNS_SUPPORTED: bool = false;
+    type PatternMatcher = ();
+
+    fn new_matcher(&self) -> Self::PatternMatcher {
+        ()
+    }
+}
+
+impl KeyPattern for TransactionByAddress {
+    const PATTERNS_SUPPORTED: bool = false;
+    type PatternMatcher = ();
+
+    fn new_matcher(&self) -> Self::PatternMatcher {
+        ()
+    }
+}
+
+impl KeyPattern for TransactionExchange {
+    const PATTERNS_SUPPORTED: bool = false;
+    type PatternMatcher = ();
+
+    fn new_matcher(&self) -> Self::PatternMatcher {
+        ()
+    }
+}

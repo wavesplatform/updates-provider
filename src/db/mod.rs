@@ -16,6 +16,7 @@ use crate::waves::{
     Address, BlockMicroblockAppend, DataEntry, DataEntryFragment, Fragments, LeasingBalance,
     ValueDataEntry,
 };
+use wavesexchange_topic::StateSingle;
 
 pub const FRAGMENT_SEPARATOR: &str = "__";
 pub const STRING_DESCRIPTOR: &str = "s";
@@ -241,6 +242,12 @@ pub trait Repo {
     ) -> Result<Option<Transaction>>;
 
     fn last_data_entry(&self, address: String, key: String) -> Result<Option<InsertableDataEntry>>;
+
+    fn find_matching_data_keys(
+        &self,
+        addresses: Vec<String>,
+        key_patterns: Vec<String>,
+    ) -> Result<Vec<StateSingle>>;
 
     fn update_data_entries_block_references(&self, block_uid: &i64) -> Result<()>;
 

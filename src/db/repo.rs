@@ -1,6 +1,8 @@
+use diesel::dsl::any;
 use diesel::sql_types::{Array, BigInt, VarChar};
 use diesel::{prelude::*, r2d2::ConnectionManager};
 use r2d2::PooledConnection;
+use wavesexchange_topic::StateSingle;
 
 use super::pool::PgPool;
 use super::{
@@ -143,6 +145,15 @@ impl Repo for RepoImpl {
 
     fn last_data_entry(&self, address: String, key: String) -> Result<Option<InsertableDataEntry>> {
         self.get_conn()?.last_data_entry(address, key)
+    }
+
+    fn find_matching_data_keys(
+        &self,
+        addresses: Vec<String>,
+        key_patterns: Vec<String>,
+    ) -> Result<Vec<StateSingle>> {
+        self.get_conn()?
+            .find_matching_data_keys(addresses, key_patterns)
     }
 
     fn update_data_entries_block_references(&self, block_uid: &i64) -> Result<()> {
@@ -411,6 +422,29 @@ impl Repo for PooledConnection<ConnectionManager<PgConnection>> {
             .flatten())
     }
 
+    fn find_matching_data_keys(
+        &self,
+        addresses: Vec<String>,
+        key_patterns: Vec<String>,
+    ) -> Result<Vec<StateSingle>> {
+        let key_likes = key_patterns
+            .iter()
+            .map(String::as_str)
+            .map(pattern_utils::pattern_to_sql_like)
+            .collect::<Vec<_>>();
+        let res: Vec<(String, String)> = data_entries::table
+            .filter(data_entries::address.eq(any(addresses)))
+            .filter(data_entries::key.like(any(key_likes)))
+            .select((data_entries::address, data_entries::key))
+            .order((data_entries::address, data_entries::key))
+            .load(self)?;
+        let res = res
+            .into_iter()
+            .map(|(address, key)| StateSingle { address, key })
+            .collect();
+        Ok(res)
+    }
+
     fn update_data_entries_block_references(&self, block_uid: &i64) -> Result<()> {
         diesel::update(data_entries::table)
             .set(data_entries::block_uid.eq(block_uid))
@@ -504,5 +538,50 @@ impl Repo for PooledConnection<ConnectionManager<PgConnection>> {
             .first::<Option<InsertableLeasingBalance>>(self)
             .optional()?
             .flatten())
+    }
+}
+
+mod pattern_utils {
+    use itertools::Itertools;
+    use std::borrow::Cow;
+
+    pub(super) fn pattern_to_sql_like(pattern: &str) -> String {
+        const WILDCARD_CHAR: char = '*';
+        if !pattern.contains(WILDCARD_CHAR) {
+            return escape_literal(pattern).into_owned();
+        }
+
+        pattern.split(WILDCARD_CHAR).map(escape_literal).join("%")
+    }
+
+    fn escape_literal(s: &str) -> Cow<str> {
+        let mut s = Cow::Borrowed(s);
+        if s.contains('%') {
+            s = Cow::Owned(s.replace('%', "\\%"));
+        }
+        if s.contains('_') {
+            s = Cow::Owned(s.replace('_', "\\_"));
+        }
+        s
+    }
+
+    #[test]
+    fn pattern_to_sql_like_test() {
+        let check = |pattern, expected_like| {
+            let actual_like = pattern_to_sql_like(pattern);
+            assert_eq!(
+                expected_like, actual_like,
+                "Failed: {} -> {}",
+                pattern, expected_like
+            );
+        };
+        check("", "");
+        check("abc", "abc");
+        check("*", "%");
+        check("*foo*", "%foo%");
+        check("foo*bar", "foo%bar");
+        check("%", "\\%");
+        check("_", "\\_");
+        check("%s%d_foo*", "\\%s\\%d\\_foo%");
     }
 }

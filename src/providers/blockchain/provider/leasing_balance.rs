@@ -6,6 +6,7 @@ use super::{DataFromBlock, Item, LastValue};
 use crate::db::repo::RepoImpl;
 use crate::db::Repo;
 use crate::error::Result;
+use crate::providers::watchlist::KeyPattern;
 use crate::waves;
 
 impl DataFromBlock for LeasingBalance {
@@ -37,6 +38,15 @@ impl LastValue for LeasingBalance {
                 serde_json::to_string(&None::<waves::LeasingBalance>)?
             },
         )
+    }
+}
+
+impl KeyPattern for LeasingBalance {
+    const PATTERNS_SUPPORTED: bool = false;
+    type PatternMatcher = ();
+
+    fn new_matcher(&self) -> Self::PatternMatcher {
+        ()
     }
 }
 
