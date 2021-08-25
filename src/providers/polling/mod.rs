@@ -93,7 +93,7 @@ impl<T: WatchListItem + Send + Sync + 'static> PollProvider<T> {
                     )
                     .await
                 {
-                    error!("error occured while watchlist processing: {:?}", error);
+                    error!("error occurred while watchlist processing: {:?}", error);
                 }
             }
             tokio::time::sleep(self.polling_delay).await;

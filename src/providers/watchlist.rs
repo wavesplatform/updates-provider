@@ -1,14 +1,19 @@
 use super::TSResourcesRepoImpl;
-use crate::metrics::WATCHLISTS_TOPICS;
 use crate::subscriptions::SubscriptionUpdate;
 use crate::{error::Error, resources::ResourcesRepo};
+use itertools::Itertools;
+use std::convert::TryFrom;
 use std::time::{Duration, Instant};
-use std::{collections::HashMap, hash::Hash};
+use std::{
+    collections::{HashMap, HashSet},
+    hash::Hash,
+};
 use wavesexchange_topic::Topic;
 
 #[derive(Debug)]
 pub struct WatchList<T: WatchListItem> {
     items: HashMap<T, ItemInfo>,
+    patterns: HashMap<T, T::PatternMatcher>,
     repo: TSResourcesRepoImpl,
     delete_timeout: Duration,
     type_name: String,
@@ -18,15 +23,26 @@ pub struct WatchList<T: WatchListItem> {
 struct ItemInfo {
     last_value: String,
     maybe_delete: Option<Instant>,
+    subtopics: Option<HashSet<String>>,
+    watched_directly: bool,
+    watched_indirectly: bool,
 }
 
 impl ItemInfo {
-    fn deletable(&mut self, delete_timestamp: Instant) {
+    fn is_watched(&self) -> bool {
+        self.watched_directly || self.watched_indirectly
+    }
+
+    fn delete_after(&mut self, delete_timeout: Duration) {
+        let delete_timestamp = Instant::now() + delete_timeout;
         self.maybe_delete = Some(delete_timestamp)
     }
 }
 
-pub trait WatchListItem: Eq + Hash + Into<Topic> + MaybeFromTopic + Into<String> + Clone {}
+pub trait WatchListItem:
+    Eq + Hash + Into<Topic> + MaybeFromTopic + Into<String> + KeyPattern + Clone
+{
+}
 
 #[derive(Debug, Clone)]
 pub enum WatchListUpdate<T: WatchListItem> {
@@ -60,31 +76,103 @@ pub trait MaybeFromTopic: Sized {
 impl<T: WatchListItem> WatchList<T> {
     pub fn new(repo: TSResourcesRepoImpl, delete_timeout: Duration) -> Self {
         let items = HashMap::new();
+        let patterns = HashMap::new();
         let type_name = std::any::type_name::<T>().to_string();
         Self {
             items,
+            patterns,
             repo,
             delete_timeout,
             type_name,
         }
     }
 
+    fn create_or_refresh_item(&mut self, item: T) -> &mut ItemInfo {
+        self.items
+            .entry(item)
+            .and_modify(|ii| ii.maybe_delete = None)
+            .or_default()
+    }
+
+    fn collect_as_items<'a>(topics: impl IntoIterator<Item = &'a String>) -> Vec<T> {
+        topics
+            .into_iter()
+            .map(String::as_str)
+            .map(Topic::try_from)
+            .map_ok(|subtopic| T::maybe_item(&subtopic))
+            .map(|result| match result {
+                Ok(Some(value)) => Ok(value),
+                _ => Err(()),
+            })
+            .filter_map(Result::ok)
+            .collect()
+    }
+
     pub fn on_update(&mut self, update: &WatchListUpdate<T>) -> Result<(), Error> {
         match update {
             WatchListUpdate::New { item } => {
-                self.items.insert(item.to_owned(), ItemInfo::default());
-                WATCHLISTS_TOPICS
-                    .with_label_values(&[&self.type_name])
-                    .inc();
+                let item_info = self.create_or_refresh_item(item.to_owned());
+                item_info.watched_directly = true;
+                self.metric_increase();
             }
             WatchListUpdate::Delete { item } => {
                 if let Some(item_info) = self.items.get_mut(item) {
-                    let delete_timestamp = Instant::now() + self.delete_timeout;
-                    item_info.deletable(delete_timestamp)
+                    item_info.watched_directly = false;
+
+                    if !item_info.is_watched() {
+                        item_info.delete_after(self.delete_timeout);
+                    }
+
+                    let subtopic_items = item_info.subtopics.as_ref().map(Self::collect_as_items);
+
+                    if let Some(subtopic_items) = subtopic_items {
+                        for subtopic_item in subtopic_items {
+                            if let Some(subtopic_item_info) = self.items.get_mut(&subtopic_item) {
+                                subtopic_item_info.watched_indirectly = false;
+                                if !subtopic_item_info.is_watched() {
+                                    subtopic_item_info.delete_after(self.delete_timeout);
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
         Ok(())
+    }
+
+    pub fn update_multitopic(&mut self, item: T, subtopics: HashSet<String>) {
+        let item_info = self.create_or_refresh_item(item.clone());
+        if let Some(ref existing_subtopics) = item_info.subtopics {
+            if subtopics == *existing_subtopics {
+                return;
+            }
+            let added = Self::collect_as_items(subtopics.difference(existing_subtopics));
+            let removed = Self::collect_as_items(existing_subtopics.difference(&subtopics));
+            item_info.subtopics = Some(subtopics);
+            for item in added {
+                let item_info = self.create_or_refresh_item(item);
+                item_info.watched_indirectly = true;
+            }
+            for item in removed {
+                if let Some(item_info) = self.items.get_mut(&item) {
+                    item_info.watched_indirectly = false;
+                    if !item_info.is_watched() {
+                        item_info.delete_after(self.delete_timeout);
+                    }
+                }
+            }
+        } else {
+            let added = Self::collect_as_items(&subtopics);
+            item_info.subtopics = Some(subtopics);
+            for item in added {
+                let item_info = self.create_or_refresh_item(item);
+                item_info.watched_indirectly = true;
+            }
+        }
+        self.patterns
+            .entry(item.clone())
+            .or_insert_with(|| item.new_matcher());
     }
 
     pub async fn delete_old(&mut self) {
@@ -103,15 +191,32 @@ impl<T: WatchListItem> WatchList<T> {
             .collect::<Vec<_>>();
         for item in keys {
             self.items.remove(&item);
-            WATCHLISTS_TOPICS
-                .with_label_values(&[&self.type_name])
-                .dec();
+            self.metric_decrease();
             let _ = self.repo.del(T::into(item));
         }
     }
 
-    pub fn contains_key(&self, key: &T) -> bool {
-        self.items.contains_key(key)
+    pub fn key_watch_status(&self, key: &T) -> KeyWatchStatus<T> {
+        if self.items.contains_key(key) {
+            return KeyWatchStatus::Watched;
+        }
+
+        if !T::PATTERNS_SUPPORTED || self.patterns.is_empty() {
+            return KeyWatchStatus::NotWatched;
+        }
+
+        let matched_patterns = self
+            .patterns
+            .iter()
+            .filter(|&(_, matcher)| matcher.is_match(key))
+            .map(|(pattern, _)| pattern.clone())
+            .collect_vec();
+
+        if matched_patterns.is_empty() {
+            KeyWatchStatus::NotWatched
+        } else {
+            KeyWatchStatus::MatchesPattern(matched_patterns)
+        }
     }
 
     pub fn get_value(&self, key: &T) -> Option<&String> {
@@ -119,10 +224,16 @@ impl<T: WatchListItem> WatchList<T> {
     }
 
     pub fn insert_value(&mut self, key: &T, value: String) {
-        if let Some(item_info) = self.items.get_mut(key) {
-            item_info.last_value = value;
-        }
+        let item_info = self.items.entry(key.clone()).or_default();
+        item_info.last_value = value;
     }
+}
+
+#[derive(Debug)]
+pub enum KeyWatchStatus<T> {
+    NotWatched,
+    Watched,
+    MatchesPattern(Vec<T>),
 }
 
 impl<'a, T: 'a> IntoIterator for &'a WatchList<T>
@@ -149,5 +260,41 @@ impl<'a, T> Iterator for WatchListIter<'a, T> {
     #[inline]
     fn next(&mut self) -> Option<&'a T> {
         self.inner.next()
+    }
+}
+
+pub trait KeyPattern {
+    const PATTERNS_SUPPORTED: bool;
+    type PatternMatcher: PatternMatcher<Self>;
+
+    fn new_matcher(&self) -> Self::PatternMatcher;
+}
+
+pub trait PatternMatcher<T: ?Sized>: Send + Sync {
+    fn is_match(&self, value: &T) -> bool;
+}
+
+impl<T> PatternMatcher<T> for () {
+    fn is_match(&self, _: &T) -> bool {
+        false
+    }
+}
+
+mod metrics {
+    use super::{WatchList, WatchListItem};
+    use crate::metrics::WATCHLISTS_TOPICS;
+
+    impl<T: WatchListItem> WatchList<T> {
+        pub(super) fn metric_increase(&self) {
+            WATCHLISTS_TOPICS
+                .with_label_values(&[&self.type_name])
+                .inc();
+        }
+
+        pub(super) fn metric_decrease(&self) {
+            WATCHLISTS_TOPICS
+                .with_label_values(&[&self.type_name])
+                .dec();
+        }
     }
 }
