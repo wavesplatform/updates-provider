@@ -24,7 +24,7 @@ percent-encoding = "2.1"
 waves-protobuf-schemas = { git = "https://github.com/wavesplatform/protobuf-schemas", rev = "b68a38cf6f89cd0b1b94c417da6217fd7a170de5" }
 tonic = "0.4"
 sha3 = "0.8"
-blake2 = "0.8"
+blake2 = "0.9"
 bs58 = "0.3"
 diesel = { version = "1.4.5", features = ["postgres", "r2d2", "chrono", "numeric", "serde_json"] }
 prost = "0.7"
