@@ -7,6 +7,7 @@ use super::{DataFromBlock, Item, LastValue};
 use crate::db::repo::RepoImpl;
 use crate::db::Repo;
 use crate::error::Result;
+use crate::providers::watchlist::KeyPattern;
 use crate::waves::transactions::exchange::ExchangeData;
 use crate::waves::transactions::{Transaction, TransactionType, TransactionUpdate};
 use crate::waves::{Address, BlockMicroblockAppend};
@@ -123,6 +124,15 @@ impl From<&TransactionUpdate> for Tx {
             tx_type: value.tx_type,
             addresses: value.addresses.to_owned(),
         }
+    }
+}
+
+impl KeyPattern for wavesexchange_topic::Transaction {
+    const PATTERNS_SUPPORTED: bool = false;
+    type PatternMatcher = ();
+
+    fn new_matcher(&self) -> Self::PatternMatcher {
+        ()
     }
 }
 

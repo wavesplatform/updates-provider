@@ -9,8 +9,9 @@ table! {
 
 table! {
     transactions (id) {
-        id -> Varchar,
+        uid -> BigInt,
         block_uid -> BigInt,
+        id -> Varchar,
         tx_type -> SmallInt,
         body -> Nullable<Jsonb>,
         exchange_amount_asset -> Nullable<Varchar>,

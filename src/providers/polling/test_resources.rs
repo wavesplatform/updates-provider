@@ -64,7 +64,7 @@ impl Requester<TestResource> for TestResourcesRequester {
             Ok("null".to_string())
         } else {
             error!(
-                "error occured while fetching test resource: {}",
+                "error occurred while fetching test resource: {}",
                 test_resource_url
             );
             Err(Error::ResourceFetchingError(test_resource_url.to_string()))

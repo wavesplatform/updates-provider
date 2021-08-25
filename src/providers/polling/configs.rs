@@ -76,7 +76,7 @@ impl Requester<ConfigFile> for ConfigRequester {
             Ok("null".to_string())
         } else {
             error!(
-                "error occured while fetching config file: {}",
+                "error occurred while fetching config file: {}",
                 config_file_path
             );
             Err(Error::ResourceFetchingError(config_file_path.to_owned()))
