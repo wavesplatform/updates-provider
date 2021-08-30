@@ -17,7 +17,7 @@ use super::super::watchlist::{WatchList, WatchListItem, WatchListUpdate};
 use super::super::{TSResourcesRepoImpl, UpdatesProvider};
 use crate::db::repo::RepoImpl;
 use crate::db::BlockchainUpdate;
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::providers::watchlist::KeyWatchStatus;
 use crate::resources::ResourcesRepo;
 use crate::utils::clean_timeout;
@@ -144,9 +144,7 @@ impl<T: 'static + Item> UpdatesProvider<T> for Provider<T> {
                     error!("error while updating watchlist: {:?}", err);
                 }
                 if let WatchListUpdate::New { item } = upd {
-                    let result =
-                        check_and_maybe_insert(&resources_repo, &repo, item.clone())
-                            .await;
+                    let result = check_and_maybe_insert(&resources_repo, &repo, item.clone()).await;
                     match result {
                         Ok(None) => { /* Nothing more to do */ }
                         Ok(Some(subtopics)) => {
@@ -199,22 +197,23 @@ async fn check_and_maybe_insert<T: Item>(
     } else {
         let new_value = value.get_last(repo).await?;
         let subtopics = subtopics_from_topic_value(&topic, &new_value)?;
+
+        if let Some(ref subtopics) = subtopics {
+            for subtopic in subtopics {
+                let subtopic = Topic::try_from(subtopic.as_str())
+                    .map_err(|_| Error::InvalidTopic(subtopic.clone()))?;
+                if resources_repo.get(&subtopic)?.is_none() {
+                    let subtopic_value = T::maybe_item(&subtopic)
+                        .ok_or_else(|| Error::InvalidTopic(subtopic.clone().into()))?;
+                    let new_value = subtopic_value.get_last(repo).await?;
+                    resources_repo.set_and_push(subtopic, new_value)?;
+                }
+            }
+        }
+
         resources_repo.set_and_push(topic, new_value)?;
         subtopics
     };
-
-    if let Some(ref subtopics) = subtopics {
-        for subtopic in subtopics {
-            let subtopic = Topic::try_from(subtopic.as_str())
-                .map_err(|_| crate::error::Error::InvalidTopic(subtopic.clone()))?;
-            if resources_repo.get(&subtopic)?.is_none() {
-                let subtopic_value = T::maybe_item(&subtopic)
-                    .ok_or_else(|| crate::error::Error::InvalidTopic(subtopic.clone().into()))?;
-                let new_value = subtopic_value.get_last(repo).await?;
-                resources_repo.set_and_push(subtopic, new_value)?;
-            }
-        }
-    }
 
     Ok(subtopics)
 }
