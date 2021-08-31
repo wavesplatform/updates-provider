@@ -437,6 +437,7 @@ impl Repo for PooledConnection<ConnectionManager<PgConnection>> {
         let res: Vec<(String, String)> = data_entries::table
             .filter(data_entries::address.eq(any(addresses)))
             .filter(data_entries::key.like(any(key_likes)))
+            .filter(data_entries::superseded_by.eq(MAX_UID))
             .select((data_entries::address, data_entries::key))
             .order((data_entries::address, data_entries::key))
             .load(self)?;
