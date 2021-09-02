@@ -427,6 +427,8 @@ impl Repo for PooledConnection<ConnectionManager<PgConnection>> {
         addresses: Vec<String>,
         key_patterns: Vec<String>,
     ) -> Result<Vec<StateSingle>> {
+        let start_time = std::time::Instant::now();
+        let (n_addr, n_patt) = (addresses.len(), key_patterns.len());
         let key_likes = key_patterns
             .iter()
             .map(String::as_str)
@@ -435,13 +437,22 @@ impl Repo for PooledConnection<ConnectionManager<PgConnection>> {
         let res: Vec<(String, String)> = data_entries::table
             .filter(data_entries::address.eq(any(addresses)))
             .filter(data_entries::key.like(any(key_likes)))
+            .filter(data_entries::superseded_by.eq(MAX_UID))
             .select((data_entries::address, data_entries::key))
             .order((data_entries::address, data_entries::key))
             .load(self)?;
         let res = res
             .into_iter()
             .map(|(address, key)| StateSingle { address, key })
-            .collect();
+            .collect::<Vec<_>>();
+        let elapsed = start_time.elapsed().as_millis();
+        wavesexchange_log::debug!(
+            "fetched {} keys from {} addrs and {} patterns in {}ms",
+            res.len(),
+            n_addr,
+            n_patt,
+            elapsed,
+        );
         Ok(res)
     }
 
