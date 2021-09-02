@@ -3,6 +3,7 @@ use crate::{error::Error, resources::ResourcesRepo};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use waves_protobuf_schemas::waves::events::BlockchainUpdated;
+use wavesexchange_log as log;
 use wavesexchange_topic::Topic;
 
 pub struct Provider {
@@ -41,6 +42,7 @@ impl Provider {
                 self.resources_repo
                     .set_and_push(Topic::BlockchainHeight, height.to_string())?;
                 self.last_height = height;
+                log::debug!("Height updated: {}", height);
             }
         }
 
@@ -51,8 +53,9 @@ impl Provider {
 fn get_last_height(resources_repo: TSResourcesRepoImpl) -> Result<i32, Error> {
     let topic = Topic::BlockchainHeight;
     if let Some(height) = resources_repo.get(&topic)? {
-        if let Ok(x) = height.parse() {
-            return Ok(x);
+        if let Ok(height) = height.parse() {
+            log::debug!("Initial height: {}", height);
+            return Ok(height);
         }
     }
     Ok(1)
