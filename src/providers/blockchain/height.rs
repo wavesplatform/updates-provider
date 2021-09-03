@@ -42,7 +42,7 @@ impl Provider {
                 self.resources_repo
                     .set_and_push(Topic::BlockchainHeight, height.to_string())?;
                 self.last_height = height;
-                log::debug!("Height updated: {}", height);
+                log::debug!("Height updated: {} [ID: {}]", height, hex::encode(&blockchain_updated.id));
             }
         }
 

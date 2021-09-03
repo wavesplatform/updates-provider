@@ -32,6 +32,7 @@ prometheus = "0.12"
 lazy_static = "1.4"
 regex = "1.5"
 warp = "0.3"
+hex = "0.4"
 wavesexchange_log = { git = "https://github.com/waves-exchange/wavesexchange-rs", tag = "wavesexchange_log/0.4.0" }
 wavesexchange_warp = { git = "https://github.com/waves-exchange/wavesexchange-rs", tag = "wavesexchange_warp/0.11.0" }
 wavesexchange_topic = { git = "https://github.com/waves-exchange/wavesexchange-rs", tag = "wavesexchange_topic/0.2.1" }

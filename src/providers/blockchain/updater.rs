@@ -92,6 +92,7 @@ impl Updater {
         'a: loop {
             let mut buffer = Vec::with_capacity(self.updates_buffer_size);
             if let Some(event) = self.rx.recv().await {
+                debug!("++Received block ID: {}", hex::encode(&event.id));
                 let update = BlockchainUpdate::try_from(event)?;
                 buffer.push(update);
                 match buffer.last().unwrap() {
@@ -123,6 +124,7 @@ impl Updater {
                         }
                         maybe_event = self.rx.recv() => {
                             if let Some(event) = maybe_event {
+                                debug!("+++Received block ID: {}", hex::encode(&event.id));
                                 let update = BlockchainUpdate::try_from(event)?;
                                 buffer.push(update);
                                 match buffer.last().unwrap() {
@@ -232,6 +234,7 @@ fn insert_blockchain_updates<'a, P: Db>(
     blockchain_updates: impl Iterator<Item = &'a BlockchainUpdate>,
 ) -> Result<()> {
     pool.transaction(|conn| {
+        timer!("insert_blockchain_updates()");
         let mut appends = vec![];
         let mut rollback_block_id = None;
         for update in blockchain_updates {
@@ -255,6 +258,7 @@ fn insert_blockchain_updates<'a, P: Db>(
 
 fn insert_appends<U: Repo + ?Sized>(conn: &U, appends: Vec<&BlockMicroblockAppend>) -> Result<()> {
     if !appends.is_empty() {
+        timer!("insert_appends()");
         let h = appends.last().unwrap().height;
         let block_ids = insert_blocks(conn, &appends)?;
         let transaction_updates = appends.iter().map(|block| block.transactions.iter());
@@ -484,6 +488,7 @@ fn insert_leasing_balances<U: Repo + ?Sized>(
 }
 
 fn rollback<U: Repo + ?Sized>(conn: &U, block_id: &str) -> Result<()> {
+    timer!("rollback()");
     let block_uid = conn.get_block_uid(block_id)?;
     rollback_by_block_uid(conn, block_uid)
 }
@@ -548,6 +553,7 @@ fn count_txs_addresses(buffer: &[BlockchainUpdate]) -> (usize, usize) {
 
 fn squash_microblocks<D: Db>(db: &D) -> Result<()> {
     db.transaction(|conn| {
+        timer!("squash_microblocks()");
         if let Some(total_block_id) = conn.get_total_block_id()? {
             let key_block_uid = conn.get_key_block_uid()?;
 
