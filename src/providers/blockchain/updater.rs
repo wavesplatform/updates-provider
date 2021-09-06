@@ -92,7 +92,6 @@ impl Updater {
         'a: loop {
             let mut buffer = Vec::with_capacity(self.updates_buffer_size);
             if let Some(event) = self.rx.recv().await {
-                debug!("++Received block ID: {}", hex::encode(&event.id));
                 let update = BlockchainUpdate::try_from(event)?;
                 buffer.push(update);
                 match buffer.last().unwrap() {
@@ -124,7 +123,6 @@ impl Updater {
                         }
                         maybe_event = self.rx.recv() => {
                             if let Some(event) = maybe_event {
-                                debug!("+++Received block ID: {}", hex::encode(&event.id));
                                 let update = BlockchainUpdate::try_from(event)?;
                                 buffer.push(update);
                                 match buffer.last().unwrap() {

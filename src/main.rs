@@ -17,7 +17,7 @@ mod debugger {
     impl ScopeTimer {
         #[inline]
         pub fn new(name: &'static str) -> Self {
-            log::debug!("BEGIN {}", name);
+            log::trace!("BEGIN {}", name);
             ScopeTimer(name, Instant::now())
         }
     }
@@ -29,7 +29,7 @@ mod debugger {
             let elapsed = started.elapsed();
             const MS_IN_SEC: f64 = 1_000.0;
             let elapsed_ms = elapsed.as_secs_f64() * MS_IN_SEC;
-            log::debug!("END   {}: elapsed {}ms", name, elapsed_ms);
+            log::trace!("END   {}: elapsed {}ms", name, elapsed_ms);
         }
     }
 }
