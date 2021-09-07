@@ -6,9 +6,9 @@ use wavesexchange_topic::StateSingle;
 
 use super::pool::PgPool;
 use super::{
-    AssociatedAddress, BlockMicroblock, DataEntryUpdate, Db, DeletedDataEntry,
-    DeletedLeasingBalance, InsertableDataEntry, InsertableLeasingBalance, LeasingBalanceUpdate,
-    PrevHandledHeight, Repo, Transaction, TransactionType,
+    AssociatedAddress, BlockMicroblock, DataEntry, DataEntryUpdate, Db, DeletedDataEntry,
+    DeletedLeasingBalance, LeasingBalance, LeasingBalanceUpdate, PrevHandledHeight, Repo,
+    Transaction, TransactionType,
 };
 use crate::error::Result;
 use crate::schema::blocks_microblocks::dsl::*;
@@ -20,6 +20,7 @@ use crate::schema::{
     associated_addresses, blocks_microblocks, data_entries, leasing_balances, transactions,
 };
 use crate::utils::ToChunks;
+use crate::waves::transactions::InsertableTransaction;
 
 const MAX_UID: i64 = std::i64::MAX - 1;
 
@@ -72,7 +73,7 @@ impl Repo for RepoImpl {
         self.get_conn()?.insert_blocks_or_microblocks(blocks)
     }
 
-    fn insert_transactions(&self, transactions: &[Transaction]) -> Result<()> {
+    fn insert_transactions(&self, transactions: &[InsertableTransaction]) -> Result<()> {
         self.get_conn()?.insert_transactions(transactions)
     }
 
@@ -84,7 +85,7 @@ impl Repo for RepoImpl {
             .insert_associated_addresses(associated_addresses)
     }
 
-    fn insert_data_entries(&self, entries: &[InsertableDataEntry]) -> Result<()> {
+    fn insert_data_entries(&self, entries: &[DataEntry]) -> Result<()> {
         self.get_conn()?.insert_data_entries(entries)
     }
 
@@ -143,7 +144,7 @@ impl Repo for RepoImpl {
             .last_exchange_transaction(amount_asset, price_asset)
     }
 
-    fn last_data_entry(&self, address: String, key: String) -> Result<Option<InsertableDataEntry>> {
+    fn last_data_entry(&self, address: String, key: String) -> Result<Option<DataEntry>> {
         self.get_conn()?.last_data_entry(address, key)
     }
 
@@ -165,7 +166,7 @@ impl Repo for RepoImpl {
         self.get_conn()?.get_next_lease_update_uid()
     }
 
-    fn insert_leasing_balances(&self, entries: &[InsertableLeasingBalance]) -> Result<()> {
+    fn insert_leasing_balances(&self, entries: &[LeasingBalance]) -> Result<()> {
         self.get_conn()?.insert_leasing_balances(entries)
     }
 
@@ -191,7 +192,7 @@ impl Repo for RepoImpl {
             .update_leasing_balances_block_references(block_uid)
     }
 
-    fn last_leasing_balance(&self, address: String) -> Result<Option<InsertableLeasingBalance>> {
+    fn last_leasing_balance(&self, address: String) -> Result<Option<LeasingBalance>> {
         self.get_conn()?.last_leasing_balance(address)
     }
 }
@@ -252,8 +253,7 @@ impl Repo for PooledConnection<ConnectionManager<PgConnection>> {
             .get_results(self)?)
     }
 
-    fn insert_transactions(&self, transactions: &[Transaction]) -> Result<()> {
-        timer!("insert_transactions()");
+    fn insert_transactions(&self, transactions: &[InsertableTransaction]) -> Result<()> {
         diesel::insert_into(transactions::table)
             .values(transactions)
             .on_conflict_do_nothing()
@@ -273,9 +273,7 @@ impl Repo for PooledConnection<ConnectionManager<PgConnection>> {
         Ok(())
     }
 
-    fn insert_data_entries(&self, entries: &[InsertableDataEntry]) -> Result<()> {
-        timer!("insert_data_entries()");
-
+    fn insert_data_entries(&self, entries: &[DataEntry]) -> Result<()> {
         // one data entry has 10 columns
         // pg cannot insert more then 65535
         // so the biggest chunk should be less then 6553
@@ -426,8 +424,7 @@ impl Repo for PooledConnection<ConnectionManager<PgConnection>> {
             .flatten())
     }
 
-    fn last_data_entry(&self, address: String, key: String) -> Result<Option<InsertableDataEntry>> {
-        timer!("last_data_entry()");
+    fn last_data_entry(&self, address: String, key: String) -> Result<Option<DataEntry>> {
         Ok(data_entries::table
             .filter(data_entries::address.eq(address))
             .filter(data_entries::key.eq(key))
@@ -440,7 +437,7 @@ impl Repo for PooledConnection<ConnectionManager<PgConnection>> {
             )
             .select(data_entries::all_columns.nullable())
             .filter(data_entries::superseded_by.eq(MAX_UID))
-            .first::<Option<InsertableDataEntry>>(self)
+            .first::<Option<DataEntry>>(self)
             .optional()?
             .flatten())
     }
@@ -496,9 +493,7 @@ impl Repo for PooledConnection<ConnectionManager<PgConnection>> {
             .first(self)?)
     }
 
-    fn insert_leasing_balances(&self, entries: &[InsertableLeasingBalance]) -> Result<()> {
-        timer!("insert_leasing_balances()");
-
+    fn insert_leasing_balances(&self, entries: &[LeasingBalance]) -> Result<()> {
         // one data entry has 6 columns
         // pg cannot insert more then 65535
         // so the biggest chunk should be less then 10922
@@ -576,13 +571,12 @@ impl Repo for PooledConnection<ConnectionManager<PgConnection>> {
         Ok(())
     }
 
-    fn last_leasing_balance(&self, address: String) -> Result<Option<InsertableLeasingBalance>> {
-        timer!("last_leasing_balance()");
+    fn last_leasing_balance(&self, address: String) -> Result<Option<LeasingBalance>> {
         Ok(leasing_balances::table
             .filter(leasing_balances::address.eq(address))
             .select(leasing_balances::all_columns.nullable())
             .filter(leasing_balances::superseded_by.eq(MAX_UID))
-            .first::<Option<InsertableLeasingBalance>>(self)
+            .first::<Option<LeasingBalance>>(self)
             .optional()?
             .flatten())
     }

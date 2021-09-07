@@ -8,12 +8,11 @@ use wavesexchange_log::{debug, info};
 
 use crate::db::repo::RepoImpl;
 use crate::db::{
-    BlockchainUpdate, DataEntryUpdate, Db, InsertableDataEntry, InsertableLeasingBalance,
-    LeasingBalanceUpdate, Repo,
+    BlockchainUpdate, DataEntry, DataEntryUpdate, Db, LeasingBalance, LeasingBalanceUpdate, Repo,
 };
 use crate::error::{Error, Result};
 use crate::utils::ToChunks;
-use crate::waves::transactions::{Transaction, TransactionUpdate};
+use crate::waves::transactions::{InsertableTransaction, TransactionUpdate};
 use crate::waves::BlockMicroblockAppend;
 
 const TX_CHUNK_SIZE: usize = 65535 / 4;
@@ -206,13 +205,13 @@ impl Updater {
 
         let elapsed = start.elapsed();
         info!(
-            "{} updates were handled in {} ms ({} updates/s)",
+            "{} updates were handled in {} ms (~{} updates/s)",
             blockchain_updates.len(),
             elapsed.as_millis(),
             if elapsed.as_secs() > 0 {
                 blockchain_updates.len() / elapsed.as_secs() as usize
             } else {
-                (blockchain_updates.len() / elapsed.as_millis() as usize) * 1000
+                blockchain_updates.len() * 1000 / elapsed.as_millis() as usize
             }
         );
 
@@ -258,13 +257,13 @@ fn insert_appends<U: Repo + ?Sized>(conn: &U, appends: Vec<&BlockMicroblockAppen
     if !appends.is_empty() {
         timer!("insert_appends()");
         let h = appends.last().unwrap().height;
-        let block_ids = insert_blocks(conn, &appends)?;
+        let block_uids = insert_blocks(conn, &appends)?;
         let transaction_updates = appends.iter().map(|block| block.transactions.iter());
 
-        insert_transactions(conn, transaction_updates.clone(), &block_ids)?;
+        insert_transactions(conn, transaction_updates.clone(), &block_uids)?;
         insert_addresses(conn, transaction_updates)?;
-        insert_data_entries(conn, &appends, &block_ids)?;
-        insert_leasing_balances(conn, &appends, &block_ids)?;
+        insert_data_entries(conn, &appends, &block_uids)?;
+        insert_leasing_balances(conn, &appends, &block_uids)?;
 
         info!("handled updates batch last height {:?}", h);
     }
@@ -277,23 +276,23 @@ fn insert_blocks<U: Repo + ?Sized>(
 ) -> Result<Vec<i64>> {
     let blocks = appends.iter().map(|&b| b.into()).collect::<Vec<_>>();
     let start = Instant::now();
-    let block_ids = conn.insert_blocks_or_microblocks(&blocks)?;
+    let block_uids = conn.insert_blocks_or_microblocks(&blocks)?;
     debug!(
         "{} blocks were inserted in {} ms",
         blocks.len(),
         start.elapsed().as_millis()
     );
-    Ok(block_ids)
+    Ok(block_uids)
 }
 
 fn insert_transactions<'a, U: Repo + ?Sized>(
     conn: &U,
     transaction_updates: impl Iterator<Item = impl Iterator<Item = &'a TransactionUpdate>>,
-    block_ids: &[i64],
+    block_uids: &[i64],
 ) -> Result<()> {
     let start = Instant::now();
     let mut inserted_transactions_count = 0;
-    let transactions_chunks = block_ids
+    let transactions_chunks = block_uids
         .iter()
         .zip(transaction_updates)
         .flat_map(|(&block_uid, txs)| txs.map(move |tx| (block_uid, tx)))
@@ -301,7 +300,7 @@ fn insert_transactions<'a, U: Repo + ?Sized>(
     for txs in transactions_chunks {
         let mut transactions = vec![];
         for tx in txs {
-            let transaction = Transaction::try_from(tx)?;
+            let transaction = InsertableTransaction::try_from(tx)?;
             transactions.push(transaction);
         }
         if !transactions.is_empty() {
@@ -351,24 +350,23 @@ fn insert_addresses<'a, U: Repo + ?Sized>(
 fn insert_data_entries<U: Repo + ?Sized>(
     conn: &U,
     blocks_updates: &[&BlockMicroblockAppend],
-    block_ids: &[i64],
+    block_uids: &[i64],
 ) -> Result<()> {
     let start = Instant::now();
     let next_uid = conn.get_next_update_uid()?;
 
     let entries = blocks_updates
         .iter()
-        .zip(block_ids)
-        .flat_map(|(block, &block_id)| block.data_entries.iter().map(move |de| (de, block_id)))
+        .zip(block_uids)
+        .flat_map(|(block, &block_uid)| block.data_entries.iter().map(move |de| (de, block_uid)))
         .enumerate()
-        .map(|(idx, (de, block_id))| (de, idx as i64 + next_uid, block_id).into());
+        .map(|(idx, (de, block_uid))| (de, idx as i64 + next_uid, block_uid).into());
 
     let data_entries_count = entries.clone().count() as i64;
 
-    let mut grouped_updates: HashMap<InsertableDataEntry, Vec<InsertableDataEntry>> =
-        HashMap::new();
+    let mut grouped_updates: HashMap<DataEntry, Vec<DataEntry>> = HashMap::new();
 
-    entries.for_each(|item: InsertableDataEntry| {
+    entries.for_each(|item: DataEntry| {
         let group = grouped_updates.entry(item.clone()).or_insert_with(Vec::new);
         group.push(item);
     });
@@ -420,24 +418,23 @@ fn insert_data_entries<U: Repo + ?Sized>(
 fn insert_leasing_balances<U: Repo + ?Sized>(
     conn: &U,
     blocks_updates: &[&BlockMicroblockAppend],
-    block_ids: &[i64],
+    block_uids: &[i64],
 ) -> Result<()> {
     let start = Instant::now();
     let next_uid = conn.get_next_lease_update_uid()?;
 
     let leasing_balances = blocks_updates
         .iter()
-        .zip(block_ids)
-        .flat_map(|(block, &block_id)| block.leasing_balances.iter().map(move |l| (l, block_id)))
+        .zip(block_uids)
+        .flat_map(|(block, &block_uid)| block.leasing_balances.iter().map(move |l| (l, block_uid)))
         .enumerate()
-        .map(|(idx, (l, block_id))| (l, idx as i64 + next_uid, block_id).into());
+        .map(|(idx, (l, block_uid))| (l, idx as i64 + next_uid, block_uid).into());
 
     let leasing_balances_count = leasing_balances.clone().count() as i64;
 
-    let mut grouped_updates: HashMap<InsertableLeasingBalance, Vec<InsertableLeasingBalance>> =
-        HashMap::new();
+    let mut grouped_updates: HashMap<LeasingBalance, Vec<LeasingBalance>> = HashMap::new();
 
-    leasing_balances.for_each(|item: InsertableLeasingBalance| {
+    leasing_balances.for_each(|item: LeasingBalance| {
         let group = grouped_updates.entry(item.clone()).or_insert_with(Vec::new);
         group.push(item);
     });
