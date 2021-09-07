@@ -36,8 +36,8 @@ pub enum Error {
     GRPCUriError(String),
     #[error("GRPCError: {0}")]
     GRPCError(#[from] tonic::Status),
-    #[error("SendErrorBlockchainUpdated")]
-    SendErrorBlockchainUpdated,
+    #[error("SendErrorBlockchainUpdated: {0}")]
+    SendErrorBlockchainUpdated(String),
     #[error("InvalidTransactionType: {0}")]
     InvalidTransactionType(String),
     #[error("InvalidTransactionQuery: {0}")]

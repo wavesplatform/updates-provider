@@ -26,7 +26,6 @@ pub struct ExchangeData {
     pub order1: Order,
     pub buy_matcher_fee: i64,
     pub timestamp: i64,
-    pub height: i32,
 }
 
 #[derive(Debug, Serialize)]
@@ -160,7 +159,6 @@ impl TryFrom<&TransactionUpdate> for ExchangeData {
                 order1,
                 order2,
                 timestamp: value.timestamp,
-                height: value.height,
             })
         } else {
             Err(Error::InvalidExchangeData(value.data.clone()))
