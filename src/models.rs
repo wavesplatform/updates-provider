@@ -1,3 +1,5 @@
+#![allow(clippy::unused_unit)]
+
 use wavesexchange_topic::{
     BlockchainHeight, ConfigFile, ConfigParameters, LeasingBalance, State, TestResource, Topic,
     Transaction, TransactionByAddress, TransactionExchange, TransactionType as Type,

@@ -2,6 +2,7 @@ use waves_protobuf_schemas::waves::transaction::Data;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
+#[allow(clippy::enum_variant_names)]
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("ConfigLoadError: {0}")]

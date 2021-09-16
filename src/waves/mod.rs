@@ -85,7 +85,7 @@ impl From<&waves_protobuf_schemas::waves::Amount> for Amount {
 }
 
 pub fn address_from_public_key(pk: &[u8], chain_id: u8) -> Address {
-    let pkh = &keccak256(&blake2b256(&pk))[..20];
+    let pkh = &keccak256(&blake2b256(pk))[..20];
     address_from_public_key_hash(&pkh.to_vec(), chain_id)
 }
 

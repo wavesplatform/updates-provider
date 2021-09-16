@@ -304,7 +304,7 @@ impl TryFrom<std::sync::Arc<BlockchainUpdated>> for BlockchainUpdate {
                         let transactions = parse_transactions(
                             block_uid.clone(),
                             raw_transactions,
-                            &transaction_ids,
+                            transaction_ids,
                         );
                         Ok(BlockchainUpdate::Block(BlockMicroblockAppend {
                             id: block_uid,
@@ -333,7 +333,7 @@ impl TryFrom<std::sync::Arc<BlockchainUpdated>> for BlockchainUpdate {
                         let transactions = parse_transactions(
                             block_uid.clone(),
                             raw_transactions,
-                            &transaction_ids,
+                            transaction_ids,
                         );
                         Ok(BlockchainUpdate::Microblock(BlockMicroblockAppend {
                             id: block_uid,

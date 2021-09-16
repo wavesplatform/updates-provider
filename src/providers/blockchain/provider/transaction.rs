@@ -127,6 +127,7 @@ impl From<&TransactionUpdate> for Tx {
     }
 }
 
+#[allow(clippy::unused_unit)]
 impl KeyPattern for wavesexchange_topic::Transaction {
     const PATTERNS_SUPPORTED: bool = false;
     type PatternMatcher = ();
