@@ -6,8 +6,10 @@ use std::convert::TryFrom;
 use std::time::{Duration, Instant};
 use std::{
     collections::{HashMap, HashSet},
+    fmt::Debug,
     hash::Hash,
 };
+use wavesexchange_log::{debug, warn};
 use wavesexchange_topic::Topic;
 
 #[derive(Debug)]
@@ -34,13 +36,14 @@ impl ItemInfo {
     }
 
     fn delete_after(&mut self, delete_timeout: Duration) {
+        debug!("Dead key: {:?} (delete after {:?})", self, delete_timeout);
         let delete_timestamp = Instant::now() + delete_timeout;
         self.maybe_delete = Some(delete_timestamp)
     }
 }
 
 pub trait WatchListItem:
-    Eq + Hash + Into<Topic> + MaybeFromTopic + Into<String> + KeyPattern + Clone
+    Eq + Hash + Into<Topic> + MaybeFromTopic + Into<String> + KeyPattern + Clone + Debug
 {
 }
 
@@ -88,6 +91,7 @@ impl<T: WatchListItem> WatchList<T> {
     }
 
     fn create_or_refresh_item(&mut self, item: T) -> &mut ItemInfo {
+        debug!("Live key: {:?}", item);
         self.items
             .entry(item)
             .and_modify(|ii| ii.maybe_delete = None)
@@ -189,10 +193,16 @@ impl<T: WatchListItem> WatchList<T> {
                 None
             })
             .collect::<Vec<_>>();
+        if !keys.is_empty() {
+            debug!("Removing expired keys ({}): {:?}", keys.len(), keys);
+        }
         for item in keys {
             self.items.remove(&item);
             self.metric_decrease();
-            let _ = self.repo.del(T::into(item));
+            let res = self.repo.del(T::into(item));
+            if let Some(err) = res.err() {
+                warn!("Failed to delete Redis key: '{:?}' (ignoring)", err);
+            }
         }
     }
 
