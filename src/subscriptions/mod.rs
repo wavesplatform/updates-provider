@@ -13,9 +13,9 @@ pub struct Config {
 }
 
 #[derive(Clone, Debug)]
-pub enum SubscriptionUpdate {
-    New { topic: Topic },
-    Delete { topic: Topic },
+pub enum SubscriptionEvent {
+    Updated { topic: Topic },
+    Removed { topic: Topic },
 }
 
 pub trait SubscriptionsRepo {

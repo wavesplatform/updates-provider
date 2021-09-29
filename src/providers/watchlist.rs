@@ -1,5 +1,5 @@
 use super::TSResourcesRepoImpl;
-use crate::subscriptions::SubscriptionUpdate;
+use crate::subscriptions::SubscriptionEvent;
 use crate::{error::Error, resources::ResourcesRepo};
 use itertools::Itertools;
 use std::convert::TryFrom;
@@ -49,24 +49,24 @@ pub trait WatchListItem:
 
 #[derive(Debug, Clone)]
 pub enum WatchListUpdate<T: WatchListItem> {
-    New { item: T },
-    Delete { item: T },
+    Updated { item: T },
+    Removed { item: T },
 }
 
 pub trait MaybeFromUpdate: std::fmt::Debug + Send + Sync {
-    fn maybe_from_update(update: &SubscriptionUpdate) -> Option<Self>
+    fn maybe_from_update(update: &SubscriptionEvent) -> Option<Self>
     where
         Self: Sized;
 }
 
 impl<T: WatchListItem + std::fmt::Debug + Send + Sync> MaybeFromUpdate for WatchListUpdate<T> {
-    fn maybe_from_update(update: &SubscriptionUpdate) -> Option<Self> {
+    fn maybe_from_update(update: &SubscriptionEvent) -> Option<Self> {
         match update {
-            SubscriptionUpdate::New { topic } => {
-                T::maybe_item(topic).map(|item| WatchListUpdate::New { item })
+            SubscriptionEvent::Updated { topic } => {
+                T::maybe_item(topic).map(|item| WatchListUpdate::Updated { item })
             }
-            SubscriptionUpdate::Delete { topic } => {
-                T::maybe_item(topic).map(|item| WatchListUpdate::Delete { item })
+            SubscriptionEvent::Removed { topic } => {
+                T::maybe_item(topic).map(|item| WatchListUpdate::Removed { item })
             }
         }
     }
@@ -114,12 +114,12 @@ impl<T: WatchListItem> WatchList<T> {
 
     pub fn on_update(&mut self, update: &WatchListUpdate<T>) -> Result<(), Error> {
         match update {
-            WatchListUpdate::New { item } => {
+            WatchListUpdate::Updated { item } => {
                 let item_info = self.create_or_refresh_item(item.to_owned());
                 item_info.watched_directly = true;
                 self.metric_increase();
             }
-            WatchListUpdate::Delete { item } => {
+            WatchListUpdate::Removed { item } => {
                 if let Some(item_info) = self.items.get_mut(item) {
                     item_info.watched_directly = false;
 
@@ -148,13 +148,12 @@ impl<T: WatchListItem> WatchList<T> {
     pub fn update_multitopic(&mut self, item: T, subtopics: HashSet<String>) {
         let item_info = self.create_or_refresh_item(item.clone());
         if let Some(ref existing_subtopics) = item_info.subtopics {
-            if subtopics == *existing_subtopics {
-                return;
-            }
-            let added = Self::collect_as_items(subtopics.difference(existing_subtopics));
+            let updated = Self::collect_as_items(&subtopics);
             let removed = Self::collect_as_items(existing_subtopics.difference(&subtopics));
-            item_info.subtopics = Some(subtopics);
-            for item in added {
+            if subtopics != *existing_subtopics {
+                item_info.subtopics = Some(subtopics);
+            }
+            for item in updated {
                 let item_info = self.create_or_refresh_item(item);
                 item_info.watched_indirectly = true;
             }
