@@ -3,6 +3,7 @@ use crate::error::Error;
 use r2d2::Pool;
 use r2d2_redis::redis::Commands;
 use r2d2_redis::RedisConnectionManager;
+use wavesexchange_log::debug;
 use wavesexchange_topic::Topic;
 
 #[derive(Debug)]
@@ -27,6 +28,7 @@ impl ResourcesRepo for ResourcesRepoImpl {
     fn set(&self, resource: Topic, value: String) -> Result<(), Error> {
         let mut con = self.pool.get()?;
         let key = String::from(resource);
+        debug!("[REDIS] set '{}' = '{}'", key, value);
         con.set(key, value)?;
         Ok(())
     }
@@ -34,6 +36,7 @@ impl ResourcesRepo for ResourcesRepoImpl {
     fn del(&self, resource: Topic) -> Result<(), Error> {
         let mut con = self.pool.get()?;
         let key = String::from(resource);
+        debug!("[REDIS] del '{}'", key);
         con.del(key)?;
         Ok(())
     }
