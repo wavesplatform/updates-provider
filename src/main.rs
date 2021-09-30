@@ -1,39 +1,6 @@
 #[macro_use]
 extern crate diesel;
 
-#[macro_use]
-mod debugger {
-    use std::time::Instant;
-    use wavesexchange_log as log;
-
-    macro_rules! timer {
-        ($name:literal) => {
-            let _timer = $crate::debugger::ScopeTimer::new($name);
-        };
-    }
-
-    pub struct ScopeTimer(&'static str, Instant);
-
-    impl ScopeTimer {
-        #[inline]
-        pub fn new(name: &'static str) -> Self {
-            log::trace!("BEGIN {}", name);
-            ScopeTimer(name, Instant::now())
-        }
-    }
-
-    impl Drop for ScopeTimer {
-        #[inline]
-        fn drop(&mut self) {
-            let &mut ScopeTimer(name, ref started) = self;
-            let elapsed = started.elapsed();
-            const MS_IN_SEC: f64 = 1_000.0;
-            let elapsed_ms = elapsed.as_secs_f64() * MS_IN_SEC;
-            log::trace!("END   {}: elapsed {}ms", name, elapsed_ms);
-        }
-    }
-}
-
 mod api;
 mod config;
 mod db;
