@@ -3,7 +3,7 @@ use crate::error::Error;
 use r2d2_redis::redis;
 use std::convert::TryFrom;
 use std::sync::Arc;
-use wavesexchange_log::{debug, info};
+use wavesexchange_log::{debug, info, warn};
 use wavesexchange_topic::Topic;
 
 pub struct PullerImpl {
@@ -28,7 +28,7 @@ impl PullerImpl {
         let (subscriptions_updates_sender, subscriptions_updates_receiver) =
             tokio::sync::mpsc::channel(100);
 
-        tokio::task::spawn_blocking(move || {
+        tokio::task::spawn_blocking(move || loop {
             let mut con = self.redis_client.get_connection().unwrap();
             let mut pubsub = con.as_pubsub();
 
@@ -73,6 +73,8 @@ impl PullerImpl {
                     })
                 }
             }
+
+            warn!("redis connection was closed");
         });
 
         Ok(subscriptions_updates_receiver)
