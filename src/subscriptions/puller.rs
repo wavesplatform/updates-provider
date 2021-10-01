@@ -121,18 +121,18 @@ fn get_initial_subscriptions(
 
 struct PanicStrategy {
     last_failure_ts: Option<Instant>,
-    failures_count: Option<i32>,
+    failures_count: i32,
     failures_count_to_panic: i32,
     failures_min_delay_to_clean: Duration,
 }
 
 impl PanicStrategy {
-    fn new(failures_count_to_panic: i32, failures_in_delay_to_clean: Duration) -> Self {
+    fn new(failures_count_to_panic: i32, failures_min_delay_to_clean: Duration) -> Self {
         Self {
             failures_count_to_panic,
-            failures_min_delay_to_clean: failures_in_delay_to_clean,
+            failures_min_delay_to_clean,
             last_failure_ts: None,
-            failures_count: None,
+            failures_count: 0,
         }
     }
 
@@ -143,23 +143,19 @@ impl PanicStrategy {
             let failures_delay = new_failure_ts - last_failure_ts;
 
             self.failures_count = if failures_delay < self.failures_min_delay_to_clean {
-                self.failures_count.map(|failures_count| failures_count + 1)
+                self.failures_count + 1
             } else {
-                Some(1)
+                1
             };
         } else {
-            self.failures_count = Some(1);
+            self.failures_count = 1;
         }
 
         self.last_failure_ts = Some(new_failure_ts);
     }
 
     fn should_panic(&self) -> bool {
-        if let Some(failures_count) = self.failures_count {
-            failures_count >= self.failures_count_to_panic
-        } else {
-            false
-        }
+        self.failures_count >= self.failures_count_to_panic
     }
 }
 
@@ -167,16 +163,23 @@ impl PanicStrategy {
 mod tests {
     use super::*;
 
-    #[test]
-    fn shoild_not_tell_to_panic() {
+    #[tokio::test]
+    async fn shoild_not_tell_to_panic() {
         let mut strategy = PanicStrategy::new(2, Duration::from_secs(5));
+        strategy.add_failure();
+
+        assert!(!strategy.should_panic());
+
+        let mut strategy = PanicStrategy::new(2, Duration::from_secs(1));
+        strategy.add_failure();
+        tokio::time::sleep(Duration::from_secs(2)).await;
         strategy.add_failure();
 
         assert!(!strategy.should_panic());
     }
 
-    #[tokio::test]
-    async fn should_tell_to_panic() {
+    #[test]
+    fn should_tell_to_panic() {
         let mut strategy = PanicStrategy::new(1, Duration::from_secs(5));
         strategy.add_failure();
 
@@ -184,7 +187,6 @@ mod tests {
 
         let mut strategy = PanicStrategy::new(2, Duration::from_secs(5));
         strategy.add_failure();
-        tokio::time::sleep(Duration::from_secs(1)).await;
         strategy.add_failure();
 
         assert!(strategy.should_panic());
