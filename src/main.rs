@@ -1,6 +1,39 @@
 #[macro_use]
 extern crate diesel;
 
+#[macro_use]
+mod debugger {
+    use std::time::Instant;
+    use wavesexchange_log as log;
+
+    macro_rules! timer {
+        ($name:literal) => {
+            let _timer = $crate::debugger::ScopeTimer::new($name);
+        };
+    }
+
+    pub struct ScopeTimer(&'static str, Instant);
+
+    impl ScopeTimer {
+        #[inline]
+        pub fn new(name: &'static str) -> Self {
+            log::trace!("BEGIN {}", name);
+            ScopeTimer(name, Instant::now())
+        }
+    }
+
+    impl Drop for ScopeTimer {
+        #[inline]
+        fn drop(&mut self) {
+            let &mut ScopeTimer(name, ref started) = self;
+            let elapsed = started.elapsed();
+            const MS_IN_SEC: f64 = 1_000.0;
+            let elapsed_ms = elapsed.as_secs_f64() * MS_IN_SEC;
+            log::trace!("END   {}: elapsed {}ms", name, elapsed_ms);
+        }
+    }
+}
+
 mod api;
 mod config;
 mod db;
@@ -90,7 +123,7 @@ async fn tokio_main() -> Result<(), Error> {
     tokio::task::spawn(async move {
         info!("starting blockchain height updater");
         if let Err(error) = provider.run().await {
-            error!("blockchain height updater return error: {:?}", error);
+            error!("blockchain height updater returned an error: {:?}", error);
         }
     });
 
@@ -153,11 +186,16 @@ async fn tokio_main() -> Result<(), Error> {
 
     let leasing_balances_subscriptions_updates_sender = provider.fetch_updates().await?;
 
-    let blockchain_updater_handle = tokio::spawn(async move { updater.run().await });
+    let blockchain_updater_handle = tokio::spawn(async move { 
+        if let Err(error) = updater.run().await {
+            error!("blockchain updater returned an error: {:?}", error);
+        }
+    });
 
     let blockchain_puller_handle = tokio::spawn(async move {
-        info!("starting blockchain puller");
-        blockchain_puller.run().await
+        if let Err(error) = blockchain_puller.run().await {
+            error!("blockchain puller returned an error: {:?}", error);
+        }
     });
 
     let subscriptions_repo = subscriptions::repo::SubscriptionsRepoImpl::new(redis_pool.clone());
@@ -181,30 +219,17 @@ async fn tokio_main() -> Result<(), Error> {
 
     let subscriptions_updates_pusher_handle = tokio::spawn(async move {
         info!("starting subscriptions updates pusher");
-        subscriptions_updates_pusher.run().await
+        if let Err(error) = subscriptions_updates_pusher.run().await {
+            error!("subscriptions updates pusher returned an error: {:?}", error);
+        }
     });
 
     let api_handle = tokio::spawn(async move { api::start(server_config.port).await });
 
     tokio::select! {
-        result = blockchain_puller_handle => {
-            if let Err(error) = result? {
-                error!("blockchain puller return error: {}", error);
-                return Err(error);
-            }
-        }
-        result = blockchain_updater_handle => {
-            if let Err(error) = result? {
-                error!("blockchain updater return error: {}", error);
-                return Err(error);
-            }
-        }
-        result = subscriptions_updates_pusher_handle => {
-            if let Err(error) = result? {
-                error!("subscriptions updates pusher error: {}", error);
-                return Err(error);
-            }
-        }
+        _ = blockchain_puller_handle => {}
+        _ = blockchain_updater_handle => {}
+        _ = subscriptions_updates_pusher_handle => {}
         result = api_handle => {
             result?;
         }

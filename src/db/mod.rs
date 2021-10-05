@@ -1,4 +1,4 @@
-use diesel::{Insertable, Queryable};
+use diesel::Insertable;
 use std::convert::TryFrom;
 use std::hash::{Hash, Hasher};
 use waves_protobuf_schemas::waves;
@@ -8,15 +8,17 @@ use waves_protobuf_schemas::waves::events::blockchain_updated::append::{
 };
 use waves_protobuf_schemas::waves::events::blockchain_updated::{Append, Update};
 use waves_protobuf_schemas::waves::events::BlockchainUpdated;
+use wavesexchange_topic::StateSingle;
 
 use crate::error::{Error, Result};
 use crate::schema::{associated_addresses, blocks_microblocks, data_entries, leasing_balances};
-use crate::waves::transactions::{parse_transactions, Transaction, TransactionType};
-use crate::waves::{
-    Address, BlockMicroblockAppend, DataEntry, DataEntryFragment, Fragments, LeasingBalance,
-    ValueDataEntry,
+use crate::waves::transactions::{
+    parse_transactions, InsertableTransaction, Transaction, TransactionType,
 };
-use wavesexchange_topic::StateSingle;
+use crate::waves::{
+    Address, BlockMicroblockAppend, DataEntry as DataEntryDTO, DataEntryFragment, Fragments,
+    LeasingBalance as LeasingBalanceDTO, ValueDataEntry,
+};
 
 pub const FRAGMENT_SEPARATOR: &str = "__";
 pub const STRING_DESCRIPTOR: &str = "s";
@@ -56,33 +58,24 @@ impl From<(String, &Address)> for AssociatedAddress {
     }
 }
 
-#[derive(Clone, Debug, Insertable)]
-#[table_name = "leasing_balances"]
-pub struct LeasingBalanceUpdate {
-    pub superseded_by: i64,
-    pub address: String,
-}
-
 #[derive(Clone, Debug)]
-pub struct DeletedLeasingBalance {
+pub enum BlockchainUpdate {
+    Block(BlockMicroblockAppend),
+    Microblock(BlockMicroblockAppend),
+    Rollback(String),
+}
+
+#[derive(Debug)]
+pub struct BlockchainUpdatesWithLastHeight {
+    pub last_height: u32,
+    pub updates: Vec<BlockchainUpdate>,
+}
+
+#[derive(Debug, Queryable)]
+pub struct PrevHandledHeight {
     pub uid: i64,
-    pub address: String,
+    pub height: i32,
 }
-
-impl PartialEq for DeletedLeasingBalance {
-    fn eq(&self, other: &DeletedLeasingBalance) -> bool {
-        self.address == other.address
-    }
-}
-
-impl Eq for DeletedLeasingBalance {}
-
-impl Hash for DeletedLeasingBalance {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.address.hash(state);
-    }
-}
-
 #[derive(Clone, Debug, Insertable)]
 #[table_name = "data_entries"]
 pub struct DataEntryUpdate {
@@ -113,28 +106,9 @@ impl Hash for DeletedDataEntry {
     }
 }
 
-#[derive(Clone, Debug)]
-pub enum BlockchainUpdate {
-    Block(BlockMicroblockAppend),
-    Microblock(BlockMicroblockAppend),
-    Rollback(String),
-}
-
-#[derive(Debug)]
-pub struct BlockchainUpdatesWithLastHeight {
-    pub last_height: u32,
-    pub updates: Vec<BlockchainUpdate>,
-}
-
-#[derive(Debug, Queryable)]
-pub struct PrevHandledHeight {
-    pub uid: i64,
-    pub height: i32,
-}
-
 #[derive(Clone, Debug, Insertable, QueryableByName, Queryable)]
 #[table_name = "data_entries"]
-pub struct InsertableDataEntry {
+pub struct DataEntry {
     pub block_uid: i64,
     pub transaction_id: String,
     pub uid: i64,
@@ -147,24 +121,50 @@ pub struct InsertableDataEntry {
     pub value_string: Option<String>,
 }
 
-impl PartialEq for InsertableDataEntry {
-    fn eq(&self, other: &InsertableDataEntry) -> bool {
+impl PartialEq for DataEntry {
+    fn eq(&self, other: &DataEntry) -> bool {
         (&self.address, &self.key) == (&other.address, &other.key)
     }
 }
 
-impl Eq for InsertableDataEntry {}
+impl Eq for DataEntry {}
 
-impl Hash for InsertableDataEntry {
+impl Hash for DataEntry {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.address.hash(state);
         self.key.hash(state);
     }
 }
 
+#[derive(Clone, Debug, Insertable)]
+#[table_name = "leasing_balances"]
+pub struct LeasingBalanceUpdate {
+    pub superseded_by: i64,
+    pub address: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct DeletedLeasingBalance {
+    pub uid: i64,
+    pub address: String,
+}
+
+impl PartialEq for DeletedLeasingBalance {
+    fn eq(&self, other: &DeletedLeasingBalance) -> bool {
+        self.address == other.address
+    }
+}
+
+impl Eq for DeletedLeasingBalance {}
+
+impl Hash for DeletedLeasingBalance {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.address.hash(state);
+    }
+}
 #[derive(Clone, Debug, Insertable, QueryableByName, Queryable)]
 #[table_name = "leasing_balances"]
-pub struct InsertableLeasingBalance {
+pub struct LeasingBalance {
     pub block_uid: i64,
     pub uid: i64,
     pub superseded_by: i64,
@@ -173,15 +173,15 @@ pub struct InsertableLeasingBalance {
     pub balance_out: i64,
 }
 
-impl PartialEq for InsertableLeasingBalance {
-    fn eq(&self, other: &InsertableLeasingBalance) -> bool {
+impl PartialEq for LeasingBalance {
+    fn eq(&self, other: &LeasingBalance) -> bool {
         self.address == other.address
     }
 }
 
-impl Eq for InsertableLeasingBalance {}
+impl Eq for LeasingBalance {}
 
-impl Hash for InsertableLeasingBalance {
+impl Hash for LeasingBalance {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.address.hash(state);
     }
@@ -204,12 +204,12 @@ pub trait Repo {
 
     fn insert_blocks_or_microblocks(&self, blocks: &[BlockMicroblock]) -> Result<Vec<i64>>;
 
-    fn insert_transactions(&self, transactions: &[Transaction]) -> Result<()>;
+    fn insert_transactions(&self, transactions: &[InsertableTransaction]) -> Result<()>;
 
     fn insert_associated_addresses(&self, associated_addresses: &[AssociatedAddress])
         -> Result<()>;
 
-    fn insert_data_entries(&self, entries: &[InsertableDataEntry]) -> Result<()>;
+    fn insert_data_entries(&self, entries: &[DataEntry]) -> Result<()>;
 
     fn close_superseded_by(&self, updates: &[DataEntryUpdate]) -> Result<()>;
 
@@ -241,7 +241,7 @@ pub trait Repo {
         price_asset: String,
     ) -> Result<Option<Transaction>>;
 
-    fn last_data_entry(&self, address: String, key: String) -> Result<Option<InsertableDataEntry>>;
+    fn last_data_entry(&self, address: String, key: String) -> Result<Option<DataEntry>>;
 
     fn find_matching_data_keys(
         &self,
@@ -255,7 +255,7 @@ pub trait Repo {
 
     fn reopen_lease_superseded_by(&self, current_superseded_by: &[i64]) -> Result<()>;
 
-    fn insert_leasing_balances(&self, entries: &[InsertableLeasingBalance]) -> Result<()>;
+    fn insert_leasing_balances(&self, entries: &[LeasingBalance]) -> Result<()>;
 
     fn set_next_lease_update_uid(&self, new_uid: i64) -> Result<()>;
 
@@ -265,7 +265,7 @@ pub trait Repo {
 
     fn get_next_lease_update_uid(&self) -> Result<i64>;
 
-    fn last_leasing_balance(&self, address: String) -> Result<Option<InsertableLeasingBalance>>;
+    fn last_leasing_balance(&self, address: String) -> Result<Option<LeasingBalance>>;
 }
 
 impl TryFrom<std::sync::Arc<BlockchainUpdated>> for BlockchainUpdate {
@@ -288,11 +288,11 @@ impl TryFrom<std::sync::Arc<BlockchainUpdated>> for BlockchainUpdate {
                     let transaction_id =
                         bs58::encode(&transaction_ids.get(idx).unwrap()).into_string();
                     for deu in su.data_entries.iter() {
-                        let de = DataEntry::from((deu, &transaction_id));
+                        let de = DataEntryDTO::from((deu, &transaction_id));
                         data_entries.push(de);
                     }
                     for lu in su.leasing_for_address.iter() {
-                        let l = LeasingBalance::from(lu);
+                        let l = LeasingBalanceDTO::from(lu);
                         leasing_balances.push(l);
                     }
                 }
@@ -303,9 +303,8 @@ impl TryFrom<std::sync::Arc<BlockchainUpdated>> for BlockchainUpdate {
                         let raw_transactions = &block.as_ref().unwrap().transactions;
                         let transactions = parse_transactions(
                             block_uid.clone(),
-                            height,
                             raw_transactions,
-                            &transaction_ids,
+                            transaction_ids,
                         );
                         Ok(BlockchainUpdate::Block(BlockMicroblockAppend {
                             id: block_uid,
@@ -333,9 +332,8 @@ impl TryFrom<std::sync::Arc<BlockchainUpdated>> for BlockchainUpdate {
                             .transactions;
                         let transactions = parse_transactions(
                             block_uid.clone(),
-                            height,
                             raw_transactions,
-                            &transaction_ids,
+                            transaction_ids,
                         );
                         Ok(BlockchainUpdate::Microblock(BlockMicroblockAppend {
                             id: block_uid,
@@ -360,7 +358,7 @@ impl TryFrom<std::sync::Arc<BlockchainUpdated>> for BlockchainUpdate {
 }
 
 // from data_entry with transaction_id
-impl From<(&waves::events::state_update::DataEntryUpdate, &String)> for DataEntry {
+impl From<(&waves::events::state_update::DataEntryUpdate, &String)> for DataEntryDTO {
     fn from(de: (&waves::events::state_update::DataEntryUpdate, &String)) -> Self {
         let transaction_id = de.1.to_owned();
         let deu = de.0.data_entry.as_ref().unwrap();
@@ -443,22 +441,22 @@ fn split_fragments(value: &str) -> Vec<DataEntryFragment> {
     result
 }
 
-impl From<InsertableDataEntry> for DataEntry {
-    fn from(ide: InsertableDataEntry) -> Self {
+impl From<DataEntry> for DataEntryDTO {
+    fn from(ide: DataEntry) -> Self {
         let value = match ide {
-            InsertableDataEntry {
+            DataEntry {
                 value_binary: Some(v),
                 ..
             } => ValueDataEntry::Binary(v),
-            InsertableDataEntry {
+            DataEntry {
                 value_bool: Some(v),
                 ..
             } => ValueDataEntry::Bool(v),
-            InsertableDataEntry {
+            DataEntry {
                 value_integer: Some(v),
                 ..
             } => ValueDataEntry::Integer(v),
-            InsertableDataEntry {
+            DataEntry {
                 value_string: Some(v),
                 ..
             } => ValueDataEntry::String(v),
@@ -475,9 +473,9 @@ impl From<InsertableDataEntry> for DataEntry {
     }
 }
 
-// from data_entry, index and block_id
-impl From<(&DataEntry, i64, i64)> for InsertableDataEntry {
-    fn from(value: (&DataEntry, i64, i64)) -> Self {
+// from data_entry, uid, block_id
+impl From<(&DataEntryDTO, i64, i64)> for DataEntry {
+    fn from(value: (&DataEntryDTO, i64, i64)) -> Self {
         let value_binary = if let ValueDataEntry::Binary(v) = &value.0.value {
             Some(v.to_owned())
         } else {
@@ -499,6 +497,9 @@ impl From<(&DataEntry, i64, i64)> for InsertableDataEntry {
             None
         };
         Self {
+            block_uid: value.2,
+            uid: value.1,
+            superseded_by: -1,
             address: value.0.address.to_owned(),
             key: value.0.key.to_owned(),
             transaction_id: value.0.transaction_id.to_owned(),
@@ -506,14 +507,11 @@ impl From<(&DataEntry, i64, i64)> for InsertableDataEntry {
             value_bool,
             value_integer,
             value_string,
-            block_uid: value.2,
-            uid: value.1,
-            superseded_by: -1,
         }
     }
 }
 
-impl From<&waves::events::state_update::LeasingUpdate> for LeasingBalance {
+impl From<&waves::events::state_update::LeasingUpdate> for LeasingBalanceDTO {
     fn from(lu: &waves::events::state_update::LeasingUpdate) -> Self {
         let address = bs58::encode(&lu.address).into_string();
         let balance_in = lu.in_after;
@@ -526,21 +524,22 @@ impl From<&waves::events::state_update::LeasingUpdate> for LeasingBalance {
     }
 }
 
-impl From<(&LeasingBalance, i64, i64)> for InsertableLeasingBalance {
-    fn from(value: (&LeasingBalance, i64, i64)) -> Self {
+// leasing_balance, uid, block_uid
+impl From<(&LeasingBalanceDTO, i64, i64)> for LeasingBalance {
+    fn from(value: (&LeasingBalanceDTO, i64, i64)) -> Self {
         Self {
-            address: value.0.address.to_owned(),
-            balance_in: value.0.balance_in,
-            balance_out: value.0.balance_out,
             block_uid: value.2,
             uid: value.1,
             superseded_by: -1,
+            address: value.0.address.to_owned(),
+            balance_in: value.0.balance_in,
+            balance_out: value.0.balance_out,
         }
     }
 }
 
-impl From<InsertableLeasingBalance> for LeasingBalance {
-    fn from(ilb: InsertableLeasingBalance) -> Self {
+impl From<LeasingBalance> for LeasingBalanceDTO {
+    fn from(ilb: LeasingBalance) -> Self {
         Self {
             address: ilb.address,
             balance_in: ilb.balance_in,

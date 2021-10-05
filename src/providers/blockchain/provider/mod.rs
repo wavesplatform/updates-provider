@@ -10,14 +10,14 @@ use std::iter::FromIterator;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, RwLock};
-use wavesexchange_log::{error, info};
+use wavesexchange_log::{debug, error, info, warn};
 use wavesexchange_topic::Topic;
 
 use super::super::watchlist::{WatchList, WatchListItem, WatchListUpdate};
 use super::super::{TSResourcesRepoImpl, UpdatesProvider};
 use crate::db::repo::RepoImpl;
 use crate::db::BlockchainUpdate;
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::providers::watchlist::KeyWatchStatus;
 use crate::resources::ResourcesRepo;
 use crate::utils::clean_timeout;
@@ -140,13 +140,12 @@ impl<T: 'static + Item> UpdatesProvider<T> for Provider<T> {
         tokio::task::spawn(async move {
             info!("starting subscriptions updates handler");
             while let Some(upd) = subscriptions_updates_receiver.recv().await {
+                debug!("Subscription: {:?}", upd);
                 if let Err(err) = watchlist.write().await.on_update(&upd) {
                     error!("error while updating watchlist: {:?}", err);
                 }
-                if let WatchListUpdate::New { item } = upd {
-                    let result =
-                        check_and_maybe_insert(&resources_repo, &repo, item.clone())
-                            .await;
+                if let WatchListUpdate::Updated { item } = upd {
+                    let result = check_and_maybe_insert(&resources_repo, &repo, item.clone()).await;
                     match result {
                         Ok(None) => { /* Nothing more to do */ }
                         Ok(Some(subtopics)) => {
@@ -194,26 +193,40 @@ async fn check_and_maybe_insert<T: Item>(
 ) -> Result<Option<HashSet<String>>> {
     let topic = value.clone().into();
     let existing_value = resources_repo.get(&topic)?;
-    let subtopics = if let Some(existing_value) = existing_value {
-        subtopics_from_topic_value(&topic, &existing_value)?
+    let need_to_publish = existing_value.is_none();
+    let topic_value = if let Some(existing_value) = existing_value {
+        existing_value
     } else {
-        let new_value = value.get_last(repo).await?;
-        let subtopics = subtopics_from_topic_value(&topic, &new_value)?;
-        resources_repo.set_and_push(topic, new_value)?;
-        subtopics
+        value.get_last(repo).await?
     };
 
+    let subtopics = subtopics_from_topic_value(&topic, &topic_value)?;
+
     if let Some(ref subtopics) = subtopics {
+        let mut missing_values = 0;
         for subtopic in subtopics {
             let subtopic = Topic::try_from(subtopic.as_str())
-                .map_err(|_| crate::error::Error::InvalidTopic(subtopic.clone()))?;
+                .map_err(|_| Error::InvalidTopic(subtopic.clone()))?;
             if resources_repo.get(&subtopic)?.is_none() {
+                missing_values += 1;
                 let subtopic_value = T::maybe_item(&subtopic)
-                    .ok_or_else(|| crate::error::Error::InvalidTopic(subtopic.clone().into()))?;
+                    .ok_or_else(|| Error::InvalidTopic(subtopic.clone().into()))?;
                 let new_value = subtopic_value.get_last(repo).await?;
                 resources_repo.set_and_push(subtopic, new_value)?;
             }
         }
+        // This is odd when some subtopics exist in redis and some don't
+        if subtopics.len() > 0 && missing_values > 0 && missing_values < subtopics.len() {
+            warn!(
+                "Just refreshed multitopic with {} subtopics, of which {} were missing",
+                subtopics.len(),
+                missing_values,
+            );
+        }
+    }
+
+    if need_to_publish {
+        resources_repo.set_and_push(topic, topic_value)?;
     }
 
     Ok(subtopics)

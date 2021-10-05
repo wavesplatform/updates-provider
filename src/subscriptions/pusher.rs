@@ -1,4 +1,4 @@
-use super::SubscriptionUpdate;
+use super::SubscriptionEvent;
 use crate::error::Error;
 use crate::providers::watchlist::MaybeFromUpdate;
 use async_trait::async_trait;
@@ -7,11 +7,11 @@ use wavesexchange_log::error;
 
 pub struct PusherImpl {
     subscriptions_changes_observers: Vec<Box<dyn MaybeSend>>,
-    subscriptions_changes_receiver: mpsc::Receiver<SubscriptionUpdate>,
+    subscriptions_changes_receiver: mpsc::Receiver<SubscriptionEvent>,
 }
 
 impl PusherImpl {
-    pub fn new(subscriptions_changes_receiver: mpsc::Receiver<SubscriptionUpdate>) -> Self {
+    pub fn new(subscriptions_changes_receiver: mpsc::Receiver<SubscriptionEvent>) -> Self {
         Self {
             subscriptions_changes_receiver,
             subscriptions_changes_observers: vec![],
@@ -49,12 +49,12 @@ struct Observer<T: MaybeFromUpdate> {
 
 #[async_trait]
 trait MaybeSend: Send + Sync {
-    async fn handle_subscription_update(&self, update: &SubscriptionUpdate) -> Result<(), Error>;
+    async fn handle_subscription_update(&self, update: &SubscriptionEvent) -> Result<(), Error>;
 }
 
 #[async_trait]
 impl<T: MaybeFromUpdate> MaybeSend for Observer<T> {
-    async fn handle_subscription_update(&self, update: &SubscriptionUpdate) -> Result<(), Error> {
+    async fn handle_subscription_update(&self, update: &SubscriptionEvent) -> Result<(), Error> {
         if let Some(update) = T::maybe_from_update(update) {
             if let Err(error) = self.tx.send(update).await {
                 return Err(Error::SendError(format!("{:?}", error)));

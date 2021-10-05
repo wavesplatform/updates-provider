@@ -2,6 +2,7 @@ use waves_protobuf_schemas::waves::transaction::Data;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
+#[allow(clippy::enum_variant_names)]
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("ConfigLoadError: {0}")]
@@ -36,8 +37,8 @@ pub enum Error {
     GRPCUriError(String),
     #[error("GRPCError: {0}")]
     GRPCError(#[from] tonic::Status),
-    #[error("SendErrorBlockchainUpdated")]
-    SendErrorBlockchainUpdated,
+    #[error("SendErrorBlockchainUpdated: {0}")]
+    SendErrorBlockchainUpdated(String),
     #[error("InvalidTransactionType: {0}")]
     InvalidTransactionType(String),
     #[error("InvalidTransactionQuery: {0}")]

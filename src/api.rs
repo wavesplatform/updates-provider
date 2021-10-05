@@ -1,7 +1,8 @@
-use crate::metrics::REGISTRY;
 use prometheus::{Encoder, TextEncoder};
 use warp::{Filter, Rejection, Reply};
 use wavesexchange_log::{error, info};
+
+use crate::metrics::REGISTRY;
 
 pub struct Config {
     pub port: u16,

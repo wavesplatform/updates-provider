@@ -15,10 +15,21 @@ use super::{address_from_public_key, encode_asset, maybe_add_addresses, Address,
 
 pub mod exchange;
 
-#[derive(Clone, Debug, Insertable, QueryableByName, Queryable)]
+#[derive(Clone, Debug, QueryableByName, Queryable)]
 #[table_name = "transactions"]
 pub struct Transaction {
     pub uid: i64,
+    pub block_uid: i64,
+    pub id: String,
+    pub tx_type: TransactionType,
+    pub body: Option<serde_json::Value>,
+    pub exchange_amount_asset: Option<String>,
+    pub exchange_price_asset: Option<String>,
+}
+
+#[derive(Clone, Debug, Insertable)]
+#[table_name = "transactions"]
+pub struct InsertableTransaction {
     pub block_uid: i64,
     pub id: String,
     pub tx_type: TransactionType,
@@ -167,15 +178,13 @@ pub struct TransactionUpdate {
     pub timestamp: i64,
     pub version: i32,
     pub proofs: Vec<String>,
-    pub height: i32,
 }
 
-impl TryFrom<(i64, &TransactionUpdate)> for Transaction {
+impl TryFrom<(i64, &TransactionUpdate)> for InsertableTransaction {
     type Error = Error;
 
     fn try_from(value: (i64, &TransactionUpdate)) -> Result<Self> {
         Ok(Self {
-            uid: 0,
             block_uid: value.0,
             id: value.1.id.clone(),
             tx_type: value.1.tx_type,
@@ -233,7 +242,6 @@ fn exchange_price_asset_from_update(update: &TransactionUpdate) -> Option<String
 
 pub fn parse_transactions(
     block_uid: String,
-    height: i32,
     raw_transactions: &[waves::SignedTransaction],
     transaction_ids: &[Vec<u8>],
 ) -> Vec<TransactionUpdate> {
@@ -255,7 +263,6 @@ pub fn parse_transactions(
             let tx = TransactionUpdate {
                 tx_type,
                 data,
-                height,
                 block_uid: block_uid.clone(),
                 id: bs58::encode(tx_id).into_string(),
                 addresses,

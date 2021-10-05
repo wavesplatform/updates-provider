@@ -41,6 +41,7 @@ impl LastValue for LeasingBalance {
     }
 }
 
+#[allow(clippy::unused_unit)]
 impl KeyPattern for LeasingBalance {
     const PATTERNS_SUPPORTED: bool = false;
     type PatternMatcher = ();

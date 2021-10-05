@@ -85,7 +85,7 @@ impl From<&waves_protobuf_schemas::waves::Amount> for Amount {
 }
 
 pub fn address_from_public_key(pk: &[u8], chain_id: u8) -> Address {
-    let pkh = &keccak256(&blake2b256(&pk))[..20];
+    let pkh = &keccak256(&blake2b256(pk))[..20];
     address_from_public_key_hash(&pkh.to_vec(), chain_id)
 }
 
@@ -108,11 +108,11 @@ fn keccak256(message: &[u8]) -> [u8; 32] {
 }
 
 pub fn blake2b256(message: &[u8]) -> [u8; 32] {
-    use blake2::digest::{Input, VariableOutput};
+    use blake2::digest::{Update, VariableOutput};
     let mut hasher = blake2::VarBlake2b::new(32).unwrap();
-    hasher.input(message);
+    hasher.update(message);
     let mut arr = [0u8; 32];
-    hasher.variable_result(|res| arr = res.try_into().unwrap());
+    hasher.finalize_variable(|res| arr = res.try_into().unwrap());
     arr
 }
 

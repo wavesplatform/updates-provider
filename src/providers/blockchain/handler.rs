@@ -8,6 +8,7 @@ use waves_protobuf_schemas::waves::events::{
     },
     BlockchainUpdated,
 };
+use wavesexchange_log::info;
 
 pub struct Puller {
     channel: Channel,
@@ -37,6 +38,8 @@ impl Puller {
     }
 
     pub async fn run(&mut self) -> Result<(), Error> {
+        info!("start fetching blockchain updates from height {}", self.last_height);
+
         let request = tonic::Request::new(SubscribeRequest {
             from_height: self.last_height,
             to_height: 0,
@@ -54,7 +57,7 @@ impl Puller {
                 for tx in self.subscribers.iter_mut() {
                     tx.send(value.clone())
                         .await
-                        .map_err(|_| Error::SendErrorBlockchainUpdated)?
+                        .map_err(|e| Error::SendErrorBlockchainUpdated(e.to_string()))?
                 }
             }
         }

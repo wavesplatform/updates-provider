@@ -2,7 +2,6 @@ use async_trait::async_trait;
 use itertools::Itertools;
 use regex::Regex;
 use std::collections::HashSet;
-use std::iter::FromIterator;
 use std::sync::Arc;
 use wavesexchange_topic::{State, StateMultiPatterns, StateSingle, Topic};
 
@@ -71,11 +70,11 @@ impl KeyPattern for State {
     fn new_matcher(&self) -> Self::PatternMatcher {
         match self {
             State::Single(state) => StateMatcher {
-                addresses: HashSet::from_iter(std::iter::once(state.address.clone())),
+                addresses: std::iter::once(state.address.clone()).collect(),
                 key_regex: pattern_utils::patterns_to_regex(&[&state.key]),
             },
             State::MultiPatterns(state) => StateMatcher {
-                addresses: HashSet::from_iter(state.addresses.iter().cloned()),
+                addresses: state.addresses.iter().cloned().collect(),
                 key_regex: pattern_utils::patterns_to_regex(&state.key_patterns),
             },
         }
