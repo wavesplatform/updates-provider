@@ -31,6 +31,34 @@ struct ItemInfo {
 }
 
 impl ItemInfo {
+    #[must_use]
+    fn watch_direct(&mut self) -> bool {
+        let is_new = self.watched_directly == false;
+        self.watched_directly = true;
+        return is_new;
+    }
+
+    #[must_use]
+    fn unwatch_direct(&mut self) -> bool {
+        let was_active = self.watched_directly == true;
+        self.watched_directly = false;
+        return was_active;
+    }
+
+    #[must_use]
+    fn watch_indirect(&mut self) -> bool {
+        let is_new = self.watched_indirectly == false;
+        self.watched_indirectly = true;
+        return is_new;
+    }
+
+    #[must_use]
+    fn unwatch_indirect(&mut self) -> bool {
+        let was_active = self.watched_indirectly == true;
+        self.watched_indirectly = false;
+        return was_active;
+    }
+
     fn is_watched(&self) -> bool {
         self.watched_directly || self.watched_indirectly
     }
@@ -116,12 +144,16 @@ impl<T: WatchListItem> WatchList<T> {
         match update {
             WatchListUpdate::Updated { item } => {
                 let item_info = self.create_or_refresh_item(item.to_owned());
-                item_info.watched_directly = true;
-                self.metric_increase();
+                let update_metric = item_info.watch_direct();
+                if update_metric {
+                    let topic: Topic = item.clone().into();
+                    self.metric_increase(true, topic.is_multi_topic());
+                }
             }
+
             WatchListUpdate::Removed { item } => {
                 if let Some(item_info) = self.items.get_mut(item) {
-                    item_info.watched_directly = false;
+                    let update_metric = item_info.unwatch_direct();
 
                     if !item_info.is_watched() {
                         item_info.delete_after(self.delete_timeout);
@@ -129,12 +161,21 @@ impl<T: WatchListItem> WatchList<T> {
 
                     let subtopic_items = item_info.subtopics.as_ref().map(Self::collect_as_items);
 
+                    if update_metric {
+                        let topic: Topic = item.clone().into();
+                        self.metric_decrease(true, topic.is_multi_topic());
+                    }
+
                     if let Some(subtopic_items) = subtopic_items {
                         for subtopic_item in subtopic_items {
                             if let Some(subtopic_item_info) = self.items.get_mut(&subtopic_item) {
-                                subtopic_item_info.watched_indirectly = false;
+                                let update_metric = subtopic_item_info.unwatch_indirect();
                                 if !subtopic_item_info.is_watched() {
                                     subtopic_item_info.delete_after(self.delete_timeout);
+                                }
+                                if update_metric {
+                                    let subtopic: Topic = subtopic_item.clone().into();
+                                    self.metric_decrease(false, subtopic.is_multi_topic());
                                 }
                             }
                         }
@@ -154,14 +195,22 @@ impl<T: WatchListItem> WatchList<T> {
                 item_info.subtopics = Some(subtopics);
             }
             for item in updated {
+                let topic: Topic = item.clone().into();
                 let item_info = self.create_or_refresh_item(item);
-                item_info.watched_indirectly = true;
+                let update_metric = item_info.watch_indirect();
+                if update_metric {
+                    self.metric_increase(false, topic.is_multi_topic());
+                }
             }
             for item in removed {
                 if let Some(item_info) = self.items.get_mut(&item) {
-                    item_info.watched_indirectly = false;
+                    let update_metric = item_info.unwatch_indirect();
                     if !item_info.is_watched() {
                         item_info.delete_after(self.delete_timeout);
+                    }
+                    if update_metric {
+                        let topic: Topic = item.clone().into();
+                        self.metric_decrease(false, topic.is_multi_topic());
                     }
                 }
             }
@@ -169,8 +218,12 @@ impl<T: WatchListItem> WatchList<T> {
             let added = Self::collect_as_items(&subtopics);
             item_info.subtopics = Some(subtopics);
             for item in added {
+                let topic: Topic = item.clone().into();
                 let item_info = self.create_or_refresh_item(item);
-                item_info.watched_indirectly = true;
+                let update_metric = item_info.watch_indirect();
+                if update_metric {
+                    self.metric_increase(false, topic.is_multi_topic());
+                }
             }
         }
         self.patterns
@@ -197,7 +250,6 @@ impl<T: WatchListItem> WatchList<T> {
         }
         for item in keys {
             self.items.remove(&item);
-            self.metric_decrease();
             let res = self.repo.del(T::into(item));
             if let Some(err) = res.err() {
                 warn!("Failed to delete Redis key: '{:?}' (ignoring)", err);
@@ -291,19 +343,27 @@ impl<T> PatternMatcher<T> for () {
 
 mod metrics {
     use super::{WatchList, WatchListItem};
-    use crate::metrics::WATCHLISTS_TOPICS;
+    use crate::metrics::{WATCHLISTS_SUBSCRIPTIONS, WATCHLISTS_TOPICS};
 
     impl<T: WatchListItem> WatchList<T> {
-        pub(super) fn metric_increase(&self) {
-            WATCHLISTS_TOPICS
-                .with_label_values(&[&self.type_name])
-                .inc();
+        pub(super) fn metric_increase(&self, is_direct: bool, is_pattern: bool) {
+            let ty = &[self.type_name.as_str()];
+            if !is_pattern {
+                WATCHLISTS_TOPICS.with_label_values(ty).inc();
+            }
+            if is_direct {
+                WATCHLISTS_SUBSCRIPTIONS.with_label_values(ty).inc();
+            }
         }
 
-        pub(super) fn metric_decrease(&self) {
-            WATCHLISTS_TOPICS
-                .with_label_values(&[&self.type_name])
-                .dec();
+        pub(super) fn metric_decrease(&self, is_direct: bool, is_pattern: bool) {
+            let ty = &[self.type_name.as_str()];
+            if !is_pattern {
+                WATCHLISTS_TOPICS.with_label_values(ty).dec();
+            }
+            if is_direct {
+                WATCHLISTS_SUBSCRIPTIONS.with_label_values(ty).dec();
+            }
         }
     }
 }
