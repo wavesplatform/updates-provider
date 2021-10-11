@@ -43,6 +43,7 @@ pub enum ValueDataEntry {
     Bool(bool),
     Integer(i64),
     String(String),
+    Null,
 }
 
 #[derive(Debug, Clone, Serialize)]
