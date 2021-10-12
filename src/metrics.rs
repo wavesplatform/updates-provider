@@ -21,6 +21,11 @@ lazy_static! {
         "Size of incoming Redis messages queue"
     )
     .expect("can't create message_queue metrics");
+    pub static ref DB_WRITE_TIME: IntGauge = IntGauge::new(
+        "WatchlistsDatabaseWriteTime",
+        "Time (in ms) of DB writes"
+    )
+    .expect("can't create db_write_time metrics");
 }
 
 pub fn register_metrics() {
@@ -35,4 +40,8 @@ pub fn register_metrics() {
     REGISTRY
         .register(Box::new(QUEUE_SIZE.clone()))
         .expect("can't register watchlists_queue_size metrics");
+
+    REGISTRY
+        .register(Box::new(DB_WRITE_TIME.clone()))
+        .expect("can't register db_write_time metrics");
 }

@@ -11,6 +11,7 @@ use crate::db::{
     BlockchainUpdate, DataEntry, DataEntryUpdate, Db, LeasingBalance, LeasingBalanceUpdate, Repo,
 };
 use crate::error::{Error, Result};
+use crate::metrics::DB_WRITE_TIME;
 use crate::utils::ToChunks;
 use crate::waves::transactions::{InsertableTransaction, TransactionUpdate};
 use crate::waves::BlockMicroblockAppend;
@@ -204,10 +205,12 @@ impl Updater {
         }
 
         let elapsed = start.elapsed();
+        let elapsed_ms = elapsed.as_millis() as i64;
+        DB_WRITE_TIME.set(elapsed_ms);
         info!(
             "{} updates were handled in {} ms (~{} updates/s)",
             blockchain_updates.len(),
-            elapsed.as_millis(),
+            elapsed_ms,
             if elapsed.as_secs() > 0 {
                 blockchain_updates.len() / elapsed.as_secs() as usize
             } else {
