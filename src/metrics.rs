@@ -1,5 +1,6 @@
 use lazy_static::lazy_static;
-use prometheus::{IntGaugeVec, Opts, Registry};
+use prometheus::{IntGauge, IntGaugeVec, Opts, Registry};
+
 lazy_static! {
     pub static ref REGISTRY: Registry = Registry::new();
     pub static ref WATCHLISTS_TOPICS: IntGaugeVec = IntGaugeVec::new(
@@ -15,6 +16,11 @@ lazy_static! {
         &["resource_type"]
     )
     .expect("can't create watchlists_subscriptions metrics");
+    pub static ref QUEUE_SIZE: IntGauge = IntGauge::new(
+        "WatchlistsQueueSize",
+        "Size of incoming Redis messages queue"
+    )
+    .expect("can't create message_queue metrics");
 }
 
 pub fn register_metrics() {
@@ -25,4 +31,8 @@ pub fn register_metrics() {
     REGISTRY
         .register(Box::new(WATCHLISTS_SUBSCRIPTIONS.clone()))
         .expect("can't register watchlists_subscriptions metrics");
+
+    REGISTRY
+        .register(Box::new(QUEUE_SIZE.clone()))
+        .expect("can't register watchlists_queue_size metrics");
 }
