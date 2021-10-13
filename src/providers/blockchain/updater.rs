@@ -11,6 +11,7 @@ use crate::db::{
     BlockchainUpdate, DataEntry, DataEntryUpdate, Db, LeasingBalance, LeasingBalanceUpdate, Repo,
 };
 use crate::error::{Error, Result};
+use crate::metrics::DB_WRITE_TIME;
 use crate::utils::ToChunks;
 use crate::waves::transactions::{InsertableTransaction, TransactionUpdate};
 use crate::waves::BlockMicroblockAppend;
@@ -98,6 +99,10 @@ impl Updater {
                         if let UpdatesSequenceState::Ok = microblock_flag {
                             microblock_flag = UpdatesSequenceState::HasMicroBlocks
                         }
+                        // If we've received microblock, flush current batch immediately.
+                        // We are currently on the top of blockchain and don't want to delay updates.
+                        self.process_updates(buffer, &mut microblock_flag).await?;
+                        continue;
                     }
                     BlockchainUpdate::Block(_) => {
                         if let UpdatesSequenceState::HasMicroBlocks = microblock_flag {
@@ -129,6 +134,10 @@ impl Updater {
                                         if let UpdatesSequenceState::Ok = microblock_flag {
                                             microblock_flag = UpdatesSequenceState::HasMicroBlocks
                                         }
+                                        // If we've received microblock, flush current batch immediately.
+                                        // We are currently on the top of blockchain and don't want to delay updates.
+                                        self.process_updates(buffer, &mut microblock_flag).await?;
+                                        break;
                                     }
                                     BlockchainUpdate::Block(_) => {
                                         if let UpdatesSequenceState::HasMicroBlocks = microblock_flag {
@@ -144,8 +153,9 @@ impl Updater {
                                 }
                                 let (txs_count, addresses_count) = count_txs_addresses(&buffer);
                                 if buffer.len() == self.updates_buffer_size
-                                || txs_count >= self.transactions_count_threshold
-                                || addresses_count >= self.associated_addresses_count_threshold {
+                                    || txs_count >= self.transactions_count_threshold
+                                    || addresses_count >= self.associated_addresses_count_threshold
+                                {
                                     self.process_updates(buffer, &mut microblock_flag).await?;
                                     break;
                                 }
@@ -204,10 +214,12 @@ impl Updater {
         }
 
         let elapsed = start.elapsed();
+        let elapsed_ms = elapsed.as_millis() as i64;
+        DB_WRITE_TIME.set(elapsed_ms);
         info!(
             "{} updates were handled in {} ms (~{} updates/s)",
             blockchain_updates.len(),
-            elapsed.as_millis(),
+            elapsed_ms,
             if elapsed.as_secs() > 0 {
                 blockchain_updates.len() / elapsed.as_secs() as usize
             } else {
