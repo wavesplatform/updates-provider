@@ -1,6 +1,6 @@
 use super::{SubscriptionEvent, SubscriptionsRepo};
 use crate::error::Error;
-use crate::metrics::QUEUE_SIZE;
+use crate::metrics::REDIS_INPUT_QUEUE_SIZE;
 use r2d2_redis::redis;
 use std::sync::Arc;
 use std::{convert::TryFrom, time::Duration};
@@ -52,7 +52,7 @@ impl PullerImpl {
 
                 tokio::runtime::Handle::current().block_on(async {
                     for update in initial_subscriptions_updates.into_iter() {
-                        QUEUE_SIZE.inc();
+                        REDIS_INPUT_QUEUE_SIZE.inc();
                         subscriptions_updates_sender.send(update).await.unwrap();
                     }
                 });
@@ -77,7 +77,7 @@ impl PullerImpl {
                         debug!("Subscription event: {:?}", update);
                         let subscriptions_updates_sender_ref = &subscriptions_updates_sender;
                         tokio::runtime::Handle::current().block_on(async {
-                            QUEUE_SIZE.inc();
+                            REDIS_INPUT_QUEUE_SIZE.inc();
                             subscriptions_updates_sender_ref.send(update).await.unwrap();
                         })
                     }

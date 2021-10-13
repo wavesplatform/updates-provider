@@ -16,7 +16,7 @@ lazy_static! {
         &["resource_type"]
     )
     .expect("can't create watchlists_subscriptions metrics");
-    pub static ref QUEUE_SIZE: IntGauge = IntGauge::new(
+    pub static ref REDIS_INPUT_QUEUE_SIZE: IntGauge = IntGauge::new(
         "WatchlistsQueueSize",
         "Size of incoming Redis messages queue"
     )
@@ -38,7 +38,7 @@ pub fn register_metrics() {
         .expect("can't register watchlists_subscriptions metrics");
 
     REGISTRY
-        .register(Box::new(QUEUE_SIZE.clone()))
+        .register(Box::new(REDIS_INPUT_QUEUE_SIZE.clone()))
         .expect("can't register watchlists_queue_size metrics");
 
     REGISTRY

@@ -1,6 +1,6 @@
 use super::SubscriptionEvent;
 use crate::error::Error;
-use crate::metrics::QUEUE_SIZE;
+use crate::metrics::REDIS_INPUT_QUEUE_SIZE;
 use crate::providers::watchlist::MaybeFromUpdate;
 use async_trait::async_trait;
 use tokio::sync::mpsc;
@@ -26,7 +26,7 @@ impl PusherImpl {
 
     pub async fn run(&mut self) -> Result<(), Error> {
         while let Some(subscription_update) = self.subscriptions_changes_receiver.recv().await {
-            QUEUE_SIZE.dec();
+            REDIS_INPUT_QUEUE_SIZE.dec();
             for observer in self.subscriptions_changes_observers.iter() {
                 if let Err(error) = observer
                     .handle_subscription_update(&subscription_update)
