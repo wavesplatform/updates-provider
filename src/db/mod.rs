@@ -368,7 +368,7 @@ impl From<(&waves::events::state_update::DataEntryUpdate, &String)> for DataEntr
             Some(Value::BoolValue(v)) => ValueDataEntry::Bool(v.to_owned()),
             Some(Value::BinaryValue(v)) => ValueDataEntry::Binary(v.to_owned()),
             Some(Value::StringValue(v)) => ValueDataEntry::String(v.replace("\0", "\\0")),
-            None => ValueDataEntry::String("".to_string()),
+            None => ValueDataEntry::Null,
         };
         // nul symbol is badly processed at least by PostgreSQL
         // so escape this for safety
