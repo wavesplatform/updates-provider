@@ -47,12 +47,11 @@ mod subscriptions;
 mod utils;
 mod waves;
 
-use db::repo::RepoImpl;
-use error::Error;
-use providers::{blockchain, UpdatesProvider};
+use crate::error::Error;
+use crate::providers::{blockchain, UpdatesProvider};
+use crate::{db::repo::PostgresRepo, resources::repo::ResourcesRepoRedis};
 use r2d2::Pool;
 use r2d2_redis::{r2d2, redis, RedisConnectionManager};
-use resources::repo::ResourcesRepoRedis;
 use std::sync::Arc;
 use wavesexchange_log::{error, info};
 
@@ -83,7 +82,7 @@ async fn tokio_main() -> Result<(), Error> {
     let resources_repo = Arc::new(resources_repo);
 
     let db_pool = db::pool::new(&postgres_config)?;
-    let transactions_repo = Arc::new(RepoImpl::new(db_pool));
+    let transactions_repo = Arc::new(PostgresRepo::new(db_pool));
 
     // Configs
     let configs_requester = Box::new(providers::polling::configs::ConfigRequester::new(
@@ -151,7 +150,7 @@ async fn tokio_main() -> Result<(), Error> {
 
     // random channel buffer size
     let (tx, rx) = tokio::sync::mpsc::channel(20);
-    let provider = blockchain::provider::Provider::<wavesexchange_topic::Transaction, _>::new(
+    let provider = blockchain::provider::Provider::<wavesexchange_topic::Transaction, _, _>::new(
         resources_repo.clone(),
         blockchain_config.transaction_delete_timeout,
         transactions_repo.clone(),
@@ -164,7 +163,7 @@ async fn tokio_main() -> Result<(), Error> {
 
     // random channel buffer size
     let (tx, rx) = tokio::sync::mpsc::channel(20);
-    let provider = blockchain::provider::Provider::<wavesexchange_topic::State, _>::new(
+    let provider = blockchain::provider::Provider::<wavesexchange_topic::State, _, _>::new(
         resources_repo.clone(),
         blockchain_config.state_delete_timeout,
         transactions_repo.clone(),
@@ -176,7 +175,7 @@ async fn tokio_main() -> Result<(), Error> {
     let states_subscriptions_updates_sender = provider.fetch_updates().await?;
 
     let (tx, rx) = tokio::sync::mpsc::channel(20);
-    let provider = blockchain::provider::Provider::<wavesexchange_topic::LeasingBalance, _>::new(
+    let provider = blockchain::provider::Provider::<wavesexchange_topic::LeasingBalance, _, _>::new(
         resources_repo,
         blockchain_config.state_delete_timeout,
         transactions_repo,

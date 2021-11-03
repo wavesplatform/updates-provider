@@ -3,8 +3,7 @@ use std::convert::TryFrom;
 use wavesexchange_topic::{TransactionByAddress, TransactionExchange, TransactionType as Type};
 
 use super::{DataFromBlock, Item, LastValue};
-use crate::db::repo::RepoImpl;
-use crate::db::Repo;
+use crate::db;
 use crate::error::Result;
 use crate::providers::watchlist::KeyPattern;
 use crate::waves::transactions::exchange::ExchangeData;
@@ -63,8 +62,8 @@ impl DataFromBlock for wavesexchange_topic::Transaction {
 }
 
 #[async_trait]
-impl LastValue for wavesexchange_topic::Transaction {
-    async fn get_last(self, repo: &RepoImpl) -> Result<String> {
+impl<D: db::Repo + Sync> LastValue<D> for wavesexchange_topic::Transaction {
+    async fn get_last(self, repo: &D) -> Result<String> {
         Ok(match self {
             wavesexchange_topic::Transaction::ByAddress(TransactionByAddress {
                 tx_type: Type::All,
@@ -136,4 +135,4 @@ impl KeyPattern for wavesexchange_topic::Transaction {
     }
 }
 
-impl Item for wavesexchange_topic::Transaction {}
+impl<D: db::Repo + Sync> Item<D> for wavesexchange_topic::Transaction {}

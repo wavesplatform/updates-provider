@@ -15,33 +15,33 @@ use wavesexchange_topic::Topic;
 
 use super::super::watchlist::{WatchList, WatchListItem, WatchListUpdate};
 use super::super::UpdatesProvider;
-use crate::db::repo::RepoImpl;
-use crate::db::BlockchainUpdate;
+use crate::db::{self, BlockchainUpdate};
 use crate::error::{Error, Result};
 use crate::providers::watchlist::KeyWatchStatus;
 use crate::resources::ResourcesRepo;
 use crate::utils::clean_timeout;
 use crate::waves::BlockMicroblockAppend;
 
-pub trait Item: WatchListItem + Send + Sync + LastValue + DataFromBlock {}
+pub trait Item<D: db::Repo>: WatchListItem + Send + Sync + LastValue<D> + DataFromBlock {}
 
-pub struct Provider<T: Item, R: ResourcesRepo> {
+pub struct Provider<T: Item<D>, R: ResourcesRepo, D: db::Repo> {
     watchlist: Arc<RwLock<WatchList<T, R>>>,
     resources_repo: Arc<R>,
     rx: mpsc::Receiver<Arc<Vec<BlockchainUpdate>>>,
-    repo: Arc<RepoImpl>,
+    repo: Arc<D>,
     clean_timeout: Duration,
 }
 
-impl<T, R> Provider<T, R>
+impl<T, R, D> Provider<T, R, D>
 where
-    T: Item + 'static,
+    T: Item<D> + 'static,
     R: ResourcesRepo + Send + Sync + 'static,
+    D: db::Repo + Send + Sync + 'static,
 {
     pub fn new(
         resources_repo: Arc<R>,
         delete_timeout: Duration,
-        repo: Arc<RepoImpl>,
+        repo: Arc<D>,
         rx: mpsc::Receiver<Arc<Vec<BlockchainUpdate>>>,
     ) -> Self {
         let watchlist = Arc::new(RwLock::new(WatchList::new(
@@ -134,10 +134,11 @@ where
 }
 
 #[async_trait]
-impl<T, R> UpdatesProvider<T, R> for Provider<T, R>
+impl<T, R, D> UpdatesProvider<T, R> for Provider<T, R, D>
 where
-    T: Item + 'static,
+    T: Item<D> + 'static,
     R: ResourcesRepo + Send + Sync + 'static,
+    D: db::Repo + Send + Sync + 'static,
 {
     async fn fetch_updates(mut self) -> Result<mpsc::Sender<WatchListUpdate<T>>> {
         let (subscriptions_updates_sender, mut subscriptions_updates_receiver) = mpsc::channel(20);
@@ -194,9 +195,9 @@ where
     }
 }
 
-async fn check_and_maybe_insert<T: Item, R: ResourcesRepo>(
+async fn check_and_maybe_insert<T: Item<D>, R: ResourcesRepo, D: db::Repo>(
     resources_repo: &Arc<R>,
-    repo: &RepoImpl,
+    repo: &Arc<D>,
     value: T,
 ) -> Result<Option<HashSet<String>>> {
     let topic = value.clone().into();
@@ -240,7 +241,7 @@ async fn check_and_maybe_insert<T: Item, R: ResourcesRepo>(
     Ok(subtopics)
 }
 
-async fn append_subtopic_to_multitopic<T: Item, R: ResourcesRepo>(
+async fn append_subtopic_to_multitopic<T: Item<D>, R: ResourcesRepo, D: db::Repo>(
     resources_repo: &Arc<R>,
     multitopic_item: T,
     subtopic_item: T,
@@ -282,6 +283,6 @@ pub trait DataFromBlock: Sized {
 }
 
 #[async_trait]
-pub trait LastValue {
-    async fn get_last(self, repo: &RepoImpl) -> Result<String>;
+pub trait LastValue<D: db::Repo> {
+    async fn get_last(self, repo: &D) -> Result<String>;
 }

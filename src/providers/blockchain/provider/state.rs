@@ -5,8 +5,7 @@ use std::collections::HashSet;
 use wavesexchange_topic::{State, StateMultiPatterns, StateSingle, Topic};
 
 use super::{DataFromBlock, Item, LastValue};
-use crate::db::repo::RepoImpl;
-use crate::db::Repo;
+use crate::db;
 use crate::error::Result;
 use crate::providers::watchlist::{KeyPattern, PatternMatcher};
 use crate::waves;
@@ -29,14 +28,14 @@ impl DataFromBlock for State {
 }
 
 #[async_trait]
-impl LastValue for State {
-    async fn get_last(self, repo: &RepoImpl) -> Result<String> {
+impl<D: db::Repo + Sync> LastValue<D> for State {
+    async fn get_last(self, repo: &D) -> Result<String> {
         Ok(match self {
             State::Single(StateSingle { address, key }) => {
                 let maybe_data_entry =
                     tokio::task::block_in_place(move || repo.last_data_entry(address, key))?;
-                if let Some(ide) = maybe_data_entry {
-                    let de = waves::DataEntry::from(ide);
+                if let Some(de) = maybe_data_entry {
+                    let de = waves::DataEntry::from(de);
                     serde_json::to_string(&de)?
                 } else {
                     serde_json::to_string(&None::<waves::DataEntry>)?
@@ -60,7 +59,7 @@ impl LastValue for State {
     }
 }
 
-impl Item for State {}
+impl<D: db::Repo + Sync> Item<D> for State {}
 
 impl KeyPattern for State {
     const PATTERNS_SUPPORTED: bool = true;

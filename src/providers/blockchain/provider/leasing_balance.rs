@@ -2,11 +2,7 @@ use async_trait::async_trait;
 use wavesexchange_topic::LeasingBalance;
 
 use super::{DataFromBlock, Item, LastValue};
-use crate::db::repo::RepoImpl;
-use crate::db::Repo;
-use crate::error::Result;
-use crate::providers::watchlist::KeyPattern;
-use crate::waves;
+use crate::{db, error::Result, providers::watchlist::KeyPattern, waves};
 
 impl DataFromBlock for LeasingBalance {
     fn data_from_block(block: &waves::BlockMicroblockAppend) -> Vec<(String, Self)> {
@@ -25,13 +21,13 @@ impl DataFromBlock for LeasingBalance {
 }
 
 #[async_trait]
-impl LastValue for LeasingBalance {
-    async fn get_last(self, repo: &RepoImpl) -> Result<String> {
+impl<D: db::Repo + Sync> LastValue<D> for LeasingBalance {
+    async fn get_last(self, repo: &D) -> Result<String> {
         Ok(
-            if let Some(ilb) =
+            if let Some(lb) =
                 tokio::task::block_in_place(move || repo.last_leasing_balance(self.address))?
             {
-                let lb = waves::LeasingBalance::from(ilb);
+                let lb = waves::LeasingBalance::from(lb);
                 serde_json::to_string(&lb)?
             } else {
                 serde_json::to_string(&None::<waves::LeasingBalance>)?
@@ -50,4 +46,4 @@ impl KeyPattern for LeasingBalance {
     }
 }
 
-impl Item for LeasingBalance {}
+impl<D: db::Repo + Sync> Item<D> for LeasingBalance {}
