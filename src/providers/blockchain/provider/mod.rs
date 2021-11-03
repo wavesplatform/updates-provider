@@ -180,8 +180,8 @@ where
     async fn watchlist_process(
         data: &T,
         current_value: String,
-        resources_repo: &Arc<R>,
-        watchlist: &Arc<RwLock<WatchList<T, R>>>,
+        resources_repo: &R,
+        watchlist: &RwLock<WatchList<T, R>>,
     ) -> Result<()> {
         let resource: Topic = data.clone().into();
         info!("insert new value {:?}", resource);
@@ -196,7 +196,7 @@ where
 
 async fn check_and_maybe_insert<T: Item, R: ResourcesRepo>(
     resources_repo: &Arc<R>,
-    repo: &Arc<RepoImpl>,
+    repo: &RepoImpl,
     value: T,
 ) -> Result<Option<HashSet<String>>> {
     let topic = value.clone().into();
@@ -283,5 +283,5 @@ pub trait DataFromBlock: Sized {
 
 #[async_trait]
 pub trait LastValue {
-    async fn get_last(self, repo: &Arc<RepoImpl>) -> Result<String>;
+    async fn get_last(self, repo: &RepoImpl) -> Result<String>;
 }

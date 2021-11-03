@@ -1,6 +1,5 @@
 use async_trait::async_trait;
 use std::convert::TryFrom;
-use std::sync::Arc;
 use wavesexchange_topic::{TransactionByAddress, TransactionExchange, TransactionType as Type};
 
 use super::{DataFromBlock, Item, LastValue};
@@ -65,7 +64,7 @@ impl DataFromBlock for wavesexchange_topic::Transaction {
 
 #[async_trait]
 impl LastValue for wavesexchange_topic::Transaction {
-    async fn get_last(self, repo: &Arc<RepoImpl>) -> Result<String> {
+    async fn get_last(self, repo: &RepoImpl) -> Result<String> {
         Ok(match self {
             wavesexchange_topic::Transaction::ByAddress(TransactionByAddress {
                 tx_type: Type::All,

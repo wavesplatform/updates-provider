@@ -5,7 +5,6 @@ pub mod watchlist;
 use crate::error::Error;
 use crate::resources::ResourcesRepo;
 use async_trait::async_trait;
-use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 use watchlist::{WatchList, WatchListItem, WatchListUpdate};
 use wavesexchange_log::info;
@@ -22,8 +21,8 @@ where
     async fn watchlist_process(
         data: &T,
         current_value: String,
-        resources_repo: &Arc<R>,
-        watchlist: &Arc<RwLock<WatchList<T, R>>>,
+        resources_repo: &R,
+        watchlist: &RwLock<WatchList<T, R>>,
     ) -> Result<(), Error> {
         let resource: Topic = data.clone().into();
         let mut watchlist_guard = watchlist.write().await;

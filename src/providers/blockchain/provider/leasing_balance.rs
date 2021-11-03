@@ -1,5 +1,4 @@
 use async_trait::async_trait;
-use std::sync::Arc;
 use wavesexchange_topic::LeasingBalance;
 
 use super::{DataFromBlock, Item, LastValue};
@@ -27,7 +26,7 @@ impl DataFromBlock for LeasingBalance {
 
 #[async_trait]
 impl LastValue for LeasingBalance {
-    async fn get_last(self, repo: &Arc<RepoImpl>) -> Result<String> {
+    async fn get_last(self, repo: &RepoImpl) -> Result<String> {
         Ok(
             if let Some(ilb) =
                 tokio::task::block_in_place(move || repo.last_leasing_balance(self.address))?

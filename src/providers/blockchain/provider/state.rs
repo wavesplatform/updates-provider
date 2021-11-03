@@ -2,7 +2,6 @@ use async_trait::async_trait;
 use itertools::Itertools;
 use regex::Regex;
 use std::collections::HashSet;
-use std::sync::Arc;
 use wavesexchange_topic::{State, StateMultiPatterns, StateSingle, Topic};
 
 use super::{DataFromBlock, Item, LastValue};
@@ -31,7 +30,7 @@ impl DataFromBlock for State {
 
 #[async_trait]
 impl LastValue for State {
-    async fn get_last(self, repo: &Arc<RepoImpl>) -> Result<String> {
+    async fn get_last(self, repo: &RepoImpl) -> Result<String> {
         Ok(match self {
             State::Single(StateSingle { address, key }) => {
                 let maybe_data_entry =
