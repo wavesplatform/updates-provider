@@ -1,22 +1,21 @@
-use super::TSResourcesRepoImpl;
-use crate::subscriptions::SubscriptionEvent;
-use crate::{error::Error, resources::ResourcesRepo};
+use crate::{error::Error, resources::ResourcesRepo, subscriptions::SubscriptionEvent};
 use itertools::Itertools;
-use std::convert::TryFrom;
-use std::time::{Duration, Instant};
 use std::{
     collections::{HashMap, HashSet},
+    convert::TryFrom,
     fmt::Debug,
     hash::Hash,
+    sync::Arc,
+    time::{Duration, Instant},
 };
 use wavesexchange_log::{debug, warn};
 use wavesexchange_topic::Topic;
 
 #[derive(Debug)]
-pub struct WatchList<T: WatchListItem> {
+pub struct WatchList<T: WatchListItem, R: ResourcesRepo> {
     items: HashMap<T, ItemInfo>,
     patterns: HashMap<T, T::PatternMatcher>,
-    repo: TSResourcesRepoImpl,
+    repo: Arc<R>,
     delete_timeout: Duration,
     type_name: String,
 }
@@ -104,8 +103,8 @@ pub trait MaybeFromTopic: Sized {
     fn maybe_item(topic: &Topic) -> Option<Self>;
 }
 
-impl<T: WatchListItem> WatchList<T> {
-    pub fn new(repo: TSResourcesRepoImpl, delete_timeout: Duration) -> Self {
+impl<T: WatchListItem, R: ResourcesRepo> WatchList<T, R> {
+    pub fn new(repo: Arc<R>, delete_timeout: Duration) -> Self {
         let items = HashMap::new();
         let patterns = HashMap::new();
         let type_name = std::any::type_name::<T>().to_string();
@@ -297,7 +296,7 @@ pub enum KeyWatchStatus<T> {
     MatchesPattern(Vec<T>),
 }
 
-impl<'a, T: 'a> IntoIterator for &'a WatchList<T>
+impl<'a, T: 'a, R: ResourcesRepo> IntoIterator for &'a WatchList<T, R>
 where
     T: WatchListItem,
 {
@@ -344,8 +343,9 @@ impl<T> PatternMatcher<T> for () {
 mod metrics {
     use super::{WatchList, WatchListItem};
     use crate::metrics::{WATCHLISTS_SUBSCRIPTIONS, WATCHLISTS_TOPICS};
+    use crate::resources::ResourcesRepo;
 
-    impl<T: WatchListItem> WatchList<T> {
+    impl<T: WatchListItem, R: ResourcesRepo> WatchList<T, R> {
         pub(super) fn metric_increase(&self, is_direct: bool, is_pattern: bool) {
             let ty = &[self.type_name.as_str()];
             if !is_pattern {

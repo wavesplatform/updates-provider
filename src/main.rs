@@ -52,6 +52,7 @@ use error::Error;
 use providers::{blockchain, UpdatesProvider};
 use r2d2::Pool;
 use r2d2_redis::{r2d2, redis, RedisConnectionManager};
+use resources::repo::ResourcesRepoRedis;
 use std::sync::Arc;
 use wavesexchange_log::{error, info};
 
@@ -78,7 +79,7 @@ async fn tokio_main() -> Result<(), Error> {
     let redis_pool_manager = RedisConnectionManager::new(redis_connection_url.clone())?;
     let redis_pool = Pool::builder().build(redis_pool_manager)?;
 
-    let resources_repo = resources::repo::ResourcesRepoImpl::new(redis_pool.clone());
+    let resources_repo = ResourcesRepoRedis::new(redis_pool.clone());
     let resources_repo = Arc::new(resources_repo);
 
     let db_pool = db::pool::new(&postgres_config)?;
@@ -150,7 +151,7 @@ async fn tokio_main() -> Result<(), Error> {
 
     // random channel buffer size
     let (tx, rx) = tokio::sync::mpsc::channel(20);
-    let provider = blockchain::provider::Provider::<wavesexchange_topic::Transaction>::new(
+    let provider = blockchain::provider::Provider::<wavesexchange_topic::Transaction, _>::new(
         resources_repo.clone(),
         blockchain_config.transaction_delete_timeout,
         transactions_repo.clone(),
@@ -163,7 +164,7 @@ async fn tokio_main() -> Result<(), Error> {
 
     // random channel buffer size
     let (tx, rx) = tokio::sync::mpsc::channel(20);
-    let provider = blockchain::provider::Provider::<wavesexchange_topic::State>::new(
+    let provider = blockchain::provider::Provider::<wavesexchange_topic::State, _>::new(
         resources_repo.clone(),
         blockchain_config.state_delete_timeout,
         transactions_repo.clone(),
@@ -175,7 +176,7 @@ async fn tokio_main() -> Result<(), Error> {
     let states_subscriptions_updates_sender = provider.fetch_updates().await?;
 
     let (tx, rx) = tokio::sync::mpsc::channel(20);
-    let provider = blockchain::provider::Provider::<wavesexchange_topic::LeasingBalance>::new(
+    let provider = blockchain::provider::Provider::<wavesexchange_topic::LeasingBalance, _>::new(
         resources_repo,
         blockchain_config.state_delete_timeout,
         transactions_repo,
@@ -186,7 +187,7 @@ async fn tokio_main() -> Result<(), Error> {
 
     let leasing_balances_subscriptions_updates_sender = provider.fetch_updates().await?;
 
-    let blockchain_updater_handle = tokio::spawn(async move { 
+    let blockchain_updater_handle = tokio::spawn(async move {
         if let Err(error) = updater.run().await {
             error!("blockchain updater returned an error: {:?}", error);
         }
@@ -220,7 +221,10 @@ async fn tokio_main() -> Result<(), Error> {
     let subscriptions_updates_pusher_handle = tokio::spawn(async move {
         info!("starting subscriptions updates pusher");
         if let Err(error) = subscriptions_updates_pusher.run().await {
-            error!("subscriptions updates pusher returned an error: {:?}", error);
+            error!(
+                "subscriptions updates pusher returned an error: {:?}",
+                error
+            );
         }
     });
 

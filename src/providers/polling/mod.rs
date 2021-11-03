@@ -2,8 +2,9 @@ pub mod configs;
 pub mod test_resources;
 
 use super::watchlist::{WatchList, WatchListItem, WatchListUpdate};
-use super::{TSResourcesRepoImpl, UpdatesProvider};
+use super::UpdatesProvider;
 use crate::error::Error;
+use crate::resources::ResourcesRepo;
 use async_trait::async_trait;
 use futures::stream::{self, StreamExt, TryStreamExt};
 use std::sync::Arc;
@@ -11,19 +12,19 @@ use std::time::Duration;
 use tokio::sync::{mpsc, RwLock};
 use wavesexchange_log::{error, info};
 
-pub struct PollProvider<T: WatchListItem> {
+pub struct PollProvider<T: WatchListItem, R: ResourcesRepo> {
     requester: Box<dyn Requester<T>>,
-    resources_repo: TSResourcesRepoImpl,
+    resources_repo: Arc<R>,
     polling_delay: Duration,
-    watchlist: Arc<RwLock<WatchList<T>>>,
+    watchlist: Arc<RwLock<WatchList<T, R>>>,
 }
 
-impl<T: WatchListItem> PollProvider<T> {
+impl<T: WatchListItem, R: ResourcesRepo> PollProvider<T, R> {
     pub fn new(
         requester: Box<(dyn Requester<T>)>,
         polling_delay: Duration,
         delete_timeout: Duration,
-        resources_repo: TSResourcesRepoImpl,
+        resources_repo: Arc<R>,
     ) -> Self {
         let watchlist = Arc::new(RwLock::new(WatchList::new(
             resources_repo.clone(),
@@ -39,9 +40,10 @@ impl<T: WatchListItem> PollProvider<T> {
 }
 
 #[async_trait]
-impl<T> UpdatesProvider<T> for PollProvider<T>
+impl<T, R> UpdatesProvider<T, R> for PollProvider<T, R>
 where
     T: WatchListItem + Send + Sync + 'static,
+    R: ResourcesRepo + Send + Sync + 'static,
 {
     async fn fetch_updates(self) -> Result<mpsc::Sender<WatchListUpdate<T>>, Error> {
         let (subscriptions_updates_sender, mut subscriptions_updates_receiver) = mpsc::channel(20);
@@ -67,7 +69,11 @@ where
     }
 }
 
-impl<T: WatchListItem + Send + Sync + 'static> PollProvider<T> {
+impl<T, R> PollProvider<T, R>
+where
+    T: WatchListItem + Send + Sync + 'static,
+    R: ResourcesRepo + Send + Sync + 'static,
+{
     async fn run(self) {
         loop {
             {

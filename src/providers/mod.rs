@@ -3,26 +3,27 @@ pub mod polling;
 pub mod watchlist;
 
 use crate::error::Error;
-use crate::resources::{repo::ResourcesRepoImpl, ResourcesRepo};
+use crate::resources::ResourcesRepo;
 use async_trait::async_trait;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
-use watchlist::WatchList;
-use watchlist::{WatchListItem, WatchListUpdate};
+use watchlist::{WatchList, WatchListItem, WatchListUpdate};
 use wavesexchange_log::info;
 use wavesexchange_topic::Topic;
 
-type TSResourcesRepoImpl = Arc<ResourcesRepoImpl>;
-
 #[async_trait]
-pub trait UpdatesProvider<T: WatchListItem + Clone + Send + Sync> {
+pub trait UpdatesProvider<T, R>
+where
+    T: WatchListItem + Clone + Send + Sync,
+    R: ResourcesRepo + Send + Sync,
+{
     async fn fetch_updates(self) -> Result<mpsc::Sender<WatchListUpdate<T>>, Error>;
 
     async fn watchlist_process(
         data: &T,
         current_value: String,
-        resources_repo: &TSResourcesRepoImpl,
-        watchlist: &Arc<RwLock<WatchList<T>>>,
+        resources_repo: &Arc<R>,
+        watchlist: &Arc<RwLock<WatchList<T, R>>>,
     ) -> Result<(), Error> {
         let resource: Topic = data.clone().into();
         let mut watchlist_guard = watchlist.write().await;

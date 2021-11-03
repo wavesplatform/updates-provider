@@ -14,7 +14,7 @@ use wavesexchange_log::{debug, error, info, warn};
 use wavesexchange_topic::Topic;
 
 use super::super::watchlist::{WatchList, WatchListItem, WatchListUpdate};
-use super::super::{TSResourcesRepoImpl, UpdatesProvider};
+use super::super::UpdatesProvider;
 use crate::db::repo::RepoImpl;
 use crate::db::BlockchainUpdate;
 use crate::error::{Error, Result};
@@ -25,17 +25,21 @@ use crate::waves::BlockMicroblockAppend;
 
 pub trait Item: WatchListItem + Send + Sync + LastValue + DataFromBlock {}
 
-pub struct Provider<T: Item> {
-    watchlist: Arc<RwLock<WatchList<T>>>,
-    resources_repo: TSResourcesRepoImpl,
+pub struct Provider<T: Item, R: ResourcesRepo> {
+    watchlist: Arc<RwLock<WatchList<T, R>>>,
+    resources_repo: Arc<R>,
     rx: mpsc::Receiver<Arc<Vec<BlockchainUpdate>>>,
     repo: Arc<RepoImpl>,
     clean_timeout: Duration,
 }
 
-impl<T: 'static + Item> Provider<T> {
+impl<T, R> Provider<T, R>
+where
+    T: Item + 'static,
+    R: ResourcesRepo + Send + Sync + 'static,
+{
     pub fn new(
-        resources_repo: TSResourcesRepoImpl,
+        resources_repo: Arc<R>,
         delete_timeout: Duration,
         repo: Arc<RepoImpl>,
         rx: mpsc::Receiver<Arc<Vec<BlockchainUpdate>>>,
@@ -130,7 +134,11 @@ impl<T: 'static + Item> Provider<T> {
 }
 
 #[async_trait]
-impl<T: 'static + Item> UpdatesProvider<T> for Provider<T> {
+impl<T, R> UpdatesProvider<T, R> for Provider<T, R>
+where
+    T: Item + 'static,
+    R: ResourcesRepo + Send + Sync + 'static,
+{
     async fn fetch_updates(mut self) -> Result<mpsc::Sender<WatchListUpdate<T>>> {
         let (subscriptions_updates_sender, mut subscriptions_updates_receiver) = mpsc::channel(20);
 
@@ -172,8 +180,8 @@ impl<T: 'static + Item> UpdatesProvider<T> for Provider<T> {
     async fn watchlist_process(
         data: &T,
         current_value: String,
-        resources_repo: &TSResourcesRepoImpl,
-        watchlist: &Arc<RwLock<WatchList<T>>>,
+        resources_repo: &Arc<R>,
+        watchlist: &Arc<RwLock<WatchList<T, R>>>,
     ) -> Result<()> {
         let resource: Topic = data.clone().into();
         info!("insert new value {:?}", resource);
@@ -186,8 +194,8 @@ impl<T: 'static + Item> UpdatesProvider<T> for Provider<T> {
     }
 }
 
-async fn check_and_maybe_insert<T: Item>(
-    resources_repo: &TSResourcesRepoImpl,
+async fn check_and_maybe_insert<T: Item, R: ResourcesRepo>(
+    resources_repo: &Arc<R>,
     repo: &Arc<RepoImpl>,
     value: T,
 ) -> Result<Option<HashSet<String>>> {
@@ -232,11 +240,11 @@ async fn check_and_maybe_insert<T: Item>(
     Ok(subtopics)
 }
 
-async fn append_subtopic_to_multitopic<T: Item>(
-    resources_repo: &TSResourcesRepoImpl,
+async fn append_subtopic_to_multitopic<T: Item, R: ResourcesRepo>(
+    resources_repo: &Arc<R>,
     multitopic_item: T,
     subtopic_item: T,
-    watchlist: &Arc<RwLock<WatchList<T>>>,
+    watchlist: &Arc<RwLock<WatchList<T, R>>>,
 ) -> Result<()> {
     let multitopic = multitopic_item.clone().into();
     let existing_value = resources_repo.get(&multitopic)?;

@@ -7,17 +7,17 @@ use wavesexchange_log::debug;
 use wavesexchange_topic::Topic;
 
 #[derive(Debug)]
-pub struct ResourcesRepoImpl {
+pub struct ResourcesRepoRedis {
     pool: Pool<RedisConnectionManager>,
 }
 
-impl ResourcesRepoImpl {
-    pub fn new(pool: Pool<RedisConnectionManager>) -> ResourcesRepoImpl {
-        ResourcesRepoImpl { pool }
+impl ResourcesRepoRedis {
+    pub fn new(pool: Pool<RedisConnectionManager>) -> ResourcesRepoRedis {
+        ResourcesRepoRedis { pool }
     }
 }
 
-impl ResourcesRepo for ResourcesRepoImpl {
+impl ResourcesRepo for ResourcesRepoRedis {
     fn get(&self, resource: &Topic) -> Result<Option<String>, Error> {
         let mut con = self.pool.get()?;
         let key = String::from(resource.to_owned());

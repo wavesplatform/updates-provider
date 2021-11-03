@@ -1,25 +1,22 @@
-use super::super::TSResourcesRepoImpl;
 use crate::{error::Error, resources::ResourcesRepo};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use waves_protobuf_schemas::waves::events::BlockchainUpdated;
 use wavesexchange_topic::Topic;
 
-pub struct Provider {
-    resources_repo: TSResourcesRepoImpl,
+pub struct Provider<R: ResourcesRepo> {
+    resources_repo: Arc<R>,
     last_height: i32,
     rx: mpsc::Receiver<Arc<BlockchainUpdated>>,
 }
 
-pub struct ProviderWithUpdatesSender {
+pub struct ProviderWithUpdatesSender<R: ResourcesRepo> {
     pub tx: mpsc::Sender<Arc<BlockchainUpdated>>,
-    pub provider: Provider,
+    pub provider: Provider<R>,
 }
 
-impl Provider {
-    pub async fn init(
-        resources_repo: TSResourcesRepoImpl,
-    ) -> Result<ProviderWithUpdatesSender, Error> {
+impl<R: ResourcesRepo> Provider<R> {
+    pub async fn init(resources_repo: Arc<R>) -> Result<ProviderWithUpdatesSender<R>, Error> {
         let last_height = get_last_height(resources_repo.clone())?;
         // random channel buffer size
         let (tx, rx) = mpsc::channel(20);
@@ -48,7 +45,7 @@ impl Provider {
     }
 }
 
-fn get_last_height(resources_repo: TSResourcesRepoImpl) -> Result<i32, Error> {
+fn get_last_height<R: ResourcesRepo>(resources_repo: Arc<R>) -> Result<i32, Error> {
     let topic = Topic::BlockchainHeight;
     if let Some(height) = resources_repo.get(&topic)? {
         if let Ok(height) = height.parse() {
