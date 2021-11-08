@@ -71,11 +71,16 @@ where
                 }
                 _ = interval.tick() => {
                     let mut watchlist_lock = self.watchlist.write().await;
-                    watchlist_lock.delete_old().await;
+                    watchlist_lock.delete_old();
                 }
             }
         }
         Ok(())
+    }
+
+    #[cfg(test)]
+    pub fn watchlist(&self) -> Arc<RwLock<WatchList<T, R>>> {
+        self.watchlist.clone()
     }
 
     async fn process_updates(
@@ -256,7 +261,8 @@ async fn append_subtopic_to_multitopic<T: Item<D>, R: ResourcesRepo, D: db::Repo
         let new_subtopic = String::from(subtopic);
         subtopics.insert(new_subtopic);
         let subtopics_str = {
-            let subtopics_vec = subtopics.iter().cloned().collect_vec();
+            let mut subtopics_vec = subtopics.iter().cloned().collect_vec();
+            subtopics_vec.sort(); // Stable result, good for tests
             serde_json::to_string(&subtopics_vec)?
         };
         watchlist
@@ -283,6 +289,10 @@ pub trait DataFromBlock: Sized {
 }
 
 #[async_trait]
+//noinspection RsSelfConvention
 pub trait LastValue<D: db::Repo> {
     async fn get_last(self, repo: &D) -> Result<String>;
 }
+
+#[cfg(test)]
+mod tests;

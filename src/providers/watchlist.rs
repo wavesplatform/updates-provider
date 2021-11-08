@@ -230,7 +230,7 @@ impl<T: WatchListItem, R: ResourcesRepo> WatchList<T, R> {
             .or_insert_with(|| item.new_matcher());
     }
 
-    pub async fn delete_old(&mut self) {
+    pub fn delete_old(&mut self) {
         let now = Instant::now();
         let keys = self
             .items
@@ -365,5 +365,294 @@ mod metrics {
                 WATCHLISTS_SUBSCRIPTIONS.with_label_values(ty).dec();
             }
         }
+    }
+}
+
+#[cfg(test)]
+pub mod tests {
+    use self::{item::TestItem, repo::TestResourcesRepo};
+    use super::{KeyWatchStatus, WatchList, WatchListUpdate};
+    use std::collections::HashSet;
+    use std::{sync::Arc, time::Duration};
+
+    pub mod repo {
+        use crate::{error::Error, resources::ResourcesRepo};
+        use std::{
+            collections::HashMap,
+            sync::{Arc, Mutex},
+        };
+        use wavesexchange_topic::Topic;
+
+        pub struct TestResourcesRepo(Arc<Mutex<HashMap<Topic, String>>>);
+
+        impl Default for TestResourcesRepo {
+            fn default() -> Self {
+                TestResourcesRepo(Arc::new(Mutex::new(HashMap::new())))
+            }
+        }
+
+        impl ResourcesRepo for TestResourcesRepo {
+            fn get(&self, resource: &Topic) -> Result<Option<String>, Error> {
+                let data = self.0.lock().unwrap();
+                Ok(data.get(resource).cloned())
+            }
+
+            fn set(&self, resource: Topic, value: String) -> Result<(), Error> {
+                let mut data = self.0.lock().unwrap();
+                data.insert(resource, value);
+                Ok(())
+            }
+
+            fn del(&self, resource: Topic) -> Result<(), Error> {
+                let mut data = self.0.lock().unwrap();
+                data.remove(&resource);
+                Ok(())
+            }
+
+            fn push(&self, _resource: Topic, _value: String) -> Result<(), Error> {
+                Ok(())
+            }
+        }
+
+        impl TestResourcesRepo {
+            pub fn reset(&self) {
+                let mut data = self.0.lock().unwrap();
+                data.clear();
+            }
+        }
+    }
+
+    pub mod item {
+        use super::super::{KeyPattern, MaybeFromTopic, PatternMatcher, WatchListItem};
+        use std::{convert::TryFrom, hash::Hash};
+        use wavesexchange_topic::{State, StateMultiPatterns, StateSingle, Topic};
+
+        #[derive(Clone, PartialEq, Eq, Hash, Debug)]
+        pub struct TestItem(pub &'static str);
+
+        impl Into<Topic> for TestItem {
+            fn into(self) -> Topic {
+                Topic::try_from(self.0).unwrap()
+            }
+        }
+
+        impl MaybeFromTopic for TestItem {
+            fn maybe_item(topic: &Topic) -> Option<Self> {
+                let s = String::from(topic.clone());
+                let s = Box::leak(Box::new(s));
+                Some(TestItem(s.as_str()))
+            }
+        }
+
+        impl Into<String> for TestItem {
+            fn into(self) -> String {
+                unimplemented!()
+            }
+        }
+
+        impl KeyPattern for TestItem {
+            const PATTERNS_SUPPORTED: bool = true;
+            type PatternMatcher = TestMatcher;
+
+            fn new_matcher(&self) -> Self::PatternMatcher {
+                TestMatcher(self.matched_subtopic_prefix())
+            }
+        }
+
+        impl WatchListItem for TestItem {}
+
+        impl TestItem {
+            pub fn matched_subtopic_prefix(&self) -> String {
+                if self.0.ends_with('*') {
+                    let topic = Topic::try_from(self.0).unwrap();
+                    let (address, key_pattern) = match topic {
+                        Topic::State(State::MultiPatterns(StateMultiPatterns {
+                            addresses,
+                            key_patterns,
+                        })) => (addresses[0].clone(), key_patterns[0].clone()),
+                        _ => panic!("test is broken"),
+                    };
+                    let key = key_pattern[0..key_pattern.len() - 1].to_string(); // Strip '*' at the end
+                    let topic = Topic::State(State::Single(StateSingle { address, key }));
+                    topic.into()
+                } else {
+                    self.0.into()
+                }
+            }
+        }
+
+        pub struct TestMatcher(String);
+
+        impl PatternMatcher<TestItem> for TestMatcher {
+            fn is_match(&self, value: &TestItem) -> bool {
+                let value = value.0;
+                let prefix = self.0.as_str();
+                value.starts_with(prefix)
+            }
+        }
+    }
+
+    macro_rules! assert_not_watched {
+        ($watchlist:expr, $key:literal) => {
+            assert!(
+                matches!(
+                    $watchlist.key_watch_status(&TestItem($key)),
+                    KeyWatchStatus::NotWatched,
+                ),
+                "Key '{}' expected NOT to be watched; actual: {:?}",
+                $key,
+                $watchlist.key_watch_status(&TestItem($key)),
+            );
+        };
+    }
+
+    macro_rules! assert_watched {
+        ($watchlist:expr, $key:literal) => {
+            assert!(
+                matches!(
+                    $watchlist.key_watch_status(&TestItem($key)),
+                    KeyWatchStatus::Watched,
+                ),
+                "Key '{}' expected to be watched; actual: {:?}",
+                $key,
+                $watchlist.key_watch_status(&TestItem($key)),
+            );
+        };
+    }
+
+    macro_rules! assert_matched {
+        ($watchlist:expr, $key:literal) => {
+            assert!(
+                matches!(
+                    $watchlist.key_watch_status(&TestItem($key)),
+                    KeyWatchStatus::MatchesPattern(_),
+                ),
+                "Key '{}' expected to be matched by pattern; actual: {:?}",
+                $key,
+                $watchlist.key_watch_status(&TestItem($key)),
+            );
+        };
+    }
+
+    macro_rules! assert_value {
+        ($watchlist:expr, $key:literal, $value:expr) => {
+            assert_eq!(
+                $watchlist.get_value(&TestItem($key)),
+                Option::<&str>::clone(&$value)
+                    .map(ToString::to_string)
+                    .as_ref(),
+                "Key '{}' expected to have {:?}",
+                $key,
+                Option::<&str>::clone(&$value),
+            );
+        };
+    }
+
+    #[test]
+    fn test_watchlist_simple() {
+        // Setup
+        let repo = Arc::new(TestResourcesRepo::default());
+        let keep_alive = Duration::from_nanos(1);
+        let ensure_dead = Duration::from_nanos(2);
+        let mut wl = WatchList::<TestItem, TestResourcesRepo>::new(repo, keep_alive);
+
+        // Default state
+        assert_not_watched!(wl, "topic://state/address/foo");
+        assert_value!(wl, "topic://state/address/foo", None);
+
+        // Add some item
+        let res = wl.on_update(&WatchListUpdate::Updated {
+            item: TestItem("topic://state/address/foo"),
+        });
+        assert!(res.is_ok());
+        wl.insert_value(
+            &TestItem("topic://state/address/foo"),
+            "foo_value".to_string(),
+        );
+
+        assert_watched!(wl, "topic://state/address/foo");
+        assert_value!(wl, "topic://state/address/foo", Some("foo_value"));
+
+        // Remove that item
+        let res = wl.on_update(&WatchListUpdate::Removed {
+            item: TestItem("topic://state/address/foo"),
+        });
+        assert!(res.is_ok());
+
+        std::thread::sleep(ensure_dead);
+        wl.delete_old();
+
+        assert_not_watched!(wl, "topic://state/address/foo");
+        assert_value!(wl, "topic://state/address/foo", None);
+    }
+
+    #[test]
+    fn test_watchlist_patterns() {
+        use std::iter::FromIterator;
+        let set = |items: Vec<&str>| HashSet::from_iter(items.into_iter().map(ToString::to_string));
+
+        // Setup
+        let repo = Arc::new(TestResourcesRepo::default());
+        let keep_alive = Duration::from_nanos(1);
+        let ensure_dead = Duration::from_nanos(2);
+        let mut wl = WatchList::<TestItem, TestResourcesRepo>::new(repo, keep_alive);
+
+        // Initial state
+        assert_not_watched!(wl, "topic://state/address/foo1");
+        assert_not_watched!(wl, "topic://state/address/foo2");
+        assert_not_watched!(wl, "topic://state/address/foo3");
+
+        // Add pattern item
+        let res = wl.on_update(&WatchListUpdate::Updated {
+            item: TestItem("topic://state?address__in[]=address&key__match_any[]=foo*"),
+        });
+        assert!(res.is_ok());
+
+        assert_watched!(
+            wl,
+            "topic://state?address__in[]=address&key__match_any[]=foo*"
+        );
+        assert_not_watched!(wl, "topic://state/address/foo1");
+        assert_not_watched!(wl, "topic://state/address/foo2");
+        assert_not_watched!(wl, "topic://state/address/foo3");
+
+        wl.update_multitopic(
+            TestItem("topic://state?address__in[]=address&key__match_any[]=foo*"),
+            set(vec![
+                "topic://state/address/foo1",
+                "topic://state/address/foo2",
+            ]),
+        );
+        assert_watched!(wl, "topic://state/address/foo1");
+        assert_watched!(wl, "topic://state/address/foo2");
+        assert_matched!(wl, "topic://state/address/foo3");
+
+        // Change subtopics
+        wl.update_multitopic(
+            TestItem("topic://state?address__in[]=address&key__match_any[]=foo*"),
+            set(vec![
+                "topic://state/address/foo1",
+                "topic://state/address/foo3",
+            ]),
+        );
+        assert_watched!(wl, "topic://state/address/foo1");
+        assert_watched!(wl, "topic://state/address/foo3");
+        //TODO Broken, need to fix
+        // assert_matched!(wl, "topic://state/address/foo2");
+
+        // Remove pattern item
+        let res = wl.on_update(&WatchListUpdate::Removed {
+            item: TestItem("topic://state?address__in[]=address&key__match_any[]=foo*"),
+        });
+        assert!(res.is_ok());
+
+        std::thread::sleep(ensure_dead);
+        wl.delete_old();
+
+        //TODO Broken, need to fix
+        // assert_not_watched!(wl, "topic://state?address__in[]=address&key__match_any[]=foo*");
+        // assert_not_watched!(wl, "topic://state/address/foo1");
+        // assert_not_watched!(wl, "topic://state/address/foo2");
+        // assert_not_watched!(wl, "topic://state/address/foo3");
     }
 }

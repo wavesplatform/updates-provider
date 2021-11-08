@@ -79,7 +79,7 @@ where
             {
                 let keys = {
                     let mut watchlist_guard = self.watchlist.write().await;
-                    watchlist_guard.delete_old().await;
+                    watchlist_guard.delete_old();
                     watchlist_guard
                         .into_iter()
                         .map(|x| x.to_owned())
