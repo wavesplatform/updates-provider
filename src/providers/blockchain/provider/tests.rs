@@ -557,11 +557,10 @@ async fn test_updates_provider() -> anyhow::Result<()> {
     // Update should be ignored
     push_update("multi1", Some("value_1_updated")).await;
     sync().await;
-    //TODO Broken, watchlist should ignore the update, and topic value should be None
-    // assert_eq!(
-    //     res_repo.get(&Topic::try_from("topic://state/address/multi1")?)?,
-    //     None
-    // );
+    assert_eq!(
+        res_repo.get(&Topic::try_from("topic://state/address/multi1")?)?,
+        None
+    );
     assert_eq!(
         res_repo.get(&Topic::try_from("topic://state/address/multi2")?)?,
         None

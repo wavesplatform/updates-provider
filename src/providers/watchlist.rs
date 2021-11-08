@@ -249,6 +249,7 @@ impl<T: WatchListItem, R: ResourcesRepo> WatchList<T, R> {
         }
         for item in keys {
             self.items.remove(&item);
+            self.patterns.remove(&item);
             let res = self.repo.del(T::into(item));
             if let Some(err) = res.err() {
                 warn!("Failed to delete Redis key: '{:?}' (ignoring)", err);
@@ -635,10 +636,11 @@ pub mod tests {
                 "topic://state/address/foo3",
             ]),
         );
+        std::thread::sleep(ensure_dead);
+        wl.delete_old();
         assert_watched!(wl, "topic://state/address/foo1");
         assert_watched!(wl, "topic://state/address/foo3");
-        //TODO Broken, need to fix
-        // assert_matched!(wl, "topic://state/address/foo2");
+        assert_matched!(wl, "topic://state/address/foo2");
 
         // Remove pattern item
         let res = wl.on_update(&WatchListUpdate::Removed {
@@ -649,10 +651,9 @@ pub mod tests {
         std::thread::sleep(ensure_dead);
         wl.delete_old();
 
-        //TODO Broken, need to fix
-        // assert_not_watched!(wl, "topic://state?address__in[]=address&key__match_any[]=foo*");
-        // assert_not_watched!(wl, "topic://state/address/foo1");
-        // assert_not_watched!(wl, "topic://state/address/foo2");
-        // assert_not_watched!(wl, "topic://state/address/foo3");
+        assert_not_watched!(wl, "topic://state?address__in[]=address&key__match_any[]=foo*");
+        assert_not_watched!(wl, "topic://state/address/foo1");
+        assert_not_watched!(wl, "topic://state/address/foo2");
+        assert_not_watched!(wl, "topic://state/address/foo3");
     }
 }

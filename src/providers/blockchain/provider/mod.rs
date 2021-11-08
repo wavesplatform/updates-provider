@@ -254,23 +254,27 @@ async fn append_subtopic_to_multitopic<T: Item<D>, R: ResourcesRepo, D: db::Repo
 ) -> Result<()> {
     let multitopic = multitopic_item.clone().into();
     let existing_value = resources_repo.get(&multitopic)?;
-    if let Some(existing_value) = existing_value {
-        let mut subtopics =
-            subtopics_from_topic_value(&multitopic, &existing_value)?.expect("must be multitopic");
-        let subtopic: Topic = subtopic_item.clone().into();
-        let new_subtopic = String::from(subtopic);
-        subtopics.insert(new_subtopic);
-        let subtopics_str = {
-            let mut subtopics_vec = subtopics.iter().cloned().collect_vec();
-            subtopics_vec.sort(); // Stable result, good for tests
-            serde_json::to_string(&subtopics_vec)?
-        };
-        watchlist
-            .write()
-            .await
-            .update_multitopic(multitopic_item, subtopics);
-        resources_repo.set_and_push(multitopic, subtopics_str)?;
+    let mut subtopics = if let Some(existing_value) = existing_value {
+        subtopics_from_topic_value(&multitopic, &existing_value)?.expect("must be multitopic")
+    } else {
+        HashSet::new()
     };
+    let subtopic: Topic = subtopic_item.clone().into();
+    let new_subtopic = String::from(subtopic);
+    if subtopics.contains(&new_subtopic) {
+        return Ok(());
+    }
+    subtopics.insert(new_subtopic);
+    let subtopics_str = {
+        let mut subtopics_vec = subtopics.iter().cloned().collect_vec();
+        subtopics_vec.sort(); // Stable result, good for tests
+        serde_json::to_string(&subtopics_vec)?
+    };
+    watchlist
+        .write()
+        .await
+        .update_multitopic(multitopic_item, subtopics);
+    resources_repo.set_and_push(multitopic, subtopics_str)?;
     Ok(())
 }
 
