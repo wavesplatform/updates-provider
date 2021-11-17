@@ -6,9 +6,8 @@ use tokio::sync::mpsc;
 use waves_protobuf_schemas::waves::events::BlockchainUpdated;
 use wavesexchange_log::{debug, info};
 
-use crate::db::repo::RepoImpl;
 use crate::db::{
-    BlockchainUpdate, DataEntry, DataEntryUpdate, Db, LeasingBalance, LeasingBalanceUpdate, Repo,
+    self, BlockchainUpdate, DataEntry, DataEntryUpdate, Db, LeasingBalance, LeasingBalanceUpdate,
 };
 use crate::error::{Error, Result};
 use crate::metrics::DB_WRITE_TIME;
@@ -19,9 +18,9 @@ use crate::waves::BlockMicroblockAppend;
 const TX_CHUNK_SIZE: usize = 65535 / 4;
 const ADDRESSES_CHUNK_SIZE: usize = 65535 / 2;
 
-pub struct Updater {
+pub struct Updater<D: Db + db::Repo> {
     rx: mpsc::Receiver<Arc<BlockchainUpdated>>,
-    transactions_repo: Arc<RepoImpl>,
+    transactions_repo: Arc<D>,
     updates_buffer_size: usize,
     transactions_count_threshold: usize,
     associated_addresses_count_threshold: usize,
@@ -29,10 +28,10 @@ pub struct Updater {
     waiting_blocks_timeout: Duration,
 }
 
-pub struct UpdaterReturn {
+pub struct UpdaterReturn<D: Db + db::Repo> {
     pub last_height: i32,
     pub tx: mpsc::Sender<Arc<BlockchainUpdated>>,
-    pub updater: Updater,
+    pub updater: Updater<D>,
 }
 
 #[derive(Debug)]
@@ -48,14 +47,14 @@ impl Default for UpdatesSequenceState {
     }
 }
 
-impl Updater {
+impl<D: Db + db::Repo> Updater<D> {
     pub async fn init(
-        transactions_repo: Arc<RepoImpl>,
+        transactions_repo: Arc<D>,
         updates_buffer_size: usize,
         transactions_count_threshold: usize,
         associated_addresses_count_threshold: usize,
         waiting_blocks_timeout: Duration,
-    ) -> Result<UpdaterReturn> {
+    ) -> Result<UpdaterReturn<D>> {
         let (tx, rx) = mpsc::channel(updates_buffer_size);
         let last_height = {
             match transactions_repo.get_prev_handled_height()? {
@@ -265,7 +264,10 @@ fn insert_blockchain_updates<'a, P: Db>(
     Ok(())
 }
 
-fn insert_appends<U: Repo + ?Sized>(conn: &U, appends: Vec<&BlockMicroblockAppend>) -> Result<()> {
+fn insert_appends<D: db::Repo + ?Sized>(
+    conn: &D,
+    appends: Vec<&BlockMicroblockAppend>,
+) -> Result<()> {
     if !appends.is_empty() {
         timer!("insert_appends()");
         let h = appends.last().unwrap().height;
@@ -282,8 +284,8 @@ fn insert_appends<U: Repo + ?Sized>(conn: &U, appends: Vec<&BlockMicroblockAppen
     Ok(())
 }
 
-fn insert_blocks<U: Repo + ?Sized>(
-    conn: &U,
+fn insert_blocks<D: db::Repo + ?Sized>(
+    conn: &D,
     appends: &[&BlockMicroblockAppend],
 ) -> Result<Vec<i64>> {
     let blocks = appends.iter().map(|&b| b.into()).collect::<Vec<_>>();
@@ -297,8 +299,8 @@ fn insert_blocks<U: Repo + ?Sized>(
     Ok(block_uids)
 }
 
-fn insert_transactions<'a, U: Repo + ?Sized>(
-    conn: &U,
+fn insert_transactions<'a, D: db::Repo + ?Sized>(
+    conn: &D,
     transaction_updates: impl Iterator<Item = impl Iterator<Item = &'a TransactionUpdate>>,
     block_uids: &[i64],
 ) -> Result<()> {
@@ -328,8 +330,8 @@ fn insert_transactions<'a, U: Repo + ?Sized>(
     Ok(())
 }
 
-fn insert_addresses<'a, U: Repo + ?Sized>(
-    conn: &U,
+fn insert_addresses<'a, D: db::Repo + ?Sized>(
+    conn: &D,
     transaction_updates: impl Iterator<Item = impl Iterator<Item = &'a TransactionUpdate>>,
 ) -> Result<()> {
     let start = Instant::now();
@@ -359,8 +361,8 @@ fn insert_addresses<'a, U: Repo + ?Sized>(
     Ok(())
 }
 
-fn insert_data_entries<U: Repo + ?Sized>(
-    conn: &U,
+fn insert_data_entries<D: db::Repo + ?Sized>(
+    conn: &D,
     blocks_updates: &[&BlockMicroblockAppend],
     block_uids: &[i64],
 ) -> Result<()> {
@@ -427,8 +429,8 @@ fn insert_data_entries<U: Repo + ?Sized>(
     Ok(())
 }
 
-fn insert_leasing_balances<U: Repo + ?Sized>(
-    conn: &U,
+fn insert_leasing_balances<D: db::Repo + ?Sized>(
+    conn: &D,
     blocks_updates: &[&BlockMicroblockAppend],
     block_uids: &[i64],
 ) -> Result<()> {
@@ -494,13 +496,13 @@ fn insert_leasing_balances<U: Repo + ?Sized>(
     Ok(())
 }
 
-fn rollback<U: Repo + ?Sized>(conn: &U, block_id: &str) -> Result<()> {
+fn rollback<D: db::Repo + ?Sized>(conn: &D, block_id: &str) -> Result<()> {
     timer!("rollback()");
     let block_uid = conn.get_block_uid(block_id)?;
     rollback_by_block_uid(conn, block_uid)
 }
 
-fn rollback_by_block_uid<U: Repo + ?Sized>(conn: &U, block_uid: i64) -> Result<()> {
+fn rollback_by_block_uid<D: db::Repo + ?Sized>(conn: &D, block_uid: i64) -> Result<()> {
     let deletes = conn.rollback_data_entries(&block_uid)?;
 
     let mut grouped_deletes = HashMap::new();

@@ -14,30 +14,34 @@ use wavesexchange_log::{debug, error, info, warn};
 use wavesexchange_topic::Topic;
 
 use super::super::watchlist::{WatchList, WatchListItem, WatchListUpdate};
-use super::super::{TSResourcesRepoImpl, UpdatesProvider};
-use crate::db::repo::RepoImpl;
-use crate::db::BlockchainUpdate;
+use super::super::UpdatesProvider;
+use crate::db::{self, BlockchainUpdate};
 use crate::error::{Error, Result};
 use crate::providers::watchlist::KeyWatchStatus;
 use crate::resources::ResourcesRepo;
 use crate::utils::clean_timeout;
 use crate::waves::BlockMicroblockAppend;
 
-pub trait Item: WatchListItem + Send + Sync + LastValue + DataFromBlock {}
+pub trait Item<D: db::Repo>: WatchListItem + Send + Sync + LastValue<D> + DataFromBlock {}
 
-pub struct Provider<T: Item> {
-    watchlist: Arc<RwLock<WatchList<T>>>,
-    resources_repo: TSResourcesRepoImpl,
+pub struct Provider<T: Item<D>, R: ResourcesRepo, D: db::Repo> {
+    watchlist: Arc<RwLock<WatchList<T, R>>>,
+    resources_repo: Arc<R>,
     rx: mpsc::Receiver<Arc<Vec<BlockchainUpdate>>>,
-    repo: Arc<RepoImpl>,
+    repo: Arc<D>,
     clean_timeout: Duration,
 }
 
-impl<T: 'static + Item> Provider<T> {
+impl<T, R, D> Provider<T, R, D>
+where
+    T: Item<D> + 'static,
+    R: ResourcesRepo + Send + Sync + 'static,
+    D: db::Repo + Send + Sync + 'static,
+{
     pub fn new(
-        resources_repo: TSResourcesRepoImpl,
+        resources_repo: Arc<R>,
         delete_timeout: Duration,
-        repo: Arc<RepoImpl>,
+        repo: Arc<D>,
         rx: mpsc::Receiver<Arc<Vec<BlockchainUpdate>>>,
     ) -> Self {
         let watchlist = Arc::new(RwLock::new(WatchList::new(
@@ -67,11 +71,16 @@ impl<T: 'static + Item> Provider<T> {
                 }
                 _ = interval.tick() => {
                     let mut watchlist_lock = self.watchlist.write().await;
-                    watchlist_lock.delete_old().await;
+                    watchlist_lock.delete_old();
                 }
             }
         }
         Ok(())
+    }
+
+    #[cfg(test)]
+    pub fn watchlist(&self) -> Arc<RwLock<WatchList<T, R>>> {
+        self.watchlist.clone()
     }
 
     async fn process_updates(
@@ -130,7 +139,12 @@ impl<T: 'static + Item> Provider<T> {
 }
 
 #[async_trait]
-impl<T: 'static + Item> UpdatesProvider<T> for Provider<T> {
+impl<T, R, D> UpdatesProvider<T, R> for Provider<T, R, D>
+where
+    T: Item<D> + 'static,
+    R: ResourcesRepo + Send + Sync + 'static,
+    D: db::Repo + Send + Sync + 'static,
+{
     async fn fetch_updates(mut self) -> Result<mpsc::Sender<WatchListUpdate<T>>> {
         let (subscriptions_updates_sender, mut subscriptions_updates_receiver) = mpsc::channel(20);
 
@@ -172,8 +186,8 @@ impl<T: 'static + Item> UpdatesProvider<T> for Provider<T> {
     async fn watchlist_process(
         data: &T,
         current_value: String,
-        resources_repo: &TSResourcesRepoImpl,
-        watchlist: &Arc<RwLock<WatchList<T>>>,
+        resources_repo: &R,
+        watchlist: &RwLock<WatchList<T, R>>,
     ) -> Result<()> {
         let resource: Topic = data.clone().into();
         info!("insert new value {:?}", resource);
@@ -186,9 +200,9 @@ impl<T: 'static + Item> UpdatesProvider<T> for Provider<T> {
     }
 }
 
-async fn check_and_maybe_insert<T: Item>(
-    resources_repo: &TSResourcesRepoImpl,
-    repo: &Arc<RepoImpl>,
+async fn check_and_maybe_insert<T: Item<D>, R: ResourcesRepo, D: db::Repo>(
+    resources_repo: &Arc<R>,
+    repo: &Arc<D>,
     value: T,
 ) -> Result<Option<HashSet<String>>> {
     let topic = value.clone().into();
@@ -232,30 +246,35 @@ async fn check_and_maybe_insert<T: Item>(
     Ok(subtopics)
 }
 
-async fn append_subtopic_to_multitopic<T: Item>(
-    resources_repo: &TSResourcesRepoImpl,
+async fn append_subtopic_to_multitopic<T: Item<D>, R: ResourcesRepo, D: db::Repo>(
+    resources_repo: &Arc<R>,
     multitopic_item: T,
     subtopic_item: T,
-    watchlist: &Arc<RwLock<WatchList<T>>>,
+    watchlist: &Arc<RwLock<WatchList<T, R>>>,
 ) -> Result<()> {
     let multitopic = multitopic_item.clone().into();
     let existing_value = resources_repo.get(&multitopic)?;
-    if let Some(existing_value) = existing_value {
-        let mut subtopics =
-            subtopics_from_topic_value(&multitopic, &existing_value)?.expect("must be multitopic");
-        let subtopic: Topic = subtopic_item.clone().into();
-        let new_subtopic = String::from(subtopic);
-        subtopics.insert(new_subtopic);
-        let subtopics_str = {
-            let subtopics_vec = subtopics.iter().cloned().collect_vec();
-            serde_json::to_string(&subtopics_vec)?
-        };
-        watchlist
-            .write()
-            .await
-            .update_multitopic(multitopic_item, subtopics);
-        resources_repo.set_and_push(multitopic, subtopics_str)?;
+    let mut subtopics = if let Some(existing_value) = existing_value {
+        subtopics_from_topic_value(&multitopic, &existing_value)?.expect("must be multitopic")
+    } else {
+        HashSet::new()
     };
+    let subtopic: Topic = subtopic_item.clone().into();
+    let new_subtopic = String::from(subtopic);
+    if subtopics.contains(&new_subtopic) {
+        return Ok(());
+    }
+    subtopics.insert(new_subtopic);
+    let subtopics_str = {
+        let mut subtopics_vec = subtopics.iter().cloned().collect_vec();
+        subtopics_vec.sort(); // Stable result, good for tests
+        serde_json::to_string(&subtopics_vec)?
+    };
+    watchlist
+        .write()
+        .await
+        .update_multitopic(multitopic_item, subtopics);
+    resources_repo.set_and_push(multitopic, subtopics_str)?;
     Ok(())
 }
 
@@ -274,6 +293,10 @@ pub trait DataFromBlock: Sized {
 }
 
 #[async_trait]
-pub trait LastValue {
-    async fn get_last(self, repo: &Arc<RepoImpl>) -> Result<String>;
+//noinspection RsSelfConvention
+pub trait LastValue<D: db::Repo> {
+    async fn get_last(self, repo: &D) -> Result<String>;
 }
+
+#[cfg(test)]
+mod tests;

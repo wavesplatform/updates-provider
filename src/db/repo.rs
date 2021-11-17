@@ -25,11 +25,11 @@ use crate::waves::transactions::InsertableTransaction;
 const MAX_UID: i64 = std::i64::MAX - 1;
 
 #[derive(Clone)]
-pub struct RepoImpl {
+pub struct PostgresRepo {
     pool: PgPool,
 }
 
-impl RepoImpl {
+impl PostgresRepo {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }
@@ -39,7 +39,7 @@ impl RepoImpl {
     }
 }
 
-impl Db for RepoImpl {
+impl Db for PostgresRepo {
     fn transaction(&self, f: impl FnOnce(&dyn Repo) -> Result<()>) -> Result<()> {
         tokio::task::block_in_place(move || {
             let conn = self.get_conn()?;
@@ -48,7 +48,7 @@ impl Db for RepoImpl {
     }
 }
 
-impl Repo for RepoImpl {
+impl Repo for PostgresRepo {
     fn get_prev_handled_height(&self) -> Result<Option<PrevHandledHeight>> {
         self.get_conn()?.get_prev_handled_height()
     }
