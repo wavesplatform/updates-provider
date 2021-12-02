@@ -12,7 +12,7 @@ use crate::db::{
 };
 use crate::error::{Error, Result};
 use crate::metrics::DB_WRITE_TIME;
-use crate::utils::ToChunks;
+use crate::utils::chunks::ToChunks;
 use crate::waves::transactions::{InsertableTransaction, TransactionUpdate};
 use crate::waves::BlockMicroblockAppend;
 

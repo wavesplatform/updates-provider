@@ -19,7 +19,6 @@ use crate::db::{repo_provider::ProviderRepo, BlockchainUpdate};
 use crate::error::{Error, Result};
 use crate::providers::watchlist::KeyWatchStatus;
 use crate::resources::ResourcesRepo;
-use crate::utils::clean_timeout;
 use crate::waves::BlockMicroblockAppend;
 
 pub trait Item<R: ProviderRepo>:
@@ -51,7 +50,7 @@ where
             resources_repo.clone(),
             delete_timeout,
         )));
-        let clean_timeout = clean_timeout(delete_timeout);
+        let clean_timeout = utils::clean_timeout(delete_timeout);
         Self {
             watchlist,
             resources_repo,
@@ -302,3 +301,17 @@ pub trait LastValue<R: ProviderRepo> {
 
 #[cfg(test)]
 mod tests;
+
+mod utils {
+    use std::time::Duration;
+
+    pub(super) fn clean_timeout(delete_timeout: Duration) -> Duration {
+        let temp = delete_timeout / 2;
+        let minimum = Duration::from_secs(15);
+        if temp > minimum {
+            temp
+        } else {
+            minimum
+        }
+    }
+}

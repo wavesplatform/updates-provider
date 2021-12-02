@@ -94,7 +94,7 @@ mod repo_impl {
     use crate::schema::{
         associated_addresses, blocks_microblocks, data_entries, leasing_balances, transactions,
     };
-    use crate::utils::ToChunks;
+    use crate::utils::chunks::ToChunks;
     use crate::waves::transactions::InsertableTransaction;
     use wavesexchange_log::timer;
 
