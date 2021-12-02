@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use wavesexchange_topic::{State, StateMultiPatterns, StateSingle, Topic};
 
 use super::{DataFromBlock, Item, LastValue};
-use crate::db;
+use crate::db::repo_provider::ProviderRepo;
 use crate::error::Result;
 use crate::providers::watchlist::{KeyPattern, PatternMatcher};
 use crate::waves;
@@ -28,8 +28,8 @@ impl DataFromBlock for State {
 }
 
 #[async_trait]
-impl<D: db::Repo + Sync> LastValue<D> for State {
-    async fn get_last(self, repo: &D) -> Result<String> {
+impl<R: ProviderRepo + Sync> LastValue<R> for State {
+    async fn last_value(self, repo: &R) -> Result<String> {
         Ok(match self {
             State::Single(StateSingle { address, key }) => {
                 let maybe_data_entry =
@@ -59,7 +59,7 @@ impl<D: db::Repo + Sync> LastValue<D> for State {
     }
 }
 
-impl<D: db::Repo + Sync> Item<D> for State {}
+impl<R: ProviderRepo + Sync> Item<R> for State {}
 
 impl KeyPattern for State {
     const PATTERNS_SUPPORTED: bool = true;

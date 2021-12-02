@@ -20,7 +20,7 @@ const ADDRESSES_CHUNK_SIZE: usize = 65535 / 2;
 
 pub struct Updater<D: Db + db::Repo> {
     rx: mpsc::Receiver<Arc<BlockchainUpdated>>,
-    transactions_repo: Arc<D>,
+    transactions_repo: D,
     updates_buffer_size: usize,
     transactions_count_threshold: usize,
     associated_addresses_count_threshold: usize,
@@ -49,7 +49,7 @@ impl Default for UpdatesSequenceState {
 
 impl<D: Db + db::Repo> Updater<D> {
     pub async fn init(
-        transactions_repo: Arc<D>,
+        transactions_repo: D,
         updates_buffer_size: usize,
         transactions_count_threshold: usize,
         associated_addresses_count_threshold: usize,
@@ -191,10 +191,10 @@ impl<D: Db + db::Repo> Updater<D> {
                     match blockchain_updates_iter.next() {
                         Some((idx, BlockchainUpdate::Block(_))) => {
                             insert_blockchain_updates(
-                                &*self.transactions_repo,
+                                &self.transactions_repo,
                                 blockchain_updates[..idx].to_vec().iter(),
                             )?;
-                            squash_microblocks(&*self.transactions_repo)?;
+                            squash_microblocks(&self.transactions_repo)?;
                             *microblock_flag = UpdatesSequenceState::default();
                             i = idx;
                             break;
@@ -204,11 +204,11 @@ impl<D: Db + db::Repo> Updater<D> {
                     }
                 }
                 insert_blockchain_updates(
-                    &*self.transactions_repo,
+                    &self.transactions_repo,
                     blockchain_updates[i..].to_vec().iter(),
                 )?;
             } else {
-                insert_blockchain_updates(&*self.transactions_repo, blockchain_updates.iter())?;
+                insert_blockchain_updates(&self.transactions_repo, blockchain_updates.iter())?;
             }
         }
 
@@ -254,7 +254,7 @@ fn insert_blockchain_updates<'a, P: Db>(
         insert_appends(conn, appends)?;
         if let Some(block_id) = rollback_block_id {
             rollback(conn, block_id)?;
-            info!("rollbacked to block id {}", block_id);
+            info!("rolled back to block id {}", block_id);
         }
 
         Ok(())

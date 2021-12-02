@@ -8,13 +8,10 @@ use waves_protobuf_schemas::waves::events::blockchain_updated::append::{
 };
 use waves_protobuf_schemas::waves::events::blockchain_updated::{Append, Update};
 use waves_protobuf_schemas::waves::events::BlockchainUpdated;
-use wavesexchange_topic::StateSingle;
 
 use crate::error::{Error, Result};
 use crate::schema::{associated_addresses, blocks_microblocks, data_entries, leasing_balances};
-use crate::waves::transactions::{
-    parse_transactions, InsertableTransaction, Transaction, TransactionType,
-};
+use crate::waves::transactions::{parse_transactions, InsertableTransaction};
 use crate::waves::{
     Address, BlockMicroblockAppend, DataEntry as DataEntryDTO, DataEntryFragment, Fragments,
     LeasingBalance as LeasingBalanceDTO, ValueDataEntry,
@@ -26,6 +23,7 @@ pub const INTEGER_DESCRIPTOR: &str = "d";
 
 pub mod pool;
 pub mod repo;
+pub mod repo_provider;
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -162,6 +160,7 @@ impl Hash for DeletedLeasingBalance {
         self.address.hash(state);
     }
 }
+
 #[derive(Clone, Debug, Insertable, QueryableByName, Queryable)]
 #[table_name = "leasing_balances"]
 pub struct LeasingBalance {
@@ -227,28 +226,6 @@ pub trait Repo {
 
     fn rollback_data_entries(&self, block_uid: &i64) -> Result<Vec<DeletedDataEntry>>;
 
-    fn last_transaction_by_address(&self, address: String) -> Result<Option<Transaction>>;
-
-    fn last_transaction_by_address_and_type(
-        &self,
-        address: String,
-        transaction_type: TransactionType,
-    ) -> Result<Option<Transaction>>;
-
-    fn last_exchange_transaction(
-        &self,
-        amount_asset: String,
-        price_asset: String,
-    ) -> Result<Option<Transaction>>;
-
-    fn last_data_entry(&self, address: String, key: String) -> Result<Option<DataEntry>>;
-
-    fn find_matching_data_keys(
-        &self,
-        addresses: Vec<String>,
-        key_patterns: Vec<String>,
-    ) -> Result<Vec<StateSingle>>;
-
     fn update_data_entries_block_references(&self, block_uid: &i64) -> Result<()>;
 
     fn close_lease_superseded_by(&self, updates: &[LeasingBalanceUpdate]) -> Result<()>;
@@ -264,8 +241,6 @@ pub trait Repo {
     fn update_leasing_balances_block_references(&self, block_uid: &i64) -> Result<()>;
 
     fn get_next_lease_update_uid(&self) -> Result<i64>;
-
-    fn last_leasing_balance(&self, address: String) -> Result<Option<LeasingBalance>>;
 }
 
 impl TryFrom<std::sync::Arc<BlockchainUpdated>> for BlockchainUpdate {

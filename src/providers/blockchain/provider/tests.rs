@@ -283,7 +283,7 @@ mod item {
 
     #[async_trait]
     impl LastValue<TestDbRepo> for TestItem {
-        async fn get_last(self, repo: &TestDbRepo) -> crate::error::Result<String> {
+        async fn last_value(self, repo: &TestDbRepo) -> crate::error::Result<String> {
             if self.0.ends_with('*') {
                 let key_prefix = self.matched_subtopic_prefix();
                 let mut matching_topics = repo.get_keys_with_prefix(&key_prefix);
@@ -337,15 +337,15 @@ mod item {
 
         assert_eq!(db.get_value(&TestItem(single_topic)), "NONE");
         let item = TestItem(single_topic);
-        let last = item.get_last(&db).await?;
+        let last = item.last_value(&db).await?;
         assert_eq!(last, "NONE");
         let item = TestItem(multi_topic);
-        let last = item.get_last(&db).await?;
+        let last = item.last_value(&db).await?;
         assert_eq!(last, "[]");
 
         db.put_value(TestItem(single_topic), "value");
         let item = TestItem(multi_topic);
-        let last = item.get_last(&db).await?;
+        let last = item.last_value(&db).await?;
         assert_eq!(last, r#"["topic://state/foo/bar"]"#);
 
         Ok(())

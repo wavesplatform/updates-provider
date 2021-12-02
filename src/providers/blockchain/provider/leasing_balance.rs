@@ -1,8 +1,10 @@
 use async_trait::async_trait;
-use wavesexchange_topic::LeasingBalance;
 
 use super::{DataFromBlock, Item, LastValue};
-use crate::{db, error::Result, providers::watchlist::KeyPattern, waves};
+use crate::{
+    db::repo_provider::ProviderRepo, error::Result, providers::watchlist::KeyPattern, waves,
+};
+use wavesexchange_topic::LeasingBalance;
 
 impl DataFromBlock for LeasingBalance {
     fn data_from_block(block: &waves::BlockMicroblockAppend) -> Vec<(String, Self)> {
@@ -21,8 +23,8 @@ impl DataFromBlock for LeasingBalance {
 }
 
 #[async_trait]
-impl<D: db::Repo + Sync> LastValue<D> for LeasingBalance {
-    async fn get_last(self, repo: &D) -> Result<String> {
+impl<R: ProviderRepo + Sync> LastValue<R> for LeasingBalance {
+    async fn last_value(self, repo: &R) -> Result<String> {
         Ok(
             if let Some(lb) =
                 tokio::task::block_in_place(move || repo.last_leasing_balance(self.address))?
@@ -46,4 +48,4 @@ impl KeyPattern for LeasingBalance {
     }
 }
 
-impl<D: db::Repo + Sync> Item<D> for LeasingBalance {}
+impl<R: ProviderRepo + Sync> Item<R> for LeasingBalance {}

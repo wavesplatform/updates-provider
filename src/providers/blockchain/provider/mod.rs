@@ -15,33 +15,36 @@ use wavesexchange_topic::Topic;
 
 use super::super::watchlist::{WatchList, WatchListItem, WatchListUpdate};
 use super::super::UpdatesProvider;
-use crate::db::{self, BlockchainUpdate};
+use crate::db::{repo_provider::ProviderRepo, BlockchainUpdate};
 use crate::error::{Error, Result};
 use crate::providers::watchlist::KeyWatchStatus;
 use crate::resources::ResourcesRepo;
 use crate::utils::clean_timeout;
 use crate::waves::BlockMicroblockAppend;
 
-pub trait Item<D: db::Repo>: WatchListItem + Send + Sync + LastValue<D> + DataFromBlock {}
+pub trait Item<R: ProviderRepo>:
+    WatchListItem + Send + Sync + LastValue<R> + DataFromBlock
+{
+}
 
-pub struct Provider<T: Item<D>, R: ResourcesRepo, D: db::Repo> {
+pub struct Provider<T: Item<P>, R: ResourcesRepo, P: ProviderRepo + Clone> {
     watchlist: Arc<RwLock<WatchList<T, R>>>,
     resources_repo: Arc<R>,
     rx: mpsc::Receiver<Arc<Vec<BlockchainUpdate>>>,
-    repo: Arc<D>,
+    repo: P,
     clean_timeout: Duration,
 }
 
-impl<T, R, D> Provider<T, R, D>
+impl<T, R, P> Provider<T, R, P>
 where
-    T: Item<D> + 'static,
+    T: Item<P> + 'static,
     R: ResourcesRepo + Send + Sync + 'static,
-    D: db::Repo + Send + Sync + 'static,
+    P: ProviderRepo + Clone + Send + Sync + 'static,
 {
     pub fn new(
         resources_repo: Arc<R>,
         delete_timeout: Duration,
-        repo: Arc<D>,
+        repo: P,
         rx: mpsc::Receiver<Arc<Vec<BlockchainUpdate>>>,
     ) -> Self {
         let watchlist = Arc::new(RwLock::new(WatchList::new(
@@ -139,11 +142,11 @@ where
 }
 
 #[async_trait]
-impl<T, R, D> UpdatesProvider<T, R> for Provider<T, R, D>
+impl<T, R, P> UpdatesProvider<T, R> for Provider<T, R, P>
 where
-    T: Item<D> + 'static,
+    T: Item<P> + 'static,
     R: ResourcesRepo + Send + Sync + 'static,
-    D: db::Repo + Send + Sync + 'static,
+    P: ProviderRepo + Clone + Send + Sync + 'static,
 {
     async fn fetch_updates(mut self) -> Result<mpsc::Sender<WatchListUpdate<T>>> {
         let (subscriptions_updates_sender, mut subscriptions_updates_receiver) = mpsc::channel(20);
@@ -200,9 +203,9 @@ where
     }
 }
 
-async fn check_and_maybe_insert<T: Item<D>, R: ResourcesRepo, D: db::Repo>(
+async fn check_and_maybe_insert<T: Item<P>, R: ResourcesRepo, P: ProviderRepo>(
     resources_repo: &Arc<R>,
-    repo: &Arc<D>,
+    repo: &P,
     value: T,
 ) -> Result<Option<HashSet<String>>> {
     let topic = value.clone().into();
@@ -211,7 +214,7 @@ async fn check_and_maybe_insert<T: Item<D>, R: ResourcesRepo, D: db::Repo>(
     let topic_value = if let Some(existing_value) = existing_value {
         existing_value
     } else {
-        value.get_last(repo).await?
+        value.last_value(repo).await?
     };
 
     let subtopics = subtopics_from_topic_value(&topic, &topic_value)?;
@@ -225,7 +228,7 @@ async fn check_and_maybe_insert<T: Item<D>, R: ResourcesRepo, D: db::Repo>(
                 missing_values += 1;
                 let subtopic_value = T::maybe_item(&subtopic)
                     .ok_or_else(|| Error::InvalidTopic(subtopic.clone().into()))?;
-                let new_value = subtopic_value.get_last(repo).await?;
+                let new_value = subtopic_value.last_value(repo).await?;
                 resources_repo.set_and_push(subtopic, new_value)?;
             }
         }
@@ -246,7 +249,7 @@ async fn check_and_maybe_insert<T: Item<D>, R: ResourcesRepo, D: db::Repo>(
     Ok(subtopics)
 }
 
-async fn append_subtopic_to_multitopic<T: Item<D>, R: ResourcesRepo, D: db::Repo>(
+async fn append_subtopic_to_multitopic<T: Item<P>, R: ResourcesRepo, P: ProviderRepo>(
     resources_repo: &Arc<R>,
     multitopic_item: T,
     subtopic_item: T,
@@ -293,9 +296,8 @@ pub trait DataFromBlock: Sized {
 }
 
 #[async_trait]
-//noinspection RsSelfConvention
-pub trait LastValue<D: db::Repo> {
-    async fn get_last(self, repo: &D) -> Result<String>;
+pub trait LastValue<R: ProviderRepo> {
+    async fn last_value(self, repo: &R) -> Result<String>;
 }
 
 #[cfg(test)]
