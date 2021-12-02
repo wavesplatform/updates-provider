@@ -76,6 +76,11 @@ pub struct PostgresConfig {
     pub pool_idle_timeout_minutes: u16,
 }
 
+pub struct DatabaseConfig {
+    pub postgres_ro: PostgresConfig,
+    pub postgres_rw: PostgresConfig,
+}
+
 #[derive(Deserialize)]
 struct FlatConfigsUpdaterConfig {
     pub configs_base_url: String,
@@ -127,10 +132,17 @@ pub fn load_redis() -> Result<RedisConfig, Error> {
         .map_err(Error::from)
 }
 
-pub fn load_postgres() -> Result<PostgresConfig, Error> {
-    envy::prefixed("POSTGRES__")
+pub fn load_postgres() -> Result<DatabaseConfig, Error> {
+    let postgres_ro = envy::prefixed("POSTGRES_RO__")
         .from_env::<PostgresConfig>()
-        .map_err(Error::from)
+        .map_err(Error::from)?;
+    let postgres_rw = envy::prefixed("POSTGRES_RW__")
+        .from_env::<PostgresConfig>()
+        .map_err(Error::from)?;
+    Ok(DatabaseConfig {
+        postgres_ro,
+        postgres_rw,
+    })
 }
 
 pub fn load_configs_updater() -> Result<providers::polling::configs::Config, Error> {

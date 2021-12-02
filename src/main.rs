@@ -49,10 +49,11 @@ async fn tokio_main() -> Result<(), Error> {
     let resources_repo = ResourcesRepoRedis::new(redis_pool.clone());
     let resources_repo = Arc::new(resources_repo);
 
-    let db_pool = db::pool::new(&postgres_config)?;
+    let consumer_db_pool = db::pool::new(&postgres_config.postgres_ro)?;
+    let provider_db_pool = db::pool::new(&postgres_config.postgres_rw)?;
 
-    let consumer_repo = PostgresConsumerRepo::new(db_pool.clone());
-    let provider_repo = PostgresProviderRepo::new(db_pool.clone());
+    let consumer_repo = PostgresConsumerRepo::new(consumer_db_pool);
+    let provider_repo = PostgresProviderRepo::new(provider_db_pool);
 
     // Configs
     let configs_requester = Box::new(providers::polling::configs::ConfigRequester::new(
