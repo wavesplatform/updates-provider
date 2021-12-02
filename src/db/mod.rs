@@ -1,6 +1,7 @@
 use diesel::Insertable;
 use std::convert::TryFrom;
 use std::hash::{Hash, Hasher};
+
 use waves_protobuf_schemas::waves;
 use waves_protobuf_schemas::waves::data_transaction_data::data_entry::Value;
 use waves_protobuf_schemas::waves::events::blockchain_updated::append::{
@@ -22,7 +23,7 @@ pub const STRING_DESCRIPTOR: &str = "s";
 pub const INTEGER_DESCRIPTOR: &str = "d";
 
 pub mod pool;
-pub mod repo;
+pub mod repo_consumer;
 pub mod repo_provider;
 
 #[derive(Debug, Clone)]
@@ -74,6 +75,7 @@ pub struct PrevHandledHeight {
     pub uid: i64,
     pub height: i32,
 }
+
 #[derive(Clone, Debug, Insertable)]
 #[table_name = "data_entries"]
 pub struct DataEntryUpdate {
@@ -184,63 +186,6 @@ impl Hash for LeasingBalance {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.address.hash(state);
     }
-}
-
-pub trait Db {
-    fn transaction(&self, f: impl FnOnce(&dyn Repo) -> Result<()>) -> Result<()>;
-}
-
-pub trait Repo {
-    fn get_prev_handled_height(&self) -> Result<Option<PrevHandledHeight>>;
-
-    fn get_block_uid(&self, block_id: &str) -> Result<i64>;
-
-    fn get_key_block_uid(&self) -> Result<i64>;
-
-    fn get_total_block_id(&self) -> Result<Option<String>>;
-
-    fn get_next_update_uid(&self) -> Result<i64>;
-
-    fn insert_blocks_or_microblocks(&self, blocks: &[BlockMicroblock]) -> Result<Vec<i64>>;
-
-    fn insert_transactions(&self, transactions: &[InsertableTransaction]) -> Result<()>;
-
-    fn insert_associated_addresses(&self, associated_addresses: &[AssociatedAddress])
-        -> Result<()>;
-
-    fn insert_data_entries(&self, entries: &[DataEntry]) -> Result<()>;
-
-    fn close_superseded_by(&self, updates: &[DataEntryUpdate]) -> Result<()>;
-
-    fn reopen_superseded_by(&self, current_superseded_by: &[i64]) -> Result<()>;
-
-    fn set_next_update_uid(&self, uid: i64) -> Result<()>;
-
-    fn change_block_id(&self, block_uid: &i64, new_block_id: &str) -> Result<()>;
-
-    fn update_transactions_block_references(&self, block_uid: &i64) -> Result<()>;
-
-    fn delete_microblocks(&self) -> Result<()>;
-
-    fn rollback_blocks_microblocks(&self, block_uid: &i64) -> Result<()>;
-
-    fn rollback_data_entries(&self, block_uid: &i64) -> Result<Vec<DeletedDataEntry>>;
-
-    fn update_data_entries_block_references(&self, block_uid: &i64) -> Result<()>;
-
-    fn close_lease_superseded_by(&self, updates: &[LeasingBalanceUpdate]) -> Result<()>;
-
-    fn reopen_lease_superseded_by(&self, current_superseded_by: &[i64]) -> Result<()>;
-
-    fn insert_leasing_balances(&self, entries: &[LeasingBalance]) -> Result<()>;
-
-    fn set_next_lease_update_uid(&self, new_uid: i64) -> Result<()>;
-
-    fn rollback_leasing_balances(&self, block_uid: &i64) -> Result<Vec<DeletedLeasingBalance>>;
-
-    fn update_leasing_balances_block_references(&self, block_uid: &i64) -> Result<()>;
-
-    fn get_next_lease_update_uid(&self) -> Result<i64>;
 }
 
 impl TryFrom<std::sync::Arc<BlockchainUpdated>> for BlockchainUpdate {

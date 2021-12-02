@@ -35,11 +35,10 @@ pub trait ProviderRepo {
 
 mod repo_impl {
     use diesel::dsl::any;
-    use diesel::{prelude::*, r2d2::ConnectionManager};
-    use r2d2::PooledConnection;
+    use diesel::prelude::*;
 
     use super::ProviderRepo;
-    use crate::db::pool::PgPool;
+    use crate::db::pool::{PgPool, PooledPgConnection};
     use crate::db::{DataEntry, LeasingBalance};
     use crate::error::Result;
     use crate::schema::{associated_addresses, data_entries, leasing_balances, transactions};
@@ -62,7 +61,7 @@ mod repo_impl {
             PostgresProviderRepo { pool }
         }
 
-        fn get_conn(&self) -> Result<PooledConnection<ConnectionManager<PgConnection>>> {
+        fn get_conn(&self) -> Result<PooledPgConnection> {
             Ok(self.pool.get()?)
         }
     }
@@ -108,7 +107,7 @@ mod repo_impl {
         }
     }
 
-    impl ProviderRepo for PooledConnection<ConnectionManager<PgConnection>> {
+    impl ProviderRepo for PooledPgConnection {
         fn last_transaction_by_address(&self, address: String) -> Result<Option<Transaction>> {
             timer!("last_transaction_by_address()", verbose);
 

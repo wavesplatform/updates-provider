@@ -14,10 +14,10 @@ mod subscriptions;
 mod utils;
 mod waves;
 
-use crate::db::repo_provider::PostgresProviderRepo;
+use crate::db::{repo_consumer::PostgresConsumerRepo, repo_provider::PostgresProviderRepo};
 use crate::error::Error;
 use crate::providers::{blockchain, UpdatesProvider};
-use crate::{db::repo::PostgresRepo, resources::repo::ResourcesRepoRedis};
+use crate::resources::repo::ResourcesRepoRedis;
 use r2d2::Pool;
 use r2d2_redis::{r2d2, redis, RedisConnectionManager};
 use std::sync::Arc;
@@ -51,7 +51,7 @@ async fn tokio_main() -> Result<(), Error> {
 
     let db_pool = db::pool::new(&postgres_config)?;
 
-    let consumer_repo = PostgresRepo::new(db_pool.clone());
+    let consumer_repo = PostgresConsumerRepo::new(db_pool.clone());
     let provider_repo = PostgresProviderRepo::new(db_pool.clone());
 
     // Configs

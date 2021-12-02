@@ -1,9 +1,13 @@
-use crate::{config::PostgresConfig, error::Error};
-use diesel::pg::PgConnection;
-use diesel::r2d2::{ConnectionManager, Pool};
 use std::time::Duration;
 
+use diesel::pg::PgConnection;
+use diesel::r2d2::{ConnectionManager, Pool};
+use r2d2::PooledConnection;
+
+use crate::{config::PostgresConfig, error::Error};
+
 pub type PgPool = Pool<ConnectionManager<PgConnection>>;
+pub type PooledPgConnection = PooledConnection<ConnectionManager<PgConnection>>;
 
 pub fn new(config: &PostgresConfig) -> Result<PgPool, Error> {
     let db_url = format!(
