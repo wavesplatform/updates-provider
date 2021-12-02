@@ -1,4 +1,4 @@
-use self::{item::TestItem, repo::TestDbRepo};
+use self::{item::TestItem, repo::TestProviderRepo};
 use super::Provider;
 use crate::db::BlockchainUpdate;
 use crate::providers::{
@@ -11,12 +11,9 @@ use std::{convert::TryFrom, sync::Arc, time::Duration};
 use wavesexchange_topic::Topic;
 
 mod repo {
-    use crate::db::{
-        AssociatedAddress, BlockMicroblock, DataEntry, DataEntryUpdate, DeletedDataEntry,
-        DeletedLeasingBalance, LeasingBalance, LeasingBalanceUpdate, PrevHandledHeight, Repo,
-    };
+    use crate::db::{repo_provider::ProviderRepo, DataEntry, LeasingBalance};
     pub use crate::providers::watchlist::tests::item::TestItem;
-    use crate::waves::transactions::{InsertableTransaction, Transaction, TransactionType};
+    use crate::waves::transactions::{Transaction, TransactionType};
     use itertools::Itertools;
     use std::{
         collections::HashMap,
@@ -24,102 +21,16 @@ mod repo {
     };
     use wavesexchange_topic::StateSingle;
 
-    pub struct TestDbRepo(Arc<Mutex<HashMap<TestItem, String>>>);
+    #[derive(Clone)]
+    pub struct TestProviderRepo(Arc<Mutex<HashMap<TestItem, String>>>);
 
-    impl Default for TestDbRepo {
+    impl Default for TestProviderRepo {
         fn default() -> Self {
-            TestDbRepo(Arc::new(Mutex::new(HashMap::new())))
+            TestProviderRepo(Arc::new(Mutex::new(HashMap::new())))
         }
     }
 
-    impl Repo for TestDbRepo {
-        fn get_prev_handled_height(&self) -> crate::error::Result<Option<PrevHandledHeight>> {
-            unimplemented!()
-        }
-
-        fn get_block_uid(&self, _block_id: &str) -> crate::error::Result<i64> {
-            unimplemented!()
-        }
-
-        fn get_key_block_uid(&self) -> crate::error::Result<i64> {
-            unimplemented!()
-        }
-
-        fn get_total_block_id(&self) -> crate::error::Result<Option<String>> {
-            unimplemented!()
-        }
-
-        fn get_next_update_uid(&self) -> crate::error::Result<i64> {
-            unimplemented!()
-        }
-
-        fn insert_blocks_or_microblocks(
-            &self,
-            _blocks: &[BlockMicroblock],
-        ) -> crate::error::Result<Vec<i64>> {
-            unimplemented!()
-        }
-
-        fn insert_transactions(
-            &self,
-            _transactions: &[InsertableTransaction],
-        ) -> crate::error::Result<()> {
-            unimplemented!()
-        }
-
-        fn insert_associated_addresses(
-            &self,
-            _associated_addresses: &[AssociatedAddress],
-        ) -> crate::error::Result<()> {
-            unimplemented!()
-        }
-
-        fn insert_data_entries(&self, _entries: &[DataEntry]) -> crate::error::Result<()> {
-            unimplemented!()
-        }
-
-        fn close_superseded_by(&self, _updates: &[DataEntryUpdate]) -> crate::error::Result<()> {
-            unimplemented!()
-        }
-
-        fn reopen_superseded_by(&self, _current_superseded_by: &[i64]) -> crate::error::Result<()> {
-            unimplemented!()
-        }
-
-        fn set_next_update_uid(&self, _uid: i64) -> crate::error::Result<()> {
-            unimplemented!()
-        }
-
-        fn change_block_id(
-            &self,
-            _block_uid: &i64,
-            _new_block_id: &str,
-        ) -> crate::error::Result<()> {
-            unimplemented!()
-        }
-
-        fn update_transactions_block_references(
-            &self,
-            _block_uid: &i64,
-        ) -> crate::error::Result<()> {
-            unimplemented!()
-        }
-
-        fn delete_microblocks(&self) -> crate::error::Result<()> {
-            unimplemented!()
-        }
-
-        fn rollback_blocks_microblocks(&self, _block_uid: &i64) -> crate::error::Result<()> {
-            unimplemented!()
-        }
-
-        fn rollback_data_entries(
-            &self,
-            _block_uid: &i64,
-        ) -> crate::error::Result<Vec<DeletedDataEntry>> {
-            unimplemented!()
-        }
-
+    impl ProviderRepo for TestProviderRepo {
         fn last_transaction_by_address(
             &self,
             _address: String,
@@ -143,6 +54,13 @@ mod repo {
             unimplemented!()
         }
 
+        fn last_leasing_balance(
+            &self,
+            _address: String,
+        ) -> crate::error::Result<Option<LeasingBalance>> {
+            unimplemented!()
+        }
+
         fn last_data_entry(
             &self,
             _address: String,
@@ -158,63 +76,9 @@ mod repo {
         ) -> crate::error::Result<Vec<StateSingle>> {
             unimplemented!()
         }
-
-        fn update_data_entries_block_references(
-            &self,
-            _block_uid: &i64,
-        ) -> crate::error::Result<()> {
-            unimplemented!()
-        }
-
-        fn close_lease_superseded_by(
-            &self,
-            _updates: &[LeasingBalanceUpdate],
-        ) -> crate::error::Result<()> {
-            unimplemented!()
-        }
-
-        fn reopen_lease_superseded_by(
-            &self,
-            _current_superseded_by: &[i64],
-        ) -> crate::error::Result<()> {
-            unimplemented!()
-        }
-
-        fn insert_leasing_balances(&self, _entries: &[LeasingBalance]) -> crate::error::Result<()> {
-            unimplemented!()
-        }
-
-        fn set_next_lease_update_uid(&self, _new_uid: i64) -> crate::error::Result<()> {
-            unimplemented!()
-        }
-
-        fn rollback_leasing_balances(
-            &self,
-            _block_uid: &i64,
-        ) -> crate::error::Result<Vec<DeletedLeasingBalance>> {
-            unimplemented!()
-        }
-
-        fn update_leasing_balances_block_references(
-            &self,
-            _block_uid: &i64,
-        ) -> crate::error::Result<()> {
-            unimplemented!()
-        }
-
-        fn get_next_lease_update_uid(&self) -> crate::error::Result<i64> {
-            unimplemented!()
-        }
-
-        fn last_leasing_balance(
-            &self,
-            _address: String,
-        ) -> crate::error::Result<Option<LeasingBalance>> {
-            unimplemented!()
-        }
     }
 
-    impl TestDbRepo {
+    impl TestProviderRepo {
         pub fn has_value(&self, key: &TestItem) -> bool {
             let data = self.0.lock().unwrap();
             data.contains_key(key)
@@ -252,12 +116,12 @@ mod repo {
 
 mod item {
     use super::super::{DataFromBlock, Item, LastValue};
-    use super::repo::TestDbRepo;
+    use super::repo::TestProviderRepo;
     pub use crate::providers::watchlist::tests::item::TestItem;
     use crate::waves::{BlockMicroblockAppend, ValueDataEntry};
     use async_trait::async_trait;
 
-    impl Item<TestDbRepo> for TestItem {}
+    impl Item<TestProviderRepo> for TestItem {}
 
     impl DataFromBlock for TestItem {
         fn data_from_block(block: &BlockMicroblockAppend) -> Vec<(String, Self)> {
@@ -282,8 +146,8 @@ mod item {
     }
 
     #[async_trait]
-    impl LastValue<TestDbRepo> for TestItem {
-        async fn last_value(self, repo: &TestDbRepo) -> crate::error::Result<String> {
+    impl LastValue<TestProviderRepo> for TestItem {
+        async fn last_value(self, repo: &TestProviderRepo) -> crate::error::Result<String> {
             if self.0.ends_with('*') {
                 let key_prefix = self.matched_subtopic_prefix();
                 let mut matching_topics = repo.get_keys_with_prefix(&key_prefix);
@@ -330,7 +194,7 @@ mod item {
 
     #[tokio::test]
     async fn test_last_value() -> anyhow::Result<()> {
-        let db = TestDbRepo::default();
+        let db = TestProviderRepo::default();
 
         let single_topic = "topic://state/foo/bar";
         let multi_topic = "topic://state?address__in[]=foo&key__match_any[]=bar*";
@@ -359,7 +223,7 @@ async fn test_updates_provider() -> anyhow::Result<()> {
 
     // Setup
     let res_repo = Arc::new(TestResourcesRepo::default());
-    let db_repo = Arc::new(TestDbRepo::default());
+    let db_repo = TestProviderRepo::default();
     let keep_alive = Duration::from_nanos(1);
     let (tx, rx) = tokio::sync::mpsc::channel(8);
     let provider =
