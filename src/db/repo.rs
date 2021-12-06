@@ -2,6 +2,7 @@ use diesel::dsl::any;
 use diesel::sql_types::{Array, BigInt, VarChar};
 use diesel::{prelude::*, r2d2::ConnectionManager};
 use r2d2::PooledConnection;
+use wavesexchange_log::{debug, timer};
 use wavesexchange_topic::StateSingle;
 
 use super::pool::PgPool;
@@ -199,7 +200,8 @@ impl Repo for PostgresRepo {
 
 impl Repo for PooledConnection<ConnectionManager<PgConnection>> {
     fn get_prev_handled_height(&self) -> Result<Option<PrevHandledHeight>> {
-        timer!("get_prev_handled_height()");
+        timer!("get_prev_handled_height()", verbose);
+
         Ok(blocks_microblocks
             .select((blocks_microblocks::uid, blocks_microblocks::height))
             .filter(
@@ -213,7 +215,8 @@ impl Repo for PooledConnection<ConnectionManager<PgConnection>> {
     }
 
     fn get_block_uid(&self, block_id: &str) -> Result<i64> {
-        timer!("get_block_uid()");
+        timer!("get_block_uid()", verbose);
+
         Ok(blocks_microblocks
             .select(blocks_microblocks::uid)
             .filter(blocks_microblocks::id.eq(block_id))
@@ -221,7 +224,8 @@ impl Repo for PooledConnection<ConnectionManager<PgConnection>> {
     }
 
     fn get_key_block_uid(&self) -> Result<i64> {
-        timer!("get_key_block_uid()");
+        timer!("get_key_block_uid()", verbose);
+
         Ok(blocks_microblocks
             .select(diesel::expression::sql_literal::sql("max(uid)"))
             .filter(blocks_microblocks::time_stamp.is_not_null())
@@ -229,7 +233,8 @@ impl Repo for PooledConnection<ConnectionManager<PgConnection>> {
     }
 
     fn get_total_block_id(&self) -> Result<Option<String>> {
-        timer!("get_total_block_id()");
+        timer!("get_total_block_id()", verbose);
+
         Ok(blocks_microblocks
             .select(blocks_microblocks::id)
             .filter(blocks_microblocks::time_stamp.is_null())
@@ -239,14 +244,16 @@ impl Repo for PooledConnection<ConnectionManager<PgConnection>> {
     }
 
     fn get_next_update_uid(&self) -> Result<i64> {
-        timer!("get_next_update_uid()");
+        timer!("get_next_update_uid()", verbose);
+
         Ok(data_entries_uid_seq
             .select(data_entries_uid_seq::last_value)
             .first(self)?)
     }
 
     fn insert_blocks_or_microblocks(&self, blocks: &[BlockMicroblock]) -> Result<Vec<i64>> {
-        timer!("insert_blocks_or_microblocks()");
+        timer!("insert_blocks_or_microblocks()", verbose);
+
         Ok(diesel::insert_into(blocks_microblocks::table)
             .values(blocks)
             .returning(blocks_microblocks::uid)
@@ -254,10 +261,13 @@ impl Repo for PooledConnection<ConnectionManager<PgConnection>> {
     }
 
     fn insert_transactions(&self, transactions: &[InsertableTransaction]) -> Result<()> {
+        timer!("insert_transactions()", verbose);
+
         diesel::insert_into(transactions::table)
             .values(transactions)
             .on_conflict_do_nothing()
             .execute(self)?;
+
         Ok(())
     }
 
@@ -265,15 +275,19 @@ impl Repo for PooledConnection<ConnectionManager<PgConnection>> {
         &self,
         associated_addresses: &[AssociatedAddress],
     ) -> Result<()> {
-        timer!("insert_associated_addresses()");
+        timer!("insert_associated_addresses()", verbose);
+
         diesel::insert_into(associated_addresses::table)
             .values(associated_addresses)
             .on_conflict_do_nothing()
             .execute(self)?;
+
         Ok(())
     }
 
     fn insert_data_entries(&self, entries: &[DataEntry]) -> Result<()> {
+        timer!("insert_data_entries()", verbose);
+
         // one data entry has 10 columns
         // pg cannot insert more then 65535
         // so the biggest chunk should be less then 6553
@@ -283,11 +297,12 @@ impl Repo for PooledConnection<ConnectionManager<PgConnection>> {
                 .values(chunk)
                 .execute(self)?;
         }
+
         Ok(())
     }
 
     fn close_superseded_by(&self, updates: &[DataEntryUpdate]) -> Result<()> {
-        timer!("close_superseded_by()");
+        timer!("close_superseded_by()", verbose);
 
         let mut addresses = vec![];
         let mut keys = vec![];
@@ -309,7 +324,8 @@ impl Repo for PooledConnection<ConnectionManager<PgConnection>> {
     }
 
     fn reopen_superseded_by(&self, current_superseded_by: &[i64]) -> Result<()> {
-        timer!("reopen_superseded_by()");
+        timer!("reopen_superseded_by()", verbose);
+
         diesel::sql_query("UPDATE data_entries SET superseded_by = $1 FROM (SELECT UNNEST($2) AS superseded_by) AS current WHERE data_entries.superseded_by = current.superseded_by;")
             .bind::<BigInt, _>(MAX_UID)
             .bind::<Array<BigInt>, _>(current_superseded_by)
@@ -319,7 +335,8 @@ impl Repo for PooledConnection<ConnectionManager<PgConnection>> {
     }
 
     fn set_next_update_uid(&self, new_uid: i64) -> Result<()> {
-        timer!("set_next_update_uid()");
+        timer!("set_next_update_uid()", verbose);
+
         Ok(diesel::sql_query(format!(
             "select setval('data_entries_uid_seq', {}, false);", // 3rd param - is called; in case of true, value'll be incremented before returning
             new_uid
@@ -329,7 +346,8 @@ impl Repo for PooledConnection<ConnectionManager<PgConnection>> {
     }
 
     fn change_block_id(&self, block_uid: &i64, new_block_id: &str) -> Result<()> {
-        timer!("change_block_id()");
+        timer!("change_block_id()", verbose);
+
         Ok(diesel::update(blocks_microblocks::table)
             .set(blocks_microblocks::id.eq(new_block_id))
             .filter(blocks_microblocks::uid.eq(block_uid))
@@ -338,16 +356,19 @@ impl Repo for PooledConnection<ConnectionManager<PgConnection>> {
     }
 
     fn update_transactions_block_references(&self, block_uid: &i64) -> Result<()> {
-        timer!("update_transactions_block_references()");
+        timer!("update_transactions_block_references()", verbose);
+
         diesel::update(transactions::table)
             .set(transactions::block_uid.eq(block_uid))
             .filter(transactions::block_uid.gt(block_uid))
             .execute(self)?;
+
         Ok(())
     }
 
     fn delete_microblocks(&self) -> Result<()> {
-        timer!("delete_microblocks()");
+        timer!("delete_microblocks()", verbose);
+
         Ok(diesel::delete(blocks_microblocks::table)
             .filter(blocks_microblocks::time_stamp.is_null())
             .execute(self)
@@ -355,7 +376,8 @@ impl Repo for PooledConnection<ConnectionManager<PgConnection>> {
     }
 
     fn rollback_blocks_microblocks(&self, block_uid: &i64) -> Result<()> {
-        timer!("rollback_blocks_microblocks()");
+        timer!("rollback_blocks_microblocks()", verbose);
+
         Ok(diesel::delete(blocks_microblocks::table)
             .filter(blocks_microblocks::uid.gt(block_uid))
             .execute(self)
@@ -363,7 +385,8 @@ impl Repo for PooledConnection<ConnectionManager<PgConnection>> {
     }
 
     fn rollback_data_entries(&self, block_uid: &i64) -> Result<Vec<DeletedDataEntry>> {
-        timer!("rollback_data_entries()");
+        timer!("rollback_data_entries()", verbose);
+
         Ok(diesel::delete(data_entries::table)
             .filter(data_entries::block_uid.gt(block_uid))
             .returning((data_entries::address, data_entries::key, data_entries::uid))
@@ -380,7 +403,8 @@ impl Repo for PooledConnection<ConnectionManager<PgConnection>> {
     }
 
     fn last_transaction_by_address(&self, address: String) -> Result<Option<Transaction>> {
-        timer!("last_transaction_by_address()");
+        timer!("last_transaction_by_address()", verbose);
+
         Ok(associated_addresses::table
             .inner_join(transactions::table)
             .filter(associated_addresses::address.eq(address))
@@ -396,7 +420,8 @@ impl Repo for PooledConnection<ConnectionManager<PgConnection>> {
         address: String,
         transaction_type: TransactionType,
     ) -> Result<Option<Transaction>> {
-        timer!("last_transaction_by_address_and_type()");
+        timer!("last_transaction_by_address_and_type()", verbose);
+
         Ok(associated_addresses::table
             .inner_join(transactions::table)
             .filter(associated_addresses::address.eq(address))
@@ -413,7 +438,8 @@ impl Repo for PooledConnection<ConnectionManager<PgConnection>> {
         amount_asset: String,
         price_asset: String,
     ) -> Result<Option<Transaction>> {
-        timer!("last_exchange_transaction()");
+        timer!("last_exchange_transaction()", verbose);
+
         Ok(transactions::table
             .filter(transactions::exchange_amount_asset.eq(amount_asset))
             .filter(transactions::exchange_price_asset.eq(price_asset))
@@ -425,6 +451,8 @@ impl Repo for PooledConnection<ConnectionManager<PgConnection>> {
     }
 
     fn last_data_entry(&self, address: String, key: String) -> Result<Option<DataEntry>> {
+        timer!("last_data_entry()", verbose);
+
         Ok(data_entries::table
             .filter(data_entries::address.eq(address))
             .filter(data_entries::key.eq(key))
@@ -447,7 +475,8 @@ impl Repo for PooledConnection<ConnectionManager<PgConnection>> {
         addresses: Vec<String>,
         key_patterns: Vec<String>,
     ) -> Result<Vec<StateSingle>> {
-        timer!("find_matching_data_keys()");
+        timer!("find_matching_data_keys()", verbose);
+
         let start_time = std::time::Instant::now();
         let (n_addr, n_patt) = (addresses.len(), key_patterns.len());
         let key_likes = key_patterns
@@ -467,33 +496,39 @@ impl Repo for PooledConnection<ConnectionManager<PgConnection>> {
             .map(|(address, key)| StateSingle { address, key })
             .collect::<Vec<_>>();
         let elapsed = start_time.elapsed().as_millis();
-        wavesexchange_log::debug!(
+        debug!(
             "fetched {} keys from {} addrs and {} patterns in {}ms",
             res.len(),
             n_addr,
             n_patt,
             elapsed,
         );
+
         Ok(res)
     }
 
     fn update_data_entries_block_references(&self, block_uid: &i64) -> Result<()> {
-        timer!("update_data_entries_block_references()");
+        timer!("update_data_entries_block_references()", verbose);
+
         diesel::update(data_entries::table)
             .set(data_entries::block_uid.eq(block_uid))
             .filter(data_entries::block_uid.gt(block_uid))
             .execute(self)?;
+
         Ok(())
     }
 
     fn get_next_lease_update_uid(&self) -> Result<i64> {
-        timer!("get_next_lease_update_uid()");
+        timer!("get_next_lease_update_uid()", verbose);
+
         Ok(leasing_balances_uid_seq
             .select(leasing_balances_uid_seq::last_value)
             .first(self)?)
     }
 
     fn insert_leasing_balances(&self, entries: &[LeasingBalance]) -> Result<()> {
+        timer!("insert_leasing_balances()", verbose);
+
         // one data entry has 6 columns
         // pg cannot insert more then 65535
         // so the biggest chunk should be less then 10922
@@ -503,11 +538,12 @@ impl Repo for PooledConnection<ConnectionManager<PgConnection>> {
                 .values(chunk)
                 .execute(self)?;
         }
+
         Ok(())
     }
 
     fn close_lease_superseded_by(&self, updates: &[LeasingBalanceUpdate]) -> Result<()> {
-        timer!("close_lease_superseded_by()");
+        timer!("close_lease_superseded_by()", verbose);
 
         let mut addresses = vec![];
         let mut superseded_bys = vec![];
@@ -526,7 +562,7 @@ impl Repo for PooledConnection<ConnectionManager<PgConnection>> {
     }
 
     fn reopen_lease_superseded_by(&self, current_superseded_by: &[i64]) -> Result<()> {
-        timer!("reopen_lease_superseded_by()");
+        timer!("reopen_lease_superseded_by()", verbose);
 
         diesel::sql_query("UPDATE leasing_balances SET superseded_by = $1 FROM (SELECT UNNEST($2) AS superseded_by) AS current WHERE leasing_balances.superseded_by = current.superseded_by;")
             .bind::<BigInt, _>(MAX_UID)
@@ -537,7 +573,8 @@ impl Repo for PooledConnection<ConnectionManager<PgConnection>> {
     }
 
     fn set_next_lease_update_uid(&self, new_uid: i64) -> Result<()> {
-        timer!("set_next_lease_update_uid()");
+        timer!("set_next_lease_update_uid()", verbose);
+
         Ok(diesel::sql_query(format!(
             "select setval('leasing_balances_uid_seq', {}, false);", // 3rd param - is called; in case of true, value'll be incremented before returning
             new_uid
@@ -547,7 +584,8 @@ impl Repo for PooledConnection<ConnectionManager<PgConnection>> {
     }
 
     fn rollback_leasing_balances(&self, block_uid: &i64) -> Result<Vec<DeletedLeasingBalance>> {
-        timer!("rollback_leasing_balances()");
+        timer!("rollback_leasing_balances()", verbose);
+
         Ok(diesel::delete(leasing_balances::table)
             .filter(leasing_balances::block_uid.gt(block_uid))
             .returning((leasing_balances::address, leasing_balances::uid))
@@ -563,15 +601,19 @@ impl Repo for PooledConnection<ConnectionManager<PgConnection>> {
     }
 
     fn update_leasing_balances_block_references(&self, block_uid: &i64) -> Result<()> {
-        timer!("update_leasing_balances_block_references()");
+        timer!("update_leasing_balances_block_references()", verbose);
+
         diesel::update(leasing_balances::table)
             .set(leasing_balances::block_uid.eq(block_uid))
             .filter(leasing_balances::block_uid.gt(block_uid))
             .execute(self)?;
+
         Ok(())
     }
 
     fn last_leasing_balance(&self, address: String) -> Result<Option<LeasingBalance>> {
+        timer!("last_leasing_balance()", verbose);
+
         Ok(leasing_balances::table
             .filter(leasing_balances::address.eq(address))
             .select(leasing_balances::all_columns.nullable())
