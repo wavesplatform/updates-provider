@@ -14,9 +14,10 @@ mod subscriptions;
 mod utils;
 mod waves;
 
+use crate::db::{repo_consumer::PostgresConsumerRepo, repo_provider::PostgresProviderRepo};
 use crate::error::Error;
 use crate::providers::{blockchain, UpdatesProvider};
-use crate::{db::repo::PostgresRepo, resources::repo::ResourcesRepoRedis};
+use crate::resources::repo::ResourcesRepoRedis;
 use r2d2::Pool;
 use r2d2_redis::{r2d2, redis, RedisConnectionManager};
 use std::sync::Arc;
@@ -48,8 +49,11 @@ async fn tokio_main() -> Result<(), Error> {
     let resources_repo = ResourcesRepoRedis::new(redis_pool.clone());
     let resources_repo = Arc::new(resources_repo);
 
-    let db_pool = db::pool::new(&postgres_config)?;
-    let transactions_repo = Arc::new(PostgresRepo::new(db_pool));
+    let consumer_db_pool = db::pool::new(&postgres_config.postgres_rw)?;
+    let provider_db_pool = db::pool::new(&postgres_config.postgres_ro)?;
+
+    let consumer_repo = PostgresConsumerRepo::new(consumer_db_pool);
+    let provider_repo = PostgresProviderRepo::new(provider_db_pool);
 
     // Configs
     let configs_requester = Box::new(providers::polling::configs::ConfigRequester::new(
@@ -99,7 +103,7 @@ async fn tokio_main() -> Result<(), Error> {
         last_height,
         mut updater,
     } = blockchain::updater::Updater::init(
-        transactions_repo.clone(),
+        consumer_repo,
         blockchain_config.updates_buffer_size,
         blockchain_config.transactions_count_threshold,
         blockchain_config.associated_addresses_count_threshold,
@@ -120,7 +124,7 @@ async fn tokio_main() -> Result<(), Error> {
     let provider = blockchain::provider::Provider::<wavesexchange_topic::Transaction, _, _>::new(
         resources_repo.clone(),
         blockchain_config.transaction_delete_timeout,
-        transactions_repo.clone(),
+        provider_repo.clone(),
         rx,
     );
 
@@ -133,7 +137,7 @@ async fn tokio_main() -> Result<(), Error> {
     let provider = blockchain::provider::Provider::<wavesexchange_topic::State, _, _>::new(
         resources_repo.clone(),
         blockchain_config.state_delete_timeout,
-        transactions_repo.clone(),
+        provider_repo.clone(),
         rx,
     );
 
@@ -145,7 +149,7 @@ async fn tokio_main() -> Result<(), Error> {
     let provider = blockchain::provider::Provider::<wavesexchange_topic::LeasingBalance, _, _>::new(
         resources_repo,
         blockchain_config.state_delete_timeout,
-        transactions_repo,
+        provider_repo,
         rx,
     );
 

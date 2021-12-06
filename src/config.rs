@@ -48,8 +48,16 @@ fn default_pgport() -> u16 {
     5432
 }
 
+fn default_pg_pool_min_size() -> u8 {
+    1
+}
+
 fn default_pg_pool_size() -> u8 {
     4
+}
+
+fn default_pg_pool_idle_timeout_minutes() -> u16 {
+    5
 }
 
 #[derive(Deserialize)]
@@ -60,8 +68,17 @@ pub struct PostgresConfig {
     pub database: String,
     pub user: String,
     pub password: String,
+    #[serde(default = "default_pg_pool_min_size")]
+    pub pool_min_size: u8,
     #[serde(default = "default_pg_pool_size")]
     pub pool_size: u8,
+    #[serde(default = "default_pg_pool_idle_timeout_minutes")]
+    pub pool_idle_timeout_minutes: u16,
+}
+
+pub struct DatabaseConfig {
+    pub postgres_ro: PostgresConfig,
+    pub postgres_rw: PostgresConfig,
 }
 
 #[derive(Deserialize)]
@@ -115,10 +132,17 @@ pub fn load_redis() -> Result<RedisConfig, Error> {
         .map_err(Error::from)
 }
 
-pub fn load_postgres() -> Result<PostgresConfig, Error> {
-    envy::prefixed("POSTGRES__")
+pub fn load_postgres() -> Result<DatabaseConfig, Error> {
+    let postgres_ro = envy::prefixed("POSTGRES_RO__")
         .from_env::<PostgresConfig>()
-        .map_err(Error::from)
+        .map_err(Error::from)?;
+    let postgres_rw = envy::prefixed("POSTGRES_RW__")
+        .from_env::<PostgresConfig>()
+        .map_err(Error::from)?;
+    Ok(DatabaseConfig {
+        postgres_ro,
+        postgres_rw,
+    })
 }
 
 pub fn load_configs_updater() -> Result<providers::polling::configs::Config, Error> {
