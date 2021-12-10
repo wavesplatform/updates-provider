@@ -23,6 +23,10 @@ use r2d2_redis::{r2d2, redis, RedisConnectionManager};
 use std::sync::Arc;
 use wavesexchange_log::{error, info};
 
+// Tracing
+use opentelemetry::global;
+use tracing_subscriber::prelude::*;
+
 fn main() -> Result<(), Error> {
     let rt = tokio::runtime::Runtime::new().unwrap();
     let result = rt.block_on(tokio_main());
@@ -32,12 +36,42 @@ fn main() -> Result<(), Error> {
 
 async fn tokio_main() -> Result<(), Error> {
     metrics::register_metrics();
+
     let redis_config = config::load_redis()?;
     let postgres_config = config::load_postgres()?;
     let configs_updater_config = config::load_configs_updater()?;
     let test_resources_config = config::load_test_resources_updater()?;
     let blockchain_config = config::load_blockchain()?;
     let server_config = config::load_api()?;
+    let tracing_config = config::tracing::load()?;
+
+    let opentelemetry_initialized;
+    if let Some(tracing_config) = tracing_config {
+        info!(
+            "Tracing enabled: {}, {}",
+            tracing_config.service_name_prefix, tracing_config.jaeger_agent_endpoint,
+        );
+        global::set_text_map_propagator(opentelemetry_jaeger::Propagator::new());
+
+        let tracer = opentelemetry_jaeger::new_pipeline()
+            .with_service_name(format!(
+                "{}/updates-provider",
+                tracing_config.service_name_prefix
+            ))
+            .with_agent_endpoint(tracing_config.jaeger_agent_endpoint)
+            .install_batch(opentelemetry::runtime::Tokio)?;
+
+        let opentelemetry = tracing_opentelemetry::layer().with_tracer(tracer);
+        let fmt_layer = tracing_subscriber::fmt()
+            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+            .finish();
+
+        fmt_layer.with(opentelemetry).try_init()?;
+
+        opentelemetry_initialized = true;
+    } else {
+        opentelemetry_initialized = false;
+    }
 
     let redis_connection_url = format!(
         "redis://{}:{}@{}:{}/",
@@ -207,6 +241,10 @@ async fn tokio_main() -> Result<(), Error> {
         result = api_handle => {
             result?;
         }
+    }
+
+    if opentelemetry_initialized {
+        global::shutdown_tracer_provider();
     }
 
     Ok(())

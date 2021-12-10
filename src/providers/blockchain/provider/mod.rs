@@ -10,6 +10,7 @@ use std::iter::FromIterator;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, RwLock};
+use tracing_futures::Instrument;
 use wavesexchange_log::{debug, error, info, warn};
 use wavesexchange_topic::Topic;
 
@@ -17,7 +18,7 @@ use super::super::watchlist::{WatchList, WatchListItem, WatchListUpdate};
 use super::super::UpdatesProvider;
 use crate::db::{repo_provider::ProviderRepo, BlockchainUpdate};
 use crate::error::{Error, Result};
-use crate::providers::watchlist::KeyWatchStatus;
+use crate::providers::watchlist::{KeyWatchStatus, TracingContext};
 use crate::resources::ResourcesRepo;
 use crate::waves::BlockMicroblockAppend;
 
@@ -160,8 +161,11 @@ where
                 if let Err(err) = watchlist.write().await.on_update(&upd) {
                     error!("error while updating watchlist: {:?}", err);
                 }
-                if let WatchListUpdate::Updated { item } = upd {
-                    let result = check_and_maybe_insert(&resources_repo, &repo, item.clone()).await;
+                if let WatchListUpdate::Updated { item, context } = upd {
+                    let span = resume_tracing(context, item.clone().into());
+                    let result = check_and_maybe_insert(&resources_repo, &repo, item.clone())
+                        .instrument(span)
+                        .await;
                     match result {
                         Ok(None) => { /* Nothing more to do */ }
                         Ok(Some(subtopics)) => {
@@ -202,6 +206,21 @@ where
     }
 }
 
+fn resume_tracing(context: Option<TracingContext>, topic: String) -> tracing::Span {
+    use opentelemetry::global;
+    use tracing_opentelemetry::OpenTelemetrySpanExt;
+
+    let span = tracing::debug_span!("subscription", %topic);
+
+    if let Some(context) = context {
+        let context = global::get_text_map_propagator(|propagator| propagator.extract(&context));
+        span.set_parent(context);
+        debug!("Tracing resumed for topic '{}'", topic);
+    }
+
+    span
+}
+
 async fn check_and_maybe_insert<T: Item<P>, R: ResourcesRepo, P: ProviderRepo>(
     resources_repo: &Arc<R>,
     repo: &P,
@@ -213,7 +232,8 @@ async fn check_and_maybe_insert<T: Item<P>, R: ResourcesRepo, P: ProviderRepo>(
     let topic_value = if let Some(existing_value) = existing_value {
         existing_value
     } else {
-        value.last_value(repo).await?
+        let span = tracing::debug_span!("get_last_value", ?topic);
+        value.last_value(repo).instrument(span).await?
     };
 
     let subtopics = subtopics_from_topic_value(&topic, &topic_value)?;

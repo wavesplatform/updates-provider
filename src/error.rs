@@ -7,6 +7,12 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub enum Error {
     #[error("ConfigLoadError: {0}")]
     ConfigLoadError(#[from] envy::Error),
+    #[error("OpenTelemetryTraceError: {0}")]
+    OpenTelemetryTraceError(#[from] opentelemetry::trace::TraceError),
+    #[error("TracingSubscriberTryInitError: {0}")]
+    TracingSubscriberTryInitError(#[from] tracing_subscriber::util::TryInitError),
+    #[error("TracingSubscriberFilterParseError: {0}")]
+    TracingSubscriberFilterParseError(#[from] tracing_subscriber::filter::ParseError),
     #[error("JoinError: {0}")]
     JoinError(#[from] tokio::task::JoinError),
     #[error("PoolError: {0}")]

@@ -57,6 +57,7 @@ impl PullerImpl {
                     }
                 });
 
+                //TODO move stream handling logic into SubscriptionRepo
                 while let Ok(msg) = pubsub.get_message() {
                     let payload = msg.get_payload::<String>().unwrap();
                     let event_name = payload.as_str();
@@ -68,9 +69,24 @@ impl PullerImpl {
                             .unwrap_or_else(|| {
                                 panic!("wrong redis subscribe channel: {:?}", channel)
                             });
-                        let topic = Topic::try_from(subscribe_key).unwrap();
+                        let topic = Topic::try_from(subscribe_key).expect("bad sub: key");
                         let update = if let "set" = event_name {
-                            SubscriptionEvent::Updated { topic }
+                            let context = {
+                                match self
+                                    .subscriptions_repo
+                                    .get_subscription_context(subscribe_key)
+                                {
+                                    Ok(context) => context,
+                                    Err(_) => {
+                                        warn!(
+                                            "Failed to read subscription context for key {}",
+                                            subscribe_key
+                                        );
+                                        None
+                                    }
+                                }
+                            };
+                            SubscriptionEvent::Updated { topic, context }
                         } else {
                             SubscriptionEvent::Removed { topic }
                         };
@@ -103,14 +119,15 @@ fn get_initial_subscriptions(
     let current_subscriptions = subscriptions_repo.get_subscriptions()?;
 
     let initial_subscriptions_updates: Vec<SubscriptionEvent> = current_subscriptions
-        .iter()
-        .filter_map(|subscriptions_key| {
-            if let Some(key) = subscriptions_key.strip_prefix("sub:") {
-                if let Ok(topic) = Topic::try_from(key) {
-                    return Some(SubscriptionEvent::Updated { topic });
-                }
+        .into_iter()
+        .filter_map(|subscription| {
+            debug!("+ Initial subscription: {:?}", subscription);
+            if let Ok(topic) = Topic::try_from(subscription.subscription_key.as_str()) {
+                let context = subscription.context;
+                Some(SubscriptionEvent::Updated { topic, context })
+            } else {
+                None
             }
-            None
         })
         .collect();
 

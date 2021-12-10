@@ -36,6 +36,14 @@ wavesexchange_warp = { git = "https://github.com/waves-exchange/wavesexchange-rs
 wavesexchange_topic = { git = "https://github.com/waves-exchange/wavesexchange-rs", tag = "wavesexchange_topic/0.2.1" }
 waves-protobuf-schemas = { git = "https://github.com/wavesplatform/protobuf-schemas", rev = "dc1597077cbf55aac4cd514f5510ba346c45b361" }
 
+# Tracing
+tracing = { version = "0.1", features = ["log-always"] }
+tracing-opentelemetry = "0.12"
+tracing-subscriber = { version = "0.2", default-features = false, features = ["env-filter", "registry", "fmt"] }
+tracing-futures = "0.2"
+opentelemetry = { version = "0.13", features = ["rt-tokio"] }
+opentelemetry-jaeger = "0.12"
+
 [[bin]]
 name = "service"
 path = "src/main.rs"

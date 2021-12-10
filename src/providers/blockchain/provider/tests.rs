@@ -234,6 +234,7 @@ async fn test_updates_provider() -> anyhow::Result<()> {
         let sender = sender.clone();
         let update = WatchListUpdate::Updated {
             item: TestItem(topic),
+            context: None,
         };
         async move {
             let res = sender.send(update).await;

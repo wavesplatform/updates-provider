@@ -76,9 +76,16 @@ pub trait WatchListItem:
 
 #[derive(Debug, Clone)]
 pub enum WatchListUpdate<T: WatchListItem> {
-    Updated { item: T },
-    Removed { item: T },
+    Updated {
+        item: T,
+        context: Option<TracingContext>,
+    },
+    Removed {
+        item: T,
+    },
 }
+
+pub type TracingContext = std::collections::HashMap<String, String>;
 
 pub trait MaybeFromUpdate: std::fmt::Debug + Send + Sync {
     fn maybe_from_update(update: &SubscriptionEvent) -> Option<Self>
@@ -89,8 +96,9 @@ pub trait MaybeFromUpdate: std::fmt::Debug + Send + Sync {
 impl<T: WatchListItem + std::fmt::Debug + Send + Sync> MaybeFromUpdate for WatchListUpdate<T> {
     fn maybe_from_update(update: &SubscriptionEvent) -> Option<Self> {
         match update {
-            SubscriptionEvent::Updated { topic } => {
-                T::maybe_item(topic).map(|item| WatchListUpdate::Updated { item })
+            SubscriptionEvent::Updated { topic, context } => {
+                let context = context.as_ref().map(|ctx| ctx.tracing_context.clone());
+                T::maybe_item(topic).map(|item| WatchListUpdate::Updated { item, context })
             }
             SubscriptionEvent::Removed { topic } => {
                 T::maybe_item(topic).map(|item| WatchListUpdate::Removed { item })
@@ -141,7 +149,7 @@ impl<T: WatchListItem, R: ResourcesRepo> WatchList<T, R> {
 
     pub fn on_update(&mut self, update: &WatchListUpdate<T>) -> Result<(), Error> {
         match update {
-            WatchListUpdate::Updated { item } => {
+            WatchListUpdate::Updated { item, .. } => {
                 let item_info = self.create_or_refresh_item(item.to_owned());
                 let update_metric = item_info.watch_direct();
                 if update_metric {
@@ -451,7 +459,7 @@ pub mod tests {
 
         impl Into<String> for TestItem {
             fn into(self) -> String {
-                unimplemented!()
+                self.0.to_string()
             }
         }
 
@@ -568,6 +576,7 @@ pub mod tests {
         // Add some item
         let res = wl.on_update(&WatchListUpdate::Updated {
             item: TestItem("topic://state/address/foo"),
+            context: None,
         });
         assert!(res.is_ok());
         wl.insert_value(
@@ -610,6 +619,7 @@ pub mod tests {
         // Add pattern item
         let res = wl.on_update(&WatchListUpdate::Updated {
             item: TestItem("topic://state?address__in[]=address&key__match_any[]=foo*"),
+            context: None,
         });
         assert!(res.is_ok());
 
@@ -655,7 +665,10 @@ pub mod tests {
         std::thread::sleep(ensure_dead);
         wl.delete_old();
 
-        assert_not_watched!(wl, "topic://state?address__in[]=address&key__match_any[]=foo*");
+        assert_not_watched!(
+            wl,
+            "topic://state?address__in[]=address&key__match_any[]=foo*"
+        );
         assert_not_watched!(wl, "topic://state/address/foo1");
         assert_not_watched!(wl, "topic://state/address/foo2");
         assert_not_watched!(wl, "topic://state/address/foo3");
