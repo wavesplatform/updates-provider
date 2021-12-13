@@ -155,7 +155,8 @@ where
         let resources_repo = self.resources_repo.clone();
         let repo = self.repo.clone();
         tokio::task::spawn(async move {
-            info!("starting subscriptions updates handler");
+            let type_name = std::any::type_name::<T>();
+            info!("starting subscriptions updates handler: {}", type_name);
             while let Some(upd) = subscriptions_updates_receiver.recv().await {
                 debug!("Subscription: {:?}", upd);
                 if let Err(err) = watchlist.write().await.on_update(&upd) {
@@ -180,7 +181,8 @@ where
         });
 
         tokio::task::spawn(async move {
-            info!("starting provider");
+            let type_name = std::any::type_name::<T>();
+            info!("starting provider: {}", type_name);
             if let Err(error) = self.run().await {
                 error!("transaction provider return error: {:?}", error);
             }

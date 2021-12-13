@@ -50,7 +50,8 @@ where
 
         let watchlist = self.watchlist.clone();
         tokio::task::spawn(async move {
-            info!("starting subscriptions updates handler");
+            let type_name = std::any::type_name::<T>();
+            info!("starting subscriptions updates handler: {}", type_name);
             while let Some(upd) = subscriptions_updates_receiver.recv().await {
                 if let Err(err) = watchlist.write().await.on_update(&upd) {
                     error!("error while updating watchlist: {:?}", err);
