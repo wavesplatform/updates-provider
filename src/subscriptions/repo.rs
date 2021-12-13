@@ -1,25 +1,49 @@
-use super::{Subscription, Subscriptions, SubscriptionsRepo};
 use crate::error::Error;
-use crate::subscriptions::SubscriptionContext;
+use crate::subscriptions::{
+    Subscription, SubscriptionContext, SubscriptionEvent, Subscriptions, SubscriptionsRepo,
+    SubscriptionsStream, SubscriptionsUpdateFetcher,
+};
 use lazy_static::lazy_static;
-use r2d2::{Pool, PooledConnection};
-use r2d2_redis::redis::Commands;
-use r2d2_redis::RedisConnectionManager;
-use std::collections::HashMap;
+use r2d2::{Error as R2d2Error, Pool, PooledConnection};
+use r2d2_redis::{redis, redis::Commands, redis::RedisError, RedisConnectionManager};
+use std::{collections::HashMap, convert::TryFrom};
+use wavesexchange_log::{debug, warn};
+use wavesexchange_topic::Topic;
 
-pub struct SubscriptionsRepoImpl {
-    pool: Pool<RedisConnectionManager>,
+type RedisConnectionPool = Pool<RedisConnectionManager>;
+type RedisPooledConnection = PooledConnection<RedisConnectionManager>;
+
+pub struct RedisSubscriptionsRepo {
+    redis_pool: RedisConnectionPool,
+
+    // r2d2 cannot extract dedicated connection for use with redis pubsub
+    // therefore it is needed to use a separate redis client
+    redis_client: redis::Client,
 }
 
-impl SubscriptionsRepoImpl {
-    pub fn new(pool: Pool<RedisConnectionManager>) -> SubscriptionsRepoImpl {
-        SubscriptionsRepoImpl { pool }
+impl RedisSubscriptionsRepo {
+    pub fn new(
+        redis_pool: RedisConnectionPool,
+        redis_client: redis::Client,
+    ) -> RedisSubscriptionsRepo {
+        RedisSubscriptionsRepo {
+            redis_pool,
+            redis_client,
+        }
+    }
+
+    fn get_pooled_connection(&self) -> Result<RedisPooledConnection, R2d2Error> {
+        self.redis_pool.get()
+    }
+
+    fn get_unpooled_connection(&self) -> Result<redis::Connection, RedisError> {
+        self.redis_client.get_connection()
     }
 }
 
-impl SubscriptionsRepo for SubscriptionsRepoImpl {
-    fn get_subscriptions(&self) -> Result<Subscriptions, Error> {
-        let mut con = self.pool.get()?;
+impl SubscriptionsRepo for RedisSubscriptionsRepo {
+    fn get_existing_subscriptions(&self) -> Result<Subscriptions, Error> {
+        let mut con = self.get_pooled_connection()?;
 
         let subscription_keys: Vec<String> = con.keys("sub:*")?;
         let values = mget(&mut con, &subscription_keys)?;
@@ -42,11 +66,59 @@ impl SubscriptionsRepo for SubscriptionsRepoImpl {
         Ok(subscriptions)
     }
 
+    fn get_updates_fetcher(&self) -> Result<Box<dyn SubscriptionsUpdateFetcher>, Error> {
+        let conn = self.get_unpooled_connection()?;
+        let fetcher = SubscriptionsUpdateFetcherImpl {
+            conn,
+            redis_pool: self.redis_pool.clone(),
+        };
+        Ok(Box::new(fetcher))
+    }
+}
+
+struct SubscriptionsUpdateFetcherImpl {
+    conn: redis::Connection,
+    redis_pool: RedisConnectionPool,
+}
+
+impl SubscriptionsUpdateFetcher for SubscriptionsUpdateFetcherImpl {
+    fn updates_stream(&mut self) -> Result<Box<dyn SubscriptionsStream + '_>, Error> {
+        let mut pubsub = self.conn.as_pubsub();
+
+        let subscription_pattern = "__keyspace*__:sub:*".to_string();
+        pubsub
+            .psubscribe(subscription_pattern.clone())
+            .unwrap_or_else(|_| {
+                panic!(
+                    "Cannot subscribe for the redis keyspace updates on pattern {}",
+                    subscription_pattern
+                )
+            });
+
+        let stream = SubscriptionsStreamImpl {
+            pubsub,
+            redis_pool: &self.redis_pool,
+        };
+
+        Ok(Box::new(stream))
+    }
+}
+
+struct SubscriptionsStreamImpl<'a> {
+    pubsub: redis::PubSub<'a>,
+    redis_pool: &'a RedisConnectionPool,
+}
+
+impl SubscriptionsStreamImpl<'_> {
+    fn get_pooled_connection(&self) -> Result<RedisPooledConnection, R2d2Error> {
+        self.redis_pool.get()
+    }
+
     fn get_subscription_context(
         &self,
         subscription_key: &str,
     ) -> Result<Option<SubscriptionContext>, Error> {
-        let mut con = self.pool.get()?;
+        let mut con = self.get_pooled_connection()?;
         let key = "sub:".to_string() + subscription_key;
         let value: Option<String> = con.get(key)?;
         let context = value.map(parse_context).flatten();
@@ -54,10 +126,43 @@ impl SubscriptionsRepo for SubscriptionsRepoImpl {
     }
 }
 
-fn mget(
-    con: &mut PooledConnection<RedisConnectionManager>,
-    keys: &[String],
-) -> Result<Vec<Option<String>>, Error> {
+impl SubscriptionsStream for SubscriptionsStreamImpl<'_> {
+    fn next_event(&mut self) -> Result<SubscriptionEvent, Error> {
+        loop {
+            let msg = self.pubsub.get_message()?;
+            let payload = msg.get_payload::<String>().unwrap();
+            let event_name = payload.as_str();
+            if let "set" | "del" | "expired" = event_name {
+                let channel = msg.get_channel::<String>().unwrap();
+                debug!("[REDIS] Event '{}' on channel '{}'", event_name, channel);
+                let subscribe_key = channel
+                    .strip_prefix("__keyspace@0__:sub:")
+                    .unwrap_or_else(|| panic!("wrong redis subscribe channel: {:?}", channel));
+                let topic = Topic::try_from(subscribe_key).expect("bad sub: key");
+                let update = if let "set" = event_name {
+                    let context = {
+                        match self.get_subscription_context(subscribe_key) {
+                            Ok(context) => context,
+                            Err(_) => {
+                                warn!(
+                                    "Failed to read subscription context for key {}",
+                                    subscribe_key
+                                );
+                                None
+                            }
+                        }
+                    };
+                    SubscriptionEvent::Updated { topic, context }
+                } else {
+                    SubscriptionEvent::Removed { topic }
+                };
+                return Ok(update);
+            }
+        }
+    }
+}
+
+fn mget(con: &mut RedisPooledConnection, keys: &[String]) -> Result<Vec<Option<String>>, Error> {
     // Need to explicitly handle case with keys.len() == 1
     // due to the issue https://github.com/mitsuhiko/redis-rs/issues/336
     match keys.len() {

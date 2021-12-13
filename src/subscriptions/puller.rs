@@ -1,7 +1,7 @@
 use super::{SubscriptionEvent, SubscriptionsRepo};
 use crate::error::Error;
 use crate::metrics::REDIS_INPUT_QUEUE_SIZE;
-use r2d2_redis::redis;
+use itertools::Itertools;
 use std::sync::Arc;
 use std::{convert::TryFrom, time::Duration};
 use tokio::time::Instant;
@@ -10,18 +10,11 @@ use wavesexchange_topic::Topic;
 
 pub struct PullerImpl {
     subscriptions_repo: Arc<dyn SubscriptionsRepo + Send + Sync + 'static>,
-    redis_client: redis::Client,
 }
 
 impl PullerImpl {
-    pub fn new<S: SubscriptionsRepo + Send + Sync + 'static>(
-        subscriptions_repo: Arc<S>,
-        redis_client: redis::Client,
-    ) -> Self {
-        Self {
-            subscriptions_repo,
-            redis_client,
-        }
+    pub fn new<S: SubscriptionsRepo + Send + Sync + 'static>(subscriptions_repo: Arc<S>) -> Self {
+        Self { subscriptions_repo }
     }
 
     // NB: redis server have to be configured to publish keyspace notifications:
@@ -34,21 +27,12 @@ impl PullerImpl {
             let mut panic_strategy = PanicStrategy::new(3, Duration::from_secs(10));
 
             loop {
-                let mut con = self.redis_client.get_connection().unwrap();
-                let mut pubsub = con.as_pubsub();
+                // Start receiving updates before getting currently active subscriptions
+                let mut updates_fetcher = self.subscriptions_repo.get_updates_fetcher().unwrap();
+                let mut subscription_stream = updates_fetcher.updates_stream().unwrap();
 
-                let subscription_pattern = "__keyspace*__:sub:*".to_string();
-                pubsub
-                    .psubscribe(subscription_pattern.clone())
-                    .unwrap_or_else(|_| {
-                        panic!(
-                            "Cannot subscribe for the redis keyspace updates on pattern {}",
-                            subscription_pattern
-                        )
-                    });
-
-                let initial_subscriptions_updates =
-                    get_initial_subscriptions(&self.subscriptions_repo).unwrap();
+                // Get current subscriptions, so that no updates will be missing
+                let initial_subscriptions_updates = self.get_initial_subscriptions().unwrap();
 
                 tokio::runtime::Handle::current().block_on(async {
                     for update in initial_subscriptions_updates.into_iter() {
@@ -57,46 +41,13 @@ impl PullerImpl {
                     }
                 });
 
-                //TODO move stream handling logic into SubscriptionRepo
-                while let Ok(msg) = pubsub.get_message() {
-                    let payload = msg.get_payload::<String>().unwrap();
-                    let event_name = payload.as_str();
-                    if let "set" | "del" | "expired" = event_name {
-                        let channel = msg.get_channel::<String>().unwrap();
-                        debug!("[REDIS] Event '{}' on channel '{}'", event_name, channel);
-                        let subscribe_key = channel
-                            .strip_prefix("__keyspace@0__:sub:")
-                            .unwrap_or_else(|| {
-                                panic!("wrong redis subscribe channel: {:?}", channel)
-                            });
-                        let topic = Topic::try_from(subscribe_key).expect("bad sub: key");
-                        let update = if let "set" = event_name {
-                            let context = {
-                                match self
-                                    .subscriptions_repo
-                                    .get_subscription_context(subscribe_key)
-                                {
-                                    Ok(context) => context,
-                                    Err(_) => {
-                                        warn!(
-                                            "Failed to read subscription context for key {}",
-                                            subscribe_key
-                                        );
-                                        None
-                                    }
-                                }
-                            };
-                            SubscriptionEvent::Updated { topic, context }
-                        } else {
-                            SubscriptionEvent::Removed { topic }
-                        };
-                        debug!("Subscription event: {:?}", update);
-                        let subscriptions_updates_sender_ref = &subscriptions_updates_sender;
-                        tokio::runtime::Handle::current().block_on(async {
-                            REDIS_INPUT_QUEUE_SIZE.inc();
-                            subscriptions_updates_sender_ref.send(update).await.unwrap();
-                        })
-                    }
+                while let Ok(update) = subscription_stream.next_event() {
+                    debug!("Subscription event: {:?}", update);
+                    let subscriptions_updates_sender_ref = &subscriptions_updates_sender;
+                    tokio::runtime::Handle::current().block_on(async {
+                        REDIS_INPUT_QUEUE_SIZE.inc();
+                        subscriptions_updates_sender_ref.send(update).await.unwrap();
+                    })
                 }
 
                 warn!("redis connection was closed");
@@ -111,32 +62,30 @@ impl PullerImpl {
 
         Ok(subscriptions_updates_receiver)
     }
-}
 
-fn get_initial_subscriptions(
-    subscriptions_repo: &Arc<dyn SubscriptionsRepo + Send + Sync>,
-) -> Result<Vec<SubscriptionEvent>, Error> {
-    let current_subscriptions = subscriptions_repo.get_subscriptions()?;
+    fn get_initial_subscriptions(&self) -> Result<Vec<SubscriptionEvent>, Error> {
+        let current_subscriptions = self.subscriptions_repo.get_existing_subscriptions()?;
 
-    let initial_subscriptions_updates: Vec<SubscriptionEvent> = current_subscriptions
-        .into_iter()
-        .filter_map(|subscription| {
-            debug!("+ Initial subscription: {:?}", subscription);
-            if let Ok(topic) = Topic::try_from(subscription.subscription_key.as_str()) {
-                let context = subscription.context;
-                Some(SubscriptionEvent::Updated { topic, context })
-            } else {
-                None
-            }
-        })
-        .collect();
+        let initial_subscriptions_updates = current_subscriptions
+            .into_iter()
+            .filter_map(|subscription| {
+                debug!("+ Initial subscription: {:?}", subscription);
+                if let Ok(topic) = Topic::try_from(subscription.subscription_key.as_str()) {
+                    let context = subscription.context;
+                    Some(SubscriptionEvent::Updated { topic, context })
+                } else {
+                    None
+                }
+            })
+            .collect_vec();
 
-    info!(
-        "initial subscriptions count: {}",
-        initial_subscriptions_updates.len()
-    );
+        info!(
+            "initial subscriptions count: {}",
+            initial_subscriptions_updates.len()
+        );
 
-    Ok(initial_subscriptions_updates)
+        Ok(initial_subscriptions_updates)
+    }
 }
 
 struct PanicStrategy {

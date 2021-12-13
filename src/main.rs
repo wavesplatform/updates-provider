@@ -203,13 +203,13 @@ async fn tokio_main() -> Result<(), Error> {
         }
     });
 
-    let subscriptions_repo = subscriptions::repo::SubscriptionsRepoImpl::new(redis_pool.clone());
-    let subscriptions_repo = Arc::new(subscriptions_repo);
-    // r2d2 cannot extract dedicated connection for using for redis pubsub
-    // therefore its need to use a separated redis client
     let redis_client = redis::Client::open(redis_connection_url)?;
-    let notifications_puller =
-        subscriptions::puller::PullerImpl::new(subscriptions_repo.clone(), redis_client);
+
+    let subscriptions_repo =
+        subscriptions::repo::RedisSubscriptionsRepo::new(redis_pool, redis_client);
+    let subscriptions_repo = Arc::new(subscriptions_repo);
+
+    let notifications_puller = subscriptions::puller::PullerImpl::new(subscriptions_repo.clone());
 
     let subscriptions_updates_receiver = notifications_puller.run().await?;
 

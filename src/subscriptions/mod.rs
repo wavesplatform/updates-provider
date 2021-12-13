@@ -37,9 +37,14 @@ pub enum SubscriptionEvent {
 }
 
 pub trait SubscriptionsRepo {
-    fn get_subscriptions(&self) -> Result<Subscriptions, Error>;
-    fn get_subscription_context(
-        &self,
-        subscription_key: &str,
-    ) -> Result<Option<SubscriptionContext>, Error>;
+    fn get_existing_subscriptions(&self) -> Result<Subscriptions, Error>;
+    fn get_updates_fetcher(&self) -> Result<Box<dyn SubscriptionsUpdateFetcher>, Error>;
+}
+
+pub trait SubscriptionsUpdateFetcher {
+    fn updates_stream(&mut self) -> Result<Box<dyn SubscriptionsStream + '_>, Error>;
+}
+
+pub trait SubscriptionsStream {
+    fn next_event(&mut self) -> Result<SubscriptionEvent, Error>;
 }
