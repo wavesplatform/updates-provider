@@ -37,7 +37,7 @@ wavesexchange_topic = { git = "https://github.com/waves-exchange/wavesexchange-r
 waves-protobuf-schemas = { git = "https://github.com/wavesplatform/protobuf-schemas", rev = "dc1597077cbf55aac4cd514f5510ba346c45b361" }
 
 # Tracing
-tracing = { version = "0.1", features = ["log-always"] }
+tracing = { version = "0.1", features = ["log", "log-always"] }
 tracing-opentelemetry = "0.12"
 tracing-subscriber = { version = "0.2", default-features = false, features = ["env-filter", "registry", "fmt"] }
 tracing-futures = "0.2"

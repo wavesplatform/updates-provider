@@ -163,7 +163,10 @@ where
                     error!("error while updating watchlist: {:?}", err);
                 }
                 if let WatchListUpdate::Updated { item, context } = upd {
-                    let span = resume_tracing(context, item.clone().into());
+                    let span = resume_tracing(
+                        context,
+                        format!("topic://{}", Into::<String>::into(item.clone())),
+                    );
                     let result = check_and_maybe_insert(&resources_repo, &repo, item.clone())
                         .instrument(span)
                         .await;
@@ -212,12 +215,12 @@ fn resume_tracing(context: Option<TracingContext>, topic: String) -> tracing::Sp
     use opentelemetry::global;
     use tracing_opentelemetry::OpenTelemetrySpanExt;
 
-    let span = tracing::debug_span!("subscription", %topic);
+    let span = tracing::debug_span!("subscription_load_values", %topic);
 
     if let Some(context) = context {
         let context = global::get_text_map_propagator(|propagator| propagator.extract(&context));
         span.set_parent(context);
-        debug!("Tracing resumed for topic '{}'", topic);
+        debug!("Tracing resumed for {}", topic);
     }
 
     span
@@ -249,7 +252,8 @@ async fn check_and_maybe_insert<T: Item<P>, R: ResourcesRepo, P: ProviderRepo>(
                 missing_values += 1;
                 let subtopic_value = T::maybe_item(&subtopic)
                     .ok_or_else(|| Error::InvalidTopic(subtopic.clone().into()))?;
-                let new_value = subtopic_value.last_value(repo).await?;
+                let span = tracing::debug_span!("subtopic_get_last_value", ?topic, ?subtopic);
+                let new_value = subtopic_value.last_value(repo).instrument(span).await?;
                 resources_repo.set_and_push(subtopic, new_value)?;
             }
         }
@@ -264,6 +268,7 @@ async fn check_and_maybe_insert<T: Item<P>, R: ResourcesRepo, P: ProviderRepo>(
     }
 
     if need_to_publish {
+        tracing::event!(tracing::Level::DEBUG, ?topic, "Topic value published");
         resources_repo.set_and_push(topic, topic_value)?;
     }
 
