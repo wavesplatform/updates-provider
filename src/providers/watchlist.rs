@@ -244,9 +244,11 @@ impl<T: WatchListItem, R: ResourcesRepo> WatchList<T, R> {
                 None
             })
             .collect::<Vec<_>>();
-        if !keys.is_empty() {
-            debug!("Removing expired keys ({}): {:?}", keys.len(), keys);
+        if keys.is_empty() {
+            return;
         }
+        let num_keys = keys.len();
+        debug!("Removing expired keys ({}): {:?}", num_keys, keys);
         for item in keys {
             self.items.remove(&item);
             self.patterns.remove(&item);
@@ -255,6 +257,8 @@ impl<T: WatchListItem, R: ResourcesRepo> WatchList<T, R> {
                 warn!("Failed to delete Redis key: '{:?}' (ignoring)", err);
             }
         }
+        let elapsed = Instant::now().duration_since(now);
+        debug!("delete_old: Removed {} expired keys in {} ms", num_keys, elapsed.as_millis());
     }
 
     pub fn key_watch_status(&self, key: &T) -> KeyWatchStatus<T> {
