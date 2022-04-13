@@ -6,21 +6,22 @@ use tokio::sync::mpsc;
 use waves_protobuf_schemas::waves::events::BlockchainUpdated;
 use wavesexchange_log::{debug, info};
 
+use crate::db::repo_consumer::{ConsumerRepo, ConsumerRepoOperations};
 use crate::db::{
-    self, BlockchainUpdate, DataEntry, DataEntryUpdate, Db, LeasingBalance, LeasingBalanceUpdate,
+    BlockchainUpdate, DataEntry, DataEntryUpdate, LeasingBalance, LeasingBalanceUpdate,
 };
 use crate::error::{Error, Result};
 use crate::metrics::DB_WRITE_TIME;
-use crate::utils::ToChunks;
+use crate::utils::chunks::ToChunks;
 use crate::waves::transactions::{InsertableTransaction, TransactionUpdate};
 use crate::waves::BlockMicroblockAppend;
 
 const TX_CHUNK_SIZE: usize = 65535 / 4;
 const ADDRESSES_CHUNK_SIZE: usize = 65535 / 2;
 
-pub struct Updater<D: Db + db::Repo> {
+pub struct Updater<R: ConsumerRepo> {
     rx: mpsc::Receiver<Arc<BlockchainUpdated>>,
-    transactions_repo: Arc<D>,
+    repo: R,
     updates_buffer_size: usize,
     transactions_count_threshold: usize,
     associated_addresses_count_threshold: usize,
@@ -28,10 +29,10 @@ pub struct Updater<D: Db + db::Repo> {
     waiting_blocks_timeout: Duration,
 }
 
-pub struct UpdaterReturn<D: Db + db::Repo> {
+pub struct UpdaterReturn<R: ConsumerRepo> {
     pub last_height: i32,
     pub tx: mpsc::Sender<Arc<BlockchainUpdated>>,
-    pub updater: Updater<D>,
+    pub updater: Updater<R>,
 }
 
 #[derive(Debug)]
@@ -47,20 +48,20 @@ impl Default for UpdatesSequenceState {
     }
 }
 
-impl<D: Db + db::Repo> Updater<D> {
+impl<R: ConsumerRepo> Updater<R> {
     pub async fn init(
-        transactions_repo: Arc<D>,
+        repo: R,
         updates_buffer_size: usize,
         transactions_count_threshold: usize,
         associated_addresses_count_threshold: usize,
         waiting_blocks_timeout: Duration,
-    ) -> Result<UpdaterReturn<D>> {
+    ) -> Result<UpdaterReturn<R>> {
         let (tx, rx) = mpsc::channel(updates_buffer_size);
         let last_height = {
-            match transactions_repo.get_prev_handled_height()? {
+            let prev_handled_height = repo.execute(|ops| ops.get_prev_handled_height())?;
+            match prev_handled_height {
                 Some(prev_handled_height) => {
-                    transactions_repo
-                        .transaction(|conn| rollback_by_block_uid(conn, prev_handled_height.uid))?;
+                    repo.transaction(|ops| rollback_by_block_uid(ops, prev_handled_height.uid))?;
                     prev_handled_height.height as i32 + 1
                 }
                 None => 1i32,
@@ -68,7 +69,7 @@ impl<D: Db + db::Repo> Updater<D> {
         };
         let updater = Self {
             rx,
-            transactions_repo,
+            repo,
             updates_buffer_size,
             transactions_count_threshold,
             associated_addresses_count_threshold,
@@ -191,10 +192,10 @@ impl<D: Db + db::Repo> Updater<D> {
                     match blockchain_updates_iter.next() {
                         Some((idx, BlockchainUpdate::Block(_))) => {
                             insert_blockchain_updates(
-                                &*self.transactions_repo,
+                                &self.repo,
                                 blockchain_updates[..idx].to_vec().iter(),
                             )?;
-                            squash_microblocks(&*self.transactions_repo)?;
+                            squash_microblocks(&self.repo)?;
                             *microblock_flag = UpdatesSequenceState::default();
                             i = idx;
                             break;
@@ -203,12 +204,9 @@ impl<D: Db + db::Repo> Updater<D> {
                         None => break,
                     }
                 }
-                insert_blockchain_updates(
-                    &*self.transactions_repo,
-                    blockchain_updates[i..].to_vec().iter(),
-                )?;
+                insert_blockchain_updates(&self.repo, blockchain_updates[i..].to_vec().iter())?;
             } else {
-                insert_blockchain_updates(&*self.transactions_repo, blockchain_updates.iter())?;
+                insert_blockchain_updates(&self.repo, blockchain_updates.iter())?;
             }
         }
 
@@ -237,12 +235,11 @@ impl<D: Db + db::Repo> Updater<D> {
     }
 }
 
-fn insert_blockchain_updates<'a, P: Db>(
-    pool: &P,
+fn insert_blockchain_updates<'a, R: ConsumerRepo>(
+    repo: &R,
     blockchain_updates: impl Iterator<Item = &'a BlockchainUpdate>,
 ) -> Result<()> {
-    pool.transaction(|conn| {
-        timer!("insert_blockchain_updates()");
+    repo.transaction(|ops| {
         let mut appends = vec![];
         let mut rollback_block_id = None;
         for update in blockchain_updates {
@@ -252,10 +249,10 @@ fn insert_blockchain_updates<'a, P: Db>(
                 BlockchainUpdate::Rollback(block_id) => rollback_block_id = Some(block_id),
             }
         }
-        insert_appends(conn, appends)?;
+        insert_appends(ops, appends)?;
         if let Some(block_id) = rollback_block_id {
-            rollback(conn, block_id)?;
-            info!("rollbacked to block id {}", block_id);
+            rollback(ops, block_id)?;
+            info!("rolled back to block id {}", block_id);
         }
 
         Ok(())
@@ -264,33 +261,32 @@ fn insert_blockchain_updates<'a, P: Db>(
     Ok(())
 }
 
-fn insert_appends<D: db::Repo + ?Sized>(
-    conn: &D,
+fn insert_appends<O: ConsumerRepoOperations>(
+    repo_ops: &O,
     appends: Vec<&BlockMicroblockAppend>,
 ) -> Result<()> {
     if !appends.is_empty() {
-        timer!("insert_appends()");
         let h = appends.last().unwrap().height;
-        let block_uids = insert_blocks(conn, &appends)?;
+        let block_uids = insert_blocks(repo_ops, &appends)?;
         let transaction_updates = appends.iter().map(|block| block.transactions.iter());
 
-        insert_transactions(conn, transaction_updates.clone(), &block_uids)?;
-        insert_addresses(conn, transaction_updates)?;
-        insert_data_entries(conn, &appends, &block_uids)?;
-        insert_leasing_balances(conn, &appends, &block_uids)?;
+        insert_transactions(repo_ops, transaction_updates.clone(), &block_uids)?;
+        insert_addresses(repo_ops, transaction_updates)?;
+        insert_data_entries(repo_ops, &appends, &block_uids)?;
+        insert_leasing_balances(repo_ops, &appends, &block_uids)?;
 
         info!("handled updates batch last height {:?}", h);
     }
     Ok(())
 }
 
-fn insert_blocks<D: db::Repo + ?Sized>(
-    conn: &D,
+fn insert_blocks<O: ConsumerRepoOperations>(
+    repo_ops: &O,
     appends: &[&BlockMicroblockAppend],
 ) -> Result<Vec<i64>> {
     let blocks = appends.iter().map(|&b| b.into()).collect::<Vec<_>>();
     let start = Instant::now();
-    let block_uids = conn.insert_blocks_or_microblocks(&blocks)?;
+    let block_uids = repo_ops.insert_blocks_or_microblocks(&blocks)?;
     debug!(
         "{} blocks were inserted in {} ms",
         blocks.len(),
@@ -299,8 +295,8 @@ fn insert_blocks<D: db::Repo + ?Sized>(
     Ok(block_uids)
 }
 
-fn insert_transactions<'a, D: db::Repo + ?Sized>(
-    conn: &D,
+fn insert_transactions<'a, O: ConsumerRepoOperations>(
+    repo_ops: &O,
     transaction_updates: impl Iterator<Item = impl Iterator<Item = &'a TransactionUpdate>>,
     block_uids: &[i64],
 ) -> Result<()> {
@@ -318,7 +314,7 @@ fn insert_transactions<'a, D: db::Repo + ?Sized>(
             transactions.push(transaction);
         }
         if !transactions.is_empty() {
-            conn.insert_transactions(&transactions)?;
+            repo_ops.insert_transactions(&transactions)?;
         }
         inserted_transactions_count += transactions.len();
     }
@@ -330,8 +326,8 @@ fn insert_transactions<'a, D: db::Repo + ?Sized>(
     Ok(())
 }
 
-fn insert_addresses<'a, D: db::Repo + ?Sized>(
-    conn: &D,
+fn insert_addresses<'a, O: ConsumerRepoOperations>(
+    repo_ops: &O,
     transaction_updates: impl Iterator<Item = impl Iterator<Item = &'a TransactionUpdate>>,
 ) -> Result<()> {
     let start = Instant::now();
@@ -349,7 +345,7 @@ fn insert_addresses<'a, D: db::Repo + ?Sized>(
         .chunks_from_iter(ADDRESSES_CHUNK_SIZE);
     for addresses in addresses_chunks {
         if !addresses.is_empty() {
-            conn.insert_associated_addresses(&addresses)?;
+            repo_ops.insert_associated_addresses(&addresses)?;
             inserted_addresses_count += addresses.len();
         }
     }
@@ -361,13 +357,13 @@ fn insert_addresses<'a, D: db::Repo + ?Sized>(
     Ok(())
 }
 
-fn insert_data_entries<D: db::Repo + ?Sized>(
-    conn: &D,
+fn insert_data_entries<O: ConsumerRepoOperations>(
+    repo_ops: &O,
     blocks_updates: &[&BlockMicroblockAppend],
     block_uids: &[i64],
 ) -> Result<()> {
     let start = Instant::now();
-    let next_uid = conn.get_next_update_uid()?;
+    let next_uid = repo_ops.get_next_update_uid()?;
 
     let entries = blocks_updates
         .iter()
@@ -412,15 +408,15 @@ fn insert_data_entries<D: db::Repo + ?Sized>(
         })
         .collect();
 
-    conn.close_superseded_by(&first_uids)?;
+    repo_ops.close_superseded_by(&first_uids)?;
 
     let mut updates_with_uids_superseded_by =
         grouped_updates.into_iter().flatten().collect::<Vec<_>>();
 
     updates_with_uids_superseded_by.sort_by_key(|de| de.uid);
 
-    conn.insert_data_entries(&updates_with_uids_superseded_by)?;
-    conn.set_next_update_uid(next_uid + data_entries_count)?;
+    repo_ops.insert_data_entries(&updates_with_uids_superseded_by)?;
+    repo_ops.set_next_update_uid(next_uid + data_entries_count)?;
     debug!(
         "{} data entries were inserted in {} ms",
         data_entries_count,
@@ -429,13 +425,13 @@ fn insert_data_entries<D: db::Repo + ?Sized>(
     Ok(())
 }
 
-fn insert_leasing_balances<D: db::Repo + ?Sized>(
-    conn: &D,
+fn insert_leasing_balances<O: ConsumerRepoOperations>(
+    repo_ops: &O,
     blocks_updates: &[&BlockMicroblockAppend],
     block_uids: &[i64],
 ) -> Result<()> {
     let start = Instant::now();
-    let next_uid = conn.get_next_lease_update_uid()?;
+    let next_uid = repo_ops.get_next_lease_update_uid()?;
 
     let leasing_balances = blocks_updates
         .iter()
@@ -479,15 +475,15 @@ fn insert_leasing_balances<D: db::Repo + ?Sized>(
         })
         .collect();
 
-    conn.close_lease_superseded_by(&first_uids)?;
+    repo_ops.close_lease_superseded_by(&first_uids)?;
 
     let mut updates_with_uids_superseded_by =
         grouped_updates.into_iter().flatten().collect::<Vec<_>>();
 
     updates_with_uids_superseded_by.sort_by_key(|de| de.uid);
 
-    conn.insert_leasing_balances(&updates_with_uids_superseded_by)?;
-    conn.set_next_lease_update_uid(next_uid + leasing_balances_count)?;
+    repo_ops.insert_leasing_balances(&updates_with_uids_superseded_by)?;
+    repo_ops.set_next_lease_update_uid(next_uid + leasing_balances_count)?;
     debug!(
         "{} leasing balances were inserted in {} ms",
         leasing_balances_count,
@@ -496,14 +492,13 @@ fn insert_leasing_balances<D: db::Repo + ?Sized>(
     Ok(())
 }
 
-fn rollback<D: db::Repo + ?Sized>(conn: &D, block_id: &str) -> Result<()> {
-    timer!("rollback()");
-    let block_uid = conn.get_block_uid(block_id)?;
-    rollback_by_block_uid(conn, block_uid)
+fn rollback<O: ConsumerRepoOperations>(repo_ops: &O, block_id: &str) -> Result<()> {
+    let block_uid = repo_ops.get_block_uid(block_id)?;
+    rollback_by_block_uid(repo_ops, block_uid)
 }
 
-fn rollback_by_block_uid<D: db::Repo + ?Sized>(conn: &D, block_uid: i64) -> Result<()> {
-    let deletes = conn.rollback_data_entries(&block_uid)?;
+fn rollback_by_block_uid<O: ConsumerRepoOperations>(repo_ops: &O, block_uid: i64) -> Result<()> {
+    let deletes = repo_ops.rollback_data_entries(&block_uid)?;
 
     let mut grouped_deletes = HashMap::new();
 
@@ -517,9 +512,9 @@ fn rollback_by_block_uid<D: db::Repo + ?Sized>(conn: &D, block_uid: i64) -> Resu
         .filter_map(|(_, group)| group.into_iter().min_by_key(|i| i.uid).map(|i| i.uid))
         .collect();
 
-    conn.reopen_superseded_by(&lowest_deleted_uids)?;
+    repo_ops.reopen_superseded_by(&lowest_deleted_uids)?;
 
-    let deletes = conn.rollback_leasing_balances(&block_uid)?;
+    let deletes = repo_ops.rollback_leasing_balances(&block_uid)?;
 
     let mut grouped_deletes = HashMap::new();
 
@@ -533,8 +528,8 @@ fn rollback_by_block_uid<D: db::Repo + ?Sized>(conn: &D, block_uid: i64) -> Resu
         .filter_map(|(_, group)| group.into_iter().min_by_key(|i| i.uid).map(|i| i.uid))
         .collect();
 
-    conn.reopen_lease_superseded_by(&lowest_deleted_uids)?;
-    conn.rollback_blocks_microblocks(&block_uid)?;
+    repo_ops.reopen_lease_superseded_by(&lowest_deleted_uids)?;
+    repo_ops.rollback_blocks_microblocks(&block_uid)?;
     Ok(())
 }
 
@@ -560,17 +555,16 @@ fn count_txs_addresses(buffer: &[BlockchainUpdate]) -> (usize, usize) {
         })
 }
 
-fn squash_microblocks<D: Db>(db: &D) -> Result<()> {
-    db.transaction(|conn| {
-        timer!("squash_microblocks()");
-        if let Some(total_block_id) = conn.get_total_block_id()? {
-            let key_block_uid = conn.get_key_block_uid()?;
+fn squash_microblocks<R: ConsumerRepo>(repo: &R) -> Result<()> {
+    repo.transaction(|ops| {
+        if let Some(total_block_id) = ops.get_total_block_id()? {
+            let key_block_uid = ops.get_key_block_uid()?;
 
-            conn.update_data_entries_block_references(&key_block_uid)?;
-            conn.update_leasing_balances_block_references(&key_block_uid)?;
-            conn.update_transactions_block_references(&key_block_uid)?;
-            conn.delete_microblocks()?;
-            conn.change_block_id(&key_block_uid, &total_block_id)?;
+            ops.update_data_entries_block_references(&key_block_uid)?;
+            ops.update_leasing_balances_block_references(&key_block_uid)?;
+            ops.update_transactions_block_references(&key_block_uid)?;
+            ops.delete_microblocks()?;
+            ops.change_block_id(&key_block_uid, &total_block_id)?;
         }
 
         Ok(())
