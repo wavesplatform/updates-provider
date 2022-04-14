@@ -197,18 +197,29 @@ mod repo_impl {
 
             let start_time = std::time::Instant::now();
             let (n_addr, n_patt) = (addresses.len(), key_patterns.len());
-            let key_likes = key_patterns
-                .iter()
-                .map(String::as_str)
-                .map(pattern_utils::pattern_to_sql_like)
-                .collect::<Vec<_>>();
-            let res: Vec<(String, String)> = data_entries::table
-                .filter(data_entries::address.eq(any(addresses)))
-                .filter(data_entries::key.like(any(key_likes)))
-                .filter(data_entries::superseded_by.eq(MAX_UID))
-                .select((data_entries::address, data_entries::key))
-                .order((data_entries::address, data_entries::key))
-                .load(self)?;
+            let has_patterns = key_patterns.iter().any(|s| pattern_utils::has_patterns(s));
+            let res: Vec<(String, String)> = if has_patterns {
+                let key_likes = key_patterns
+                    .iter()
+                    .map(String::as_str)
+                    .map(pattern_utils::pattern_to_sql_like)
+                    .collect::<Vec<_>>();
+                data_entries::table
+                    .filter(data_entries::address.eq(any(addresses)))
+                    .filter(data_entries::key.like(any(key_likes)))
+                    .filter(data_entries::superseded_by.eq(MAX_UID))
+                    .select((data_entries::address, data_entries::key))
+                    .order((data_entries::address, data_entries::key))
+                    .load(self)?
+            } else {
+                data_entries::table
+                    .filter(data_entries::address.eq(any(addresses)))
+                    .filter(data_entries::key.eq(any(key_patterns)))
+                    .filter(data_entries::superseded_by.eq(MAX_UID))
+                    .select((data_entries::address, data_entries::key))
+                    .order((data_entries::address, data_entries::key))
+                    .load(self)?
+            };
             let res = res
                 .into_iter()
                 .map(|(address, key)| StateSingle { address, key })
@@ -230,8 +241,13 @@ mod repo_impl {
         use itertools::Itertools;
         use std::borrow::Cow;
 
+        const WILDCARD_CHAR: char = '*';
+
+        pub(super) fn has_patterns(pattern: &str) -> bool {
+            pattern.contains(WILDCARD_CHAR)
+        }
+
         pub(super) fn pattern_to_sql_like(pattern: &str) -> String {
-            const WILDCARD_CHAR: char = '*';
             if !pattern.contains(WILDCARD_CHAR) {
                 return escape_literal(pattern).into_owned();
             }
@@ -248,6 +264,18 @@ mod repo_impl {
                 s = Cow::Owned(s.replace('_', "\\_"));
             }
             s
+        }
+
+        #[test]
+        fn test_has_patterns() {
+            assert!(!has_patterns(""));
+            assert!(!has_patterns("abc"));
+            assert!(has_patterns("*"));
+            assert!(has_patterns("*foo*"));
+            assert!(has_patterns("foo*bar"));
+            assert!(!has_patterns("%"));
+            assert!(!has_patterns("_"));
+            assert!(has_patterns("%s%d_foo*"));
         }
 
         #[test]
