@@ -10,11 +10,11 @@ pub enum Error {
     #[error("JoinError: {0}")]
     JoinError(#[from] tokio::task::JoinError),
     #[error("PoolError: {0}")]
-    PoolError(#[from] r2d2::Error),
-    #[error("RedisPoolError: {0}")]
-    RedisPoolError(#[from] r2d2_redis::Error),
+    PoolError(#[from] diesel::r2d2::PoolError),
     #[error("RedisError: {0}")]
-    RedisError(#[from] r2d2_redis::redis::RedisError),
+    RedisError(#[from] bb8_redis::redis::RedisError),
+    #[error("RedisPoolRunError: {0}")]
+    RedisPoolRunError(#[from] bb8::RunError<bb8_redis::redis::RedisError>),
     #[error("SerdeJsonError: {0}")]
     SerdeJsonError(#[from] serde_json::Error),
     #[error("SendError: {0}")]

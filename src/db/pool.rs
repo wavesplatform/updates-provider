@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use diesel::pg::PgConnection;
 use diesel::r2d2::{ConnectionManager, Pool};
-use r2d2::PooledConnection;
+use diesel::r2d2::PooledConnection;
 
 use crate::{config::PostgresConfig, error::Error};
 
