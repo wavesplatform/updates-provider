@@ -80,22 +80,20 @@ checksum = "904dfeac50f3cdaba28fc6f57fdcddb75f49ed61346676a78c4ffe55877802fd"
 
 [[package]]
 name = "bb8"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1627eccf3aa91405435ba240be23513eeca466b5dc33866422672264de061582"
+version = "0.7.1"
+source = "git+https://github.com/Barre/bb8?branch=multiplexed-connections#ae501c0ab846f852d77ec067661b371082dce13b"
 dependencies = [
  "async-trait",
  "futures-channel",
  "futures-util",
- "parking_lot 0.12.0",
+ "parking_lot 0.11.2",
  "tokio",
 ]
 
 [[package]]
 name = "bb8-redis"
-version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b081e2864000416c5a4543fed63fb8dd979c4a0806b071fddab0e548c6cd4c74"
+version = "0.10.1"
+source = "git+https://github.com/Barre/bb8?branch=multiplexed-connections#ae501c0ab846f852d77ec067661b371082dce13b"
 dependencies = [
  "async-trait",
  "bb8",

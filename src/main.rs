@@ -19,7 +19,7 @@ use crate::error::Error;
 use crate::providers::{blockchain, UpdatesProvider};
 use crate::resources::repo::ResourcesRepoRedis;
 use bb8::Pool;
-use bb8_redis::{bb8, RedisConnectionManager};
+use bb8_redis::{bb8, redis, RedisConnectionManager};
 use std::sync::Arc;
 use wavesexchange_log::{error, info};
 
@@ -43,7 +43,7 @@ async fn tokio_main() -> Result<(), Error> {
         "redis://{}:{}@{}:{}/",
         redis_config.username, redis_config.password, redis_config.host, redis_config.port
     );
-    let redis_pool_manager = RedisConnectionManager::new(redis_connection_url)?;
+    let redis_pool_manager = RedisConnectionManager::new(redis_connection_url.clone())?;
     let redis_pool = Pool::builder().build(redis_pool_manager).await?;
 
     let resources_repo = ResourcesRepoRedis::new(redis_pool.clone());
@@ -171,8 +171,12 @@ async fn tokio_main() -> Result<(), Error> {
 
     let subscriptions_repo = subscriptions::repo::SubscriptionsRepoImpl::new(redis_pool.clone());
     let subscriptions_repo = Arc::new(subscriptions_repo);
+    // Patched version of bb8 that we are using here
+    // cannot extract dedicated connection for using for redis pubsub
+    // therefore its need to use a separated redis client
+    let redis_client = redis::Client::open(redis_connection_url)?;
     let notifications_puller =
-        subscriptions::puller::PullerImpl::new(subscriptions_repo.clone(), redis_pool);
+        subscriptions::puller::PullerImpl::new(subscriptions_repo.clone(), redis_client);
 
     let subscriptions_updates_receiver = notifications_puller.run().await?;
 

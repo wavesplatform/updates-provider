@@ -1,8 +1,7 @@
 use super::{SubscriptionEvent, SubscriptionsRepo};
 use crate::error::Error;
 use crate::metrics::REDIS_INPUT_QUEUE_SIZE;
-use bb8::Pool;
-use bb8_redis::RedisConnectionManager;
+use bb8_redis::redis;
 use futures::StreamExt;
 use std::sync::Arc;
 use std::{convert::TryFrom, time::Duration};
@@ -12,17 +11,17 @@ use wavesexchange_topic::Topic;
 
 pub struct PullerImpl {
     subscriptions_repo: Arc<dyn SubscriptionsRepo + Send + Sync + 'static>,
-    redis_pool: Pool<RedisConnectionManager>,
+    redis_client: redis::Client,
 }
 
 impl PullerImpl {
     pub fn new<S: SubscriptionsRepo + Send + Sync + 'static>(
         subscriptions_repo: Arc<S>,
-        redis_pool: Pool<RedisConnectionManager>,
+        redis_client: redis::Client,
     ) -> Self {
         Self {
             subscriptions_repo,
-            redis_pool,
+            redis_client,
         }
     }
 
@@ -36,7 +35,7 @@ impl PullerImpl {
             let mut panic_strategy = PanicStrategy::new(3, Duration::from_secs(10));
 
             loop {
-                let con = self.redis_pool.dedicated_connection().await.unwrap();
+                let con = self.redis_client.get_async_connection().await.unwrap();
                 let mut pubsub = con.into_pubsub();
 
                 let subscription_pattern = "__keyspace*__:sub:*".to_string();
