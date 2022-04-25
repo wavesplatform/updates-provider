@@ -1,19 +1,17 @@
 use super::ResourcesRepo;
 use crate::error::Error;
+use crate::redis::{AsyncCommands, RedisPool};
 use async_trait::async_trait;
-use bb8::Pool;
-use bb8_redis::redis::AsyncCommands;
-use bb8_redis::RedisConnectionManager;
 use wavesexchange_log::debug;
 use wavesexchange_topic::Topic;
 
 #[derive(Debug)]
 pub struct ResourcesRepoRedis {
-    pool: Pool<RedisConnectionManager>,
+    pool: RedisPool,
 }
 
 impl ResourcesRepoRedis {
-    pub fn new(pool: Pool<RedisConnectionManager>) -> ResourcesRepoRedis {
+    pub fn new(pool: RedisPool) -> ResourcesRepoRedis {
         ResourcesRepoRedis { pool }
     }
 }

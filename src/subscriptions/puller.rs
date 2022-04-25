@@ -1,7 +1,7 @@
 use super::{SubscriptionEvent, SubscriptionsRepo};
 use crate::error::Error;
 use crate::metrics::REDIS_INPUT_QUEUE_SIZE;
-use bb8_redis::redis;
+use crate::redis;
 use futures::StreamExt;
 use std::sync::Arc;
 use std::{convert::TryFrom, time::Duration};

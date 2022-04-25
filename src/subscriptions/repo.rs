@@ -1,16 +1,14 @@
 use super::{Subscriptions, SubscriptionsRepo};
 use crate::error::Error;
+use crate::redis::{AsyncCommands, RedisPool};
 use async_trait::async_trait;
-use bb8::Pool;
-use bb8_redis::redis::AsyncCommands;
-use bb8_redis::RedisConnectionManager;
 
 pub struct SubscriptionsRepoImpl {
-    pool: Pool<RedisConnectionManager>,
+    pool: RedisPool,
 }
 
 impl SubscriptionsRepoImpl {
-    pub fn new(pool: Pool<RedisConnectionManager>) -> SubscriptionsRepoImpl {
+    pub fn new(pool: RedisPool) -> SubscriptionsRepoImpl {
         SubscriptionsRepoImpl { pool }
     }
 }
