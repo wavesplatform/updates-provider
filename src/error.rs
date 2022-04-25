@@ -12,9 +12,13 @@ pub enum Error {
     #[error("PoolError: {0}")]
     PoolError(#[from] diesel::r2d2::PoolError),
     #[error("RedisError: {0}")]
-    RedisError(#[from] bb8_redis::redis::RedisError),
-    #[error("RedisPoolRunError: {0}")]
-    RedisPoolRunError(#[from] bb8::RunError<bb8_redis::redis::RedisError>),
+    RedisError(#[from] crate::redis::RedisError),
+    #[error("RedisPoolCreateError: {0}")]
+    RedisPoolCreateError(#[from] crate::redis::RedisPoolCreateError),
+    #[error("RedisPoolInitError: {0} - {1}")]
+    RedisPoolInitError(&'static str, crate::redis::RedisPoolError),
+    #[error("RedisPoolCreateError: {0}")]
+    RedisPoolRuntimeError(#[from] crate::redis::RedisPoolError),
     #[error("SerdeJsonError: {0}")]
     SerdeJsonError(#[from] serde_json::Error),
     #[error("SendError: {0}")]

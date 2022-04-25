@@ -169,12 +169,8 @@ async fn tokio_main() -> Result<(), Error> {
 
     let subscriptions_repo = subscriptions::repo::SubscriptionsRepoImpl::new(redis_pool.clone());
     let subscriptions_repo = Arc::new(subscriptions_repo);
-    // Patched version of bb8 that we are using here
-    // cannot extract dedicated connection for using for redis pubsub
-    // therefore its need to use a separated redis client
-    let redis_client = redis::Client::open(redis_connection_url)?;
     let notifications_puller =
-        subscriptions::puller::PullerImpl::new(subscriptions_repo.clone(), redis_client);
+        subscriptions::puller::PullerImpl::new(subscriptions_repo.clone(), redis_pool);
 
     let subscriptions_updates_receiver = notifications_puller.run().await?;
 
