@@ -1,8 +1,9 @@
 use super::ResourcesRepo;
 use crate::error::Error;
-use r2d2::Pool;
-use r2d2_redis::redis::Commands;
-use r2d2_redis::RedisConnectionManager;
+use async_trait::async_trait;
+use bb8::Pool;
+use bb8_redis::redis::AsyncCommands;
+use bb8_redis::RedisConnectionManager;
 use wavesexchange_log::debug;
 use wavesexchange_topic::Topic;
 
@@ -17,34 +18,35 @@ impl ResourcesRepoRedis {
     }
 }
 
+#[async_trait]
 impl ResourcesRepo for ResourcesRepoRedis {
-    fn get(&self, resource: &Topic) -> Result<Option<String>, Error> {
-        let mut con = self.pool.get()?;
+    async fn get(&self, resource: &Topic) -> Result<Option<String>, Error> {
+        let mut con = self.pool.get().await?;
         let key = String::from(resource.to_owned());
-        let result = con.get(key)?;
+        let result = con.get(key).await?;
         Ok(result)
     }
 
-    fn set(&self, resource: Topic, value: String) -> Result<(), Error> {
-        let mut con = self.pool.get()?;
+    async fn set(&self, resource: Topic, value: String) -> Result<(), Error> {
+        let mut con = self.pool.get().await?;
         let key = String::from(resource);
         debug!("[REDIS] set '{}' = '{}'", key, value);
-        con.set(key, value)?;
+        con.set(key, value).await?;
         Ok(())
     }
 
-    fn del(&self, resource: Topic) -> Result<(), Error> {
-        let mut con = self.pool.get()?;
+    async fn del(&self, resource: Topic) -> Result<(), Error> {
+        let mut con = self.pool.get().await?;
         let key = String::from(resource);
         debug!("[REDIS] del '{}'", key);
-        con.del(key)?;
+        con.del(key).await?;
         Ok(())
     }
 
-    fn push(&self, resource: Topic, value: String) -> Result<(), Error> {
-        let mut con = self.pool.get()?;
+    async fn push(&self, resource: Topic, value: String) -> Result<(), Error> {
+        let mut con = self.pool.get().await?;
         let key = String::from(resource);
-        con.publish(key, value)?;
+        con.publish(key, value).await?;
         Ok(())
     }
 }

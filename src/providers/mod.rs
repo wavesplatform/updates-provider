@@ -31,20 +31,20 @@ where
                 info!("insert new value {:?}", resource);
                 watchlist_guard.insert_value(data, current_value.clone());
                 drop(watchlist_guard);
-                resources_repo.set_and_push(resource, current_value)?;
+                resources_repo.set_and_push(resource, current_value).await?;
             }
         } else {
             watchlist_guard.insert_value(data, current_value.clone());
             drop(watchlist_guard);
 
-            if let Some(last_updated_value) = resources_repo.get(&resource)? {
+            if let Some(last_updated_value) = resources_repo.get(&resource).await? {
                 if current_value != last_updated_value {
                     info!("update value {:?}", resource);
-                    resources_repo.set_and_push(resource, current_value)?;
+                    resources_repo.set_and_push(resource, current_value).await?;
                 }
             } else {
                 info!("update value {:?}", resource);
-                resources_repo.set_and_push(resource, current_value)?;
+                resources_repo.set_and_push(resource, current_value).await?;
             }
         }
 

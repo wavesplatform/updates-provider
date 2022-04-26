@@ -18,8 +18,8 @@ use crate::db::{repo_consumer::PostgresConsumerRepo, repo_provider::PostgresProv
 use crate::error::Error;
 use crate::providers::{blockchain, UpdatesProvider};
 use crate::resources::repo::ResourcesRepoRedis;
-use r2d2::Pool;
-use r2d2_redis::{r2d2, redis, RedisConnectionManager};
+use bb8::Pool;
+use bb8_redis::{bb8, redis, RedisConnectionManager};
 use std::sync::Arc;
 use wavesexchange_log::{error, info};
 
@@ -44,7 +44,7 @@ async fn tokio_main() -> Result<(), Error> {
         redis_config.username, redis_config.password, redis_config.host, redis_config.port
     );
     let redis_pool_manager = RedisConnectionManager::new(redis_connection_url.clone())?;
-    let redis_pool = Pool::builder().build(redis_pool_manager)?;
+    let redis_pool = Pool::builder().build(redis_pool_manager).await?;
 
     let resources_repo = ResourcesRepoRedis::new(redis_pool.clone());
     let resources_repo = Arc::new(resources_repo);
@@ -171,7 +171,8 @@ async fn tokio_main() -> Result<(), Error> {
 
     let subscriptions_repo = subscriptions::repo::SubscriptionsRepoImpl::new(redis_pool.clone());
     let subscriptions_repo = Arc::new(subscriptions_repo);
-    // r2d2 cannot extract dedicated connection for using for redis pubsub
+    // Patched version of bb8 that we are using here
+    // cannot extract dedicated connection for using for redis pubsub
     // therefore its need to use a separated redis client
     let redis_client = redis::Client::open(redis_connection_url)?;
     let notifications_puller =

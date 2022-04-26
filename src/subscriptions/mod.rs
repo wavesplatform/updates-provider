@@ -3,6 +3,7 @@ pub mod pusher;
 pub mod repo;
 
 use crate::error::Error;
+use async_trait::async_trait;
 use wavesexchange_topic::Topic;
 
 type Subscriptions = Vec<String>;
@@ -18,6 +19,7 @@ pub enum SubscriptionEvent {
     Removed { topic: Topic },
 }
 
+#[async_trait]
 pub trait SubscriptionsRepo {
-    fn get_subscriptions(&self) -> Result<Subscriptions, Error>;
+    async fn get_subscriptions(&self) -> Result<Subscriptions, Error>;
 }

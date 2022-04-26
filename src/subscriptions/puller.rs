@@ -1,7 +1,8 @@
 use super::{SubscriptionEvent, SubscriptionsRepo};
 use crate::error::Error;
 use crate::metrics::REDIS_INPUT_QUEUE_SIZE;
-use r2d2_redis::redis;
+use bb8_redis::redis;
+use futures::StreamExt;
 use std::sync::Arc;
 use std::{convert::TryFrom, time::Duration};
 use tokio::time::Instant;
@@ -30,16 +31,17 @@ impl PullerImpl {
         let (subscriptions_updates_sender, subscriptions_updates_receiver) =
             tokio::sync::mpsc::channel(100);
 
-        tokio::task::spawn_blocking(move || {
+        tokio::task::spawn(async move {
             let mut panic_strategy = PanicStrategy::new(3, Duration::from_secs(10));
 
             loop {
-                let mut con = self.redis_client.get_connection().unwrap();
-                let mut pubsub = con.as_pubsub();
+                let con = self.redis_client.get_async_connection().await.unwrap();
+                let mut pubsub = con.into_pubsub();
 
                 let subscription_pattern = "__keyspace*__:sub:*".to_string();
                 pubsub
                     .psubscribe(subscription_pattern.clone())
+                    .await
                     .unwrap_or_else(|_| {
                         panic!(
                             "Cannot subscribe for the redis keyspace updates on pattern {}",
@@ -48,16 +50,16 @@ impl PullerImpl {
                     });
 
                 let initial_subscriptions_updates =
-                    get_initial_subscriptions(&self.subscriptions_repo).unwrap();
+                    get_initial_subscriptions(&self.subscriptions_repo)
+                        .await
+                        .unwrap();
 
-                tokio::runtime::Handle::current().block_on(async {
-                    for update in initial_subscriptions_updates.into_iter() {
-                        REDIS_INPUT_QUEUE_SIZE.inc();
-                        subscriptions_updates_sender.send(update).await.unwrap();
-                    }
-                });
+                for update in initial_subscriptions_updates.into_iter() {
+                    REDIS_INPUT_QUEUE_SIZE.inc();
+                    subscriptions_updates_sender.send(update).await.unwrap();
+                }
 
-                while let Ok(msg) = pubsub.get_message() {
+                while let Some(msg) = pubsub.on_message().next().await {
                     let payload = msg.get_payload::<String>().unwrap();
                     let event_name = payload.as_str();
                     if let "set" | "del" | "expired" = event_name {
@@ -76,10 +78,8 @@ impl PullerImpl {
                         };
                         debug!("Subscription event: {:?}", update);
                         let subscriptions_updates_sender_ref = &subscriptions_updates_sender;
-                        tokio::runtime::Handle::current().block_on(async {
-                            REDIS_INPUT_QUEUE_SIZE.inc();
-                            subscriptions_updates_sender_ref.send(update).await.unwrap();
-                        })
+                        REDIS_INPUT_QUEUE_SIZE.inc();
+                        subscriptions_updates_sender_ref.send(update).await.unwrap();
                     }
                 }
 
@@ -97,10 +97,10 @@ impl PullerImpl {
     }
 }
 
-fn get_initial_subscriptions(
+async fn get_initial_subscriptions(
     subscriptions_repo: &Arc<dyn SubscriptionsRepo + Send + Sync>,
 ) -> Result<Vec<SubscriptionEvent>, Error> {
-    let current_subscriptions = subscriptions_repo.get_subscriptions()?;
+    let current_subscriptions = subscriptions_repo.get_subscriptions().await?;
 
     let initial_subscriptions_updates: Vec<SubscriptionEvent> = current_subscriptions
         .iter()
@@ -167,7 +167,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn shoild_not_tell_to_panic() {
+    async fn should_not_tell_to_panic() {
         let mut strategy = PanicStrategy::new(2, Duration::from_secs(5));
         strategy.add_failure();
 
