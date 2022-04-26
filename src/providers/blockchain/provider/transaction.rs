@@ -70,7 +70,7 @@ impl<R: ProviderRepo + Sync> LastValue<R> for wavesexchange_topic::Transaction {
                 address,
             }) => {
                 if let Some(Transaction { id, .. }) =
-                    tokio::task::block_in_place(move || repo.last_transaction_by_address(address))?
+                    repo.last_transaction_by_address(address).await?
                 {
                     id
                 } else {
@@ -82,9 +82,10 @@ impl<R: ProviderRepo + Sync> LastValue<R> for wavesexchange_topic::Transaction {
                 address,
             }) => {
                 let transaction_type = TransactionType::try_from(tx_type)?;
-                if let Some(Transaction { id, .. }) = tokio::task::block_in_place(move || {
-                    repo.last_transaction_by_address_and_type(address, transaction_type)
-                })? {
+                if let Some(Transaction { id, .. }) = repo
+                    .last_transaction_by_address_and_type(address, transaction_type)
+                    .await?
+                {
                     id
                 } else {
                     serde_json::to_string(&None::<String>)?
@@ -97,9 +98,10 @@ impl<R: ProviderRepo + Sync> LastValue<R> for wavesexchange_topic::Transaction {
                 if let Some(Transaction {
                     body: Some(body_value),
                     ..
-                }) = tokio::task::block_in_place(move || {
-                    repo.last_exchange_transaction(amount_asset, price_asset)
-                })? {
+                }) = repo
+                    .last_exchange_transaction(amount_asset, price_asset)
+                    .await?
+                {
                     serde_json::to_string(&body_value)?
                 } else {
                     serde_json::to_string(&None::<String>)?

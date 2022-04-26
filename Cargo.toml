@@ -13,12 +13,13 @@ envy = "0.4"
 futures = "0.3"
 itertools = "0.10"
 lazy_static = "1.4"
-diesel = { version = "1.4.5", features = ["postgres", "r2d2", "chrono", "numeric", "serde_json"] }
+diesel = { version = "1.4", features = ["postgres", "chrono", "numeric", "serde_json"] }
+deadpool = { version = "0.9", default-features = false, features = ["managed", "rt_tokio_1"] }
+deadpool-redis = { version = "0.10", default-features = false, features = ["rt_tokio_1"] }
+deadpool-diesel = { version = "0.3", default-features = false, features = ["postgres", "rt_tokio_1"] }
 percent-encoding = "2.1"
 prost = { version = "0.8", features = ["no-recursion-limit"] }
 prometheus = "0.12"
-bb8 = { git = "https://github.com/Barre/bb8", branch = "multiplexed-connections" }
-bb8-redis = { git = "https://github.com/Barre/bb8", branch = "multiplexed-connections", features = ["multiplexed-connections"] }
 regex = "1.5"
 reqwest = "0.11"
 serde = { version = "1.0", features = ["derive"] }

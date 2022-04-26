@@ -26,9 +26,7 @@ impl DataFromBlock for LeasingBalance {
 impl<R: ProviderRepo + Sync> LastValue<R> for LeasingBalance {
     async fn last_value(self, repo: &R) -> Result<String> {
         Ok(
-            if let Some(lb) =
-                tokio::task::block_in_place(move || repo.last_leasing_balance(self.address))?
-            {
+            if let Some(lb) = repo.last_leasing_balance(self.address).await? {
                 let lb = waves::LeasingBalance::from(lb);
                 serde_json::to_string(&lb)?
             } else {

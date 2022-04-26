@@ -32,8 +32,7 @@ impl<R: ProviderRepo + Sync> LastValue<R> for State {
     async fn last_value(self, repo: &R) -> Result<String> {
         Ok(match self {
             State::Single(StateSingle { address, key }) => {
-                let maybe_data_entry =
-                    tokio::task::block_in_place(move || repo.last_data_entry(address, key))?;
+                let maybe_data_entry = repo.last_data_entry(address, key).await?;
                 if let Some(de) = maybe_data_entry {
                     let de = waves::DataEntry::from(de);
                     serde_json::to_string(&de)?
@@ -45,9 +44,9 @@ impl<R: ProviderRepo + Sync> LastValue<R> for State {
                 addresses,
                 key_patterns,
             }) => {
-                let matching_keys = tokio::task::block_in_place(move || {
-                    repo.find_matching_data_keys(addresses, key_patterns)
-                })?;
+                let matching_keys = repo
+                    .find_matching_data_keys(addresses, key_patterns)
+                    .await?;
                 let matching_topics = matching_keys
                     .into_iter()
                     .map_into::<Topic>()
