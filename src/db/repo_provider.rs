@@ -40,7 +40,7 @@ mod repo_impl {
     use diesel::prelude::*;
 
     use super::ProviderRepo;
-    use crate::db::pool::{PgPool, PooledPgConnection};
+    use crate::db::pool::{PgPoolWithStats, PooledPgConnection};
     use crate::db::{DataEntry, LeasingBalance};
     use crate::error::Result;
     use crate::schema::{associated_addresses, data_entries, leasing_balances, transactions};
@@ -56,11 +56,11 @@ mod repo_impl {
     /// Can be cloned freely, no need to wrap in `Arc`.
     #[derive(Clone)]
     pub struct PostgresProviderRepo {
-        pool: PgPool,
+        pool: PgPoolWithStats,
     }
 
     impl PostgresProviderRepo {
-        pub fn new(pool: PgPool) -> Self {
+        pub fn new(pool: PgPoolWithStats) -> Self {
             PostgresProviderRepo { pool }
         }
 

@@ -1,6 +1,6 @@
 use super::{Subscriptions, SubscriptionsRepo};
 use crate::error::Error;
-use crate::redis::{AsyncCommands, RedisPool, RedisPoolWithStats};
+use crate::redis::{AsyncCommands, RedisPoolWithStats};
 use async_trait::async_trait;
 
 pub struct SubscriptionsRepoImpl {
@@ -8,10 +8,8 @@ pub struct SubscriptionsRepoImpl {
 }
 
 impl SubscriptionsRepoImpl {
-    pub fn new(pool: RedisPool) -> SubscriptionsRepoImpl {
-        SubscriptionsRepoImpl {
-            pool: RedisPoolWithStats::new(pool),
-        }
+    pub fn new(pool: RedisPoolWithStats) -> SubscriptionsRepoImpl {
+        SubscriptionsRepoImpl { pool }
     }
 }
 

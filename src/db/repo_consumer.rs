@@ -91,7 +91,7 @@ mod repo_impl {
         DeletedLeasingBalance, LeasingBalance, LeasingBalanceUpdate, PrevHandledHeight,
     };
     use super::{ConsumerRepo, ConsumerRepoOperations};
-    use crate::db::pool::{PgPool, PooledPgConnection};
+    use crate::db::pool::{PgPoolWithStats, PooledPgConnection};
     use crate::error::Result;
     use crate::schema::blocks_microblocks::dsl::*;
     use crate::schema::data_entries_uid_seq;
@@ -112,11 +112,11 @@ mod repo_impl {
     /// Can be cloned freely, no need to wrap in `Arc`.
     #[derive(Clone)]
     pub struct PostgresConsumerRepo {
-        pool: PgPool,
+        pool: PgPoolWithStats,
     }
 
     impl PostgresConsumerRepo {
-        pub fn new(pool: PgPool) -> Self {
+        pub fn new(pool: PgPoolWithStats) -> Self {
             Self { pool }
         }
 

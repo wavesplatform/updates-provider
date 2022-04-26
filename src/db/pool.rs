@@ -1,3 +1,5 @@
+use prometheus::IntGauge;
+
 use deadpool_diesel::postgres::{Connection, InteractError, Manager, Pool, Runtime};
 
 use crate::{config::PostgresConfig, error::Error};
@@ -9,7 +11,7 @@ pub type PooledPgConnection = Connection;
 pub type PgPoolCreateError = BuildError<deadpool_diesel::Error>;
 pub type PgPoolRuntimeError = deadpool::managed::PoolError<deadpool_diesel::Error>;
 
-pub fn new(config: &PostgresConfig) -> Result<PgPool, Error> {
+pub fn new(config: &PostgresConfig, gauge: IntGauge) -> Result<PgPoolWithStats, Error> {
     let db_url = format!(
         "postgres://{}:{}@{}:{}/{}",
         config.user, config.password, config.host, config.port, config.database
@@ -21,7 +23,7 @@ pub fn new(config: &PostgresConfig) -> Result<PgPool, Error> {
         .max_size(config.pool_size as usize)
         .build()?;
 
-    Ok(pool)
+    Ok(PgPoolWithStats::new(pool, gauge))
 }
 
 #[derive(Debug)]
@@ -44,5 +46,23 @@ impl std::error::Error for PgPoolSyncCallError {}
 impl From<InteractError> for crate::Error {
     fn from(err: InteractError) -> Self {
         crate::Error::PgPoolSyncCallError(err.into())
+    }
+}
+
+#[derive(Clone)]
+pub struct PgPoolWithStats {
+    pool: PgPool,
+    gauge: IntGauge,
+}
+
+impl PgPoolWithStats {
+    pub fn new(pool: PgPool, gauge: IntGauge) -> Self {
+        PgPoolWithStats { pool, gauge }
+    }
+
+    pub async fn get(&self) -> Result<PooledPgConnection, PgPoolRuntimeError> {
+        let res = self.pool.get().await;
+        self.gauge.set(self.pool.status().available as i64);
+        res
     }
 }

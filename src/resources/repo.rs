@@ -1,6 +1,6 @@
 use super::ResourcesRepo;
 use crate::error::Error;
-use crate::redis::{AsyncCommands, RedisPool, RedisPoolWithStats};
+use crate::redis::{AsyncCommands, RedisPoolWithStats};
 use async_trait::async_trait;
 use wavesexchange_log::debug;
 use wavesexchange_topic::Topic;
@@ -10,10 +10,8 @@ pub struct ResourcesRepoRedis {
 }
 
 impl ResourcesRepoRedis {
-    pub fn new(pool: RedisPool) -> ResourcesRepoRedis {
-        ResourcesRepoRedis {
-            pool: RedisPoolWithStats::new(pool),
-        }
+    pub fn new(pool: RedisPoolWithStats) -> ResourcesRepoRedis {
+        ResourcesRepoRedis { pool }
     }
 }
 

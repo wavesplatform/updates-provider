@@ -17,6 +17,10 @@ mod waves;
 
 use crate::db::{repo_consumer::PostgresConsumerRepo, repo_provider::PostgresProviderRepo};
 use crate::error::Error;
+use crate::metrics::{
+    POSTGRES_READ_CONNECTIONS_AVAILABLE, POSTGRES_WRITE_CONNECTIONS_AVAILABLE,
+    REDIS_CONNECTIONS_AVAILABLE,
+};
 use crate::providers::{blockchain, UpdatesProvider};
 use crate::resources::repo::ResourcesRepoRedis;
 use std::sync::Arc;
@@ -42,13 +46,20 @@ async fn tokio_main() -> Result<(), Error> {
         "redis://{}:{}@{}:{}/",
         redis_config.username, redis_config.password, redis_config.host, redis_config.port
     );
-    let redis_pool = redis::new_redis_pool(redis_connection_url).await?;
+    let redis_pool =
+        redis::new_redis_pool(redis_connection_url, REDIS_CONNECTIONS_AVAILABLE.clone()).await?;
 
     let resources_repo = ResourcesRepoRedis::new(redis_pool.clone());
     let resources_repo = Arc::new(resources_repo);
 
-    let consumer_db_pool = db::pool::new(&postgres_config.postgres_rw)?;
-    let provider_db_pool = db::pool::new(&postgres_config.postgres_ro)?;
+    let consumer_db_pool = db::pool::new(
+        &postgres_config.postgres_rw,
+        POSTGRES_WRITE_CONNECTIONS_AVAILABLE.clone(),
+    )?;
+    let provider_db_pool = db::pool::new(
+        &postgres_config.postgres_ro,
+        POSTGRES_READ_CONNECTIONS_AVAILABLE.clone(),
+    )?;
 
     let consumer_repo = PostgresConsumerRepo::new(consumer_db_pool);
     let provider_repo = PostgresProviderRepo::new(provider_db_pool);

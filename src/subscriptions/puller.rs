@@ -1,7 +1,7 @@
 use super::{SubscriptionEvent, SubscriptionsRepo};
 use crate::error::Error;
 use crate::metrics::REDIS_INPUT_QUEUE_SIZE;
-use crate::redis::{DedicatedConnection, RedisPool};
+use crate::redis::{DedicatedConnection, RedisPoolWithStats};
 use futures::StreamExt;
 use std::sync::Arc;
 use std::{convert::TryFrom, time::Duration};
@@ -11,13 +11,13 @@ use wavesexchange_topic::Topic;
 
 pub struct PullerImpl {
     subscriptions_repo: Arc<dyn SubscriptionsRepo + Send + Sync + 'static>,
-    redis_pool: RedisPool,
+    redis_pool: RedisPoolWithStats,
 }
 
 impl PullerImpl {
     pub fn new<S: SubscriptionsRepo + Send + Sync + 'static>(
         subscriptions_repo: Arc<S>,
-        redis_pool: RedisPool,
+        redis_pool: RedisPoolWithStats,
     ) -> Self {
         Self {
             subscriptions_repo,

@@ -10,10 +10,12 @@ pub use deadpool_redis::PoolError as RedisPoolError;
 use deadpool_redis::{Config, Runtime};
 
 use async_trait::async_trait;
+use prometheus::IntGauge;
 
-use crate::metrics::REDIS_CONNECTIONS_AVAILABLE;
-
-pub async fn new_redis_pool(redis_connection_url: String) -> Result<RedisPool, crate::Error> {
+pub async fn new_redis_pool(
+    redis_connection_url: String,
+    gauge: IntGauge,
+) -> Result<RedisPoolWithStats, crate::Error> {
     let cfg = Config::from_url(redis_connection_url);
     let pool = cfg.create_pool(Some(Runtime::Tokio1))?;
     let test_conn = pool.get().await.map_err(|err| {
@@ -23,7 +25,7 @@ pub async fn new_redis_pool(redis_connection_url: String) -> Result<RedisPool, c
         )
     })?;
     drop(test_conn); // Not needed, just verify that Redis server is responding
-    Ok(pool)
+    Ok(RedisPoolWithStats::new(pool, gauge))
 }
 
 #[async_trait]
@@ -46,18 +48,20 @@ impl DedicatedConnection for RedisPool {
     }
 }
 
+#[derive(Clone)]
 pub struct RedisPoolWithStats {
     pool: RedisPool,
+    gauge: IntGauge,
 }
 
 impl RedisPoolWithStats {
-    pub fn new(pool: RedisPool) -> Self {
-        RedisPoolWithStats { pool }
+    pub fn new(pool: RedisPool, gauge: IntGauge) -> Self {
+        RedisPoolWithStats { pool, gauge }
     }
 
     pub async fn get(&self) -> Result<RedisPoolConnection, RedisPoolError> {
         let res = self.pool.get().await;
-        REDIS_CONNECTIONS_AVAILABLE.set(self.pool.status().available as i64);
+        self.gauge.set(self.pool.status().available as i64);
         res
     }
 }
