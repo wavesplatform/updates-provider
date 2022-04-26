@@ -21,6 +21,11 @@ lazy_static! {
         "Size of incoming Redis messages queue"
     )
     .expect("can't create message_queue metrics");
+    pub static ref REDIS_CONNECTIONS_AVAILABLE: IntGauge = IntGauge::new(
+        "RedisConnectionsAvailable",
+        "Number of available connections in the pool, negative if there are blocked tasks waiting for connection"
+    )
+    .expect("can't create message_queue metrics");
     pub static ref DB_WRITE_TIME: IntGauge = IntGauge::new(
         "WatchlistsDatabaseWriteTime",
         "Time (in ms) of DB writes"
@@ -40,6 +45,10 @@ pub fn register_metrics() {
     REGISTRY
         .register(Box::new(REDIS_INPUT_QUEUE_SIZE.clone()))
         .expect("can't register watchlists_queue_size metrics");
+
+    REGISTRY
+        .register(Box::new(REDIS_CONNECTIONS_AVAILABLE.clone()))
+        .expect("can't register redis_connections_available metrics");
 
     REGISTRY
         .register(Box::new(DB_WRITE_TIME.clone()))

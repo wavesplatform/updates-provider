@@ -11,6 +11,8 @@ use deadpool_redis::{Config, Runtime};
 
 use async_trait::async_trait;
 
+use crate::metrics::REDIS_CONNECTIONS_AVAILABLE;
+
 pub async fn new_redis_pool(redis_connection_url: String) -> Result<RedisPool, crate::Error> {
     let cfg = Config::from_url(redis_connection_url);
     let pool = cfg.create_pool(Some(Runtime::Tokio1))?;
@@ -41,5 +43,31 @@ impl DedicatedConnection for RedisPool {
         let conn = self.get().await?;
         let detached = RedisPoolConnection::take(conn);
         Ok(detached)
+    }
+}
+
+pub struct RedisPoolWithStats {
+    pool: RedisPool,
+}
+
+impl RedisPoolWithStats {
+    pub fn new(pool: RedisPool) -> Self {
+        RedisPoolWithStats { pool }
+    }
+
+    pub async fn get(&self) -> Result<RedisPoolConnection, RedisPoolError> {
+        let res = self.pool.get().await;
+        REDIS_CONNECTIONS_AVAILABLE.set(self.pool.status().available as i64);
+        res
+    }
+}
+
+#[async_trait]
+impl DedicatedConnection for RedisPoolWithStats {
+    type Connection = RedisConnection;
+    type Error = RedisPoolError;
+
+    async fn dedicated_connection(&self) -> Result<RedisConnection, RedisPoolError> {
+        self.pool.dedicated_connection().await
     }
 }
