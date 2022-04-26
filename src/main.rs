@@ -148,7 +148,7 @@ async fn tokio_main() -> Result<(), Error> {
     let (tx, rx) = tokio::sync::mpsc::channel(20);
     let provider = blockchain::provider::Provider::<wavesexchange_topic::LeasingBalance, _, _>::new(
         resources_repo,
-        blockchain_config.state_delete_timeout,
+        blockchain_config.leasing_balance_delete_timeout,
         provider_repo,
         rx,
     );
