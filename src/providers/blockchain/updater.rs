@@ -9,6 +9,7 @@ use wavesexchange_log::{debug, info};
 use crate::db::repo_consumer::{ConsumerRepo, ConsumerRepoOperations};
 use crate::db::{
     BlockchainUpdate, DataEntry, DataEntryUpdate, LeasingBalance, LeasingBalanceUpdate,
+    PrevHandledHeight,
 };
 use crate::error::{Error, Result};
 use crate::metrics::DB_WRITE_TIME;
@@ -58,11 +59,12 @@ impl<R: ConsumerRepo> Updater<R> {
     ) -> Result<UpdaterReturn<R>> {
         let (tx, rx) = mpsc::channel(updates_buffer_size);
         let last_height = {
-            let prev_handled_height = repo.execute(|ops| ops.get_prev_handled_height())?;
+            let prev_handled_height = repo.execute(|ops| ops.get_prev_handled_height()).await?;
             match prev_handled_height {
-                Some(prev_handled_height) => {
-                    repo.transaction(|ops| rollback_by_block_uid(ops, prev_handled_height.uid))?;
-                    prev_handled_height.height as i32 + 1
+                Some(PrevHandledHeight { uid, height }) => {
+                    repo.transaction(move |ops| rollback_by_block_uid(ops, uid))
+                        .await?;
+                    height as i32 + 1
                 }
                 None => 1i32,
             }
@@ -184,31 +186,11 @@ impl<R: ConsumerRepo> Updater<R> {
             "start handling updates batch of size {}",
             blockchain_updates.len()
         );
-        {
-            if let UpdatesSequenceState::NeedSquash = microblock_flag {
-                let mut i = 0;
-                let mut blockchain_updates_iter = blockchain_updates.iter().enumerate();
-                loop {
-                    match blockchain_updates_iter.next() {
-                        Some((idx, BlockchainUpdate::Block(_))) => {
-                            insert_blockchain_updates(
-                                &self.repo,
-                                blockchain_updates[..idx].to_vec().iter(),
-                            )?;
-                            squash_microblocks(&self.repo)?;
-                            *microblock_flag = UpdatesSequenceState::default();
-                            i = idx;
-                            break;
-                        }
-                        Some(_) => (),
-                        None => break,
-                    }
-                }
-                insert_blockchain_updates(&self.repo, blockchain_updates[i..].to_vec().iter())?;
-            } else {
-                insert_blockchain_updates(&self.repo, blockchain_updates.iter())?;
-            }
-        }
+
+        let blockchain_updates = Arc::new(blockchain_updates);
+
+        // Write updates to the Postgres database
+        write_updates(&self.repo, blockchain_updates.clone(), microblock_flag).await?;
 
         let elapsed = start.elapsed();
         let elapsed_ms = elapsed.as_millis() as i64;
@@ -224,9 +206,9 @@ impl<R: ConsumerRepo> Updater<R> {
             }
         );
 
-        let sending = Arc::new(blockchain_updates);
+        // Write updates to Redis
         for tx in self.providers.iter_mut() {
-            tx.send(sending.clone())
+            tx.send(blockchain_updates.clone())
                 .await
                 .map_err(|_| Error::SendErrorVecBlockchainUpdate)?
         }
@@ -235,14 +217,44 @@ impl<R: ConsumerRepo> Updater<R> {
     }
 }
 
-fn insert_blockchain_updates<'a, R: ConsumerRepo>(
+async fn write_updates<R: ConsumerRepo>(
     repo: &R,
-    blockchain_updates: impl Iterator<Item = &'a BlockchainUpdate>,
+    blockchain_updates: Arc<Vec<BlockchainUpdate>>,
+    microblock_flag: &mut UpdatesSequenceState,
 ) -> Result<()> {
-    repo.transaction(|ops| {
+    if let UpdatesSequenceState::NeedSquash = microblock_flag {
+        let mut i = 0;
+        let mut blockchain_updates_iter = blockchain_updates.iter().enumerate();
+        loop {
+            match blockchain_updates_iter.next() {
+                Some((idx, BlockchainUpdate::Block(_))) => {
+                    insert_blockchain_updates(repo, Arc::new(blockchain_updates[..idx].to_vec()))
+                        .await?;
+                    squash_microblocks(repo).await?;
+                    *microblock_flag = UpdatesSequenceState::default();
+                    i = idx;
+                    break;
+                }
+                Some(_) => (),
+                None => break,
+            }
+        }
+        insert_blockchain_updates(repo, Arc::new(blockchain_updates[i..].to_vec())).await?;
+    } else {
+        insert_blockchain_updates(repo, blockchain_updates).await?;
+    }
+
+    Ok(())
+}
+
+async fn insert_blockchain_updates<'a, R: ConsumerRepo>(
+    repo: &R,
+    blockchain_updates: Arc<Vec<BlockchainUpdate>>,
+) -> Result<()> {
+    repo.transaction(move |ops| {
         let mut appends = vec![];
         let mut rollback_block_id = None;
-        for update in blockchain_updates {
+        for update in blockchain_updates.iter() {
             match update {
                 BlockchainUpdate::Block(block) => appends.push(block),
                 BlockchainUpdate::Microblock(block) => appends.push(block),
@@ -256,7 +268,8 @@ fn insert_blockchain_updates<'a, R: ConsumerRepo>(
         }
 
         Ok(())
-    })?;
+    })
+    .await?;
 
     Ok(())
 }
@@ -555,7 +568,7 @@ fn count_txs_addresses(buffer: &[BlockchainUpdate]) -> (usize, usize) {
         })
 }
 
-fn squash_microblocks<R: ConsumerRepo>(repo: &R) -> Result<()> {
+async fn squash_microblocks<R: ConsumerRepo>(repo: &R) -> Result<()> {
     repo.transaction(|ops| {
         if let Some(total_block_id) = ops.get_total_block_id()? {
             let key_block_uid = ops.get_key_block_uid()?;
@@ -568,7 +581,8 @@ fn squash_microblocks<R: ConsumerRepo>(repo: &R) -> Result<()> {
         }
 
         Ok(())
-    })?;
+    })
+    .await?;
 
     Ok(())
 }

@@ -1,5 +1,7 @@
 //! Consumer's database view (read-write operations).
 
+use async_trait::async_trait;
+
 use super::{
     AssociatedAddress, BlockMicroblock, DataEntry, DataEntryUpdate, DeletedDataEntry,
     DeletedLeasingBalance, InsertableTransaction, LeasingBalance, LeasingBalanceUpdate,
@@ -9,18 +11,21 @@ use crate::error::Result;
 
 pub use self::repo_impl::PostgresConsumerRepo;
 
+#[async_trait]
 pub trait ConsumerRepo {
     type Operations: ConsumerRepoOperations;
 
     /// Execute some operations on a pooled connection without creating a database transaction.
-    fn execute<F, R>(&self, f: F) -> Result<R>
+    async fn execute<F, R>(&self, f: F) -> Result<R>
     where
-        F: FnOnce(Self::Operations) -> Result<R>;
+        F: FnOnce(&Self::Operations) -> Result<R> + Send + 'static,
+        R: Send + 'static;
 
     /// Execute some operations within a database transaction.
-    fn transaction<F, R>(&self, f: F) -> Result<R>
+    async fn transaction<F, R>(&self, f: F) -> Result<R>
     where
-        F: FnOnce(&Self::Operations) -> Result<R>;
+        F: FnOnce(&Self::Operations) -> Result<R> + Send + 'static,
+        R: Send + 'static;
 }
 
 pub trait ConsumerRepoOperations {
@@ -76,6 +81,8 @@ pub trait ConsumerRepoOperations {
 }
 
 mod repo_impl {
+    use async_trait::async_trait;
+
     use diesel::prelude::*;
     use diesel::sql_types::{Array, BigInt, VarChar};
 
@@ -113,36 +120,36 @@ mod repo_impl {
             Self { pool }
         }
 
-        fn get_conn(&self) -> Result<PooledPgConnection> {
-            Ok(self.pool.get()?)
+        async fn get_conn(&self) -> Result<PooledPgConnection> {
+            let conn = self.pool.get().await?;
+            Ok(conn)
         }
     }
 
+    #[async_trait]
     impl ConsumerRepo for PostgresConsumerRepo {
-        type Operations = PooledPgConnection;
+        type Operations = PgConnection;
 
-        fn execute<F, R>(&self, f: F) -> Result<R>
+        async fn execute<F, R>(&self, f: F) -> Result<R>
         where
-            F: FnOnce(PooledPgConnection) -> Result<R>,
+            F: FnOnce(&PgConnection) -> Result<R> + Send + 'static,
+            R: Send + 'static,
         {
-            tokio::task::block_in_place(move || {
-                let conn = self.get_conn()?;
-                f(conn)
-            })
+            let conn = self.get_conn().await?;
+            conn.interact(|conn| f(&*conn)).await?
         }
 
-        fn transaction<F, R>(&self, f: F) -> Result<R>
+        async fn transaction<F, R>(&self, f: F) -> Result<R>
         where
-            F: FnOnce(&PooledPgConnection) -> Result<R>,
+            F: FnOnce(&PgConnection) -> Result<R> + Send + 'static,
+            R: Send + 'static,
         {
-            tokio::task::block_in_place(move || {
-                let conn = self.get_conn()?;
-                conn.transaction(|| f(&conn))
-            })
+            let conn = self.get_conn().await?;
+            conn.interact(|conn| conn.transaction(|| f(&*conn))).await?
         }
     }
 
-    impl ConsumerRepoOperations for PooledPgConnection {
+    impl ConsumerRepoOperations for PgConnection {
         fn get_prev_handled_height(&self) -> Result<Option<PrevHandledHeight>> {
             timer!("get_prev_handled_height()", verbose);
 

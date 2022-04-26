@@ -3,30 +3,32 @@
 use super::{DataEntry, LeasingBalance};
 use crate::error::Result;
 use crate::waves::transactions::{Transaction, TransactionType};
+use async_trait::async_trait;
 use wavesexchange_topic::StateSingle;
 
 pub use self::repo_impl::PostgresProviderRepo;
 
+#[async_trait]
 pub trait ProviderRepo {
-    fn last_transaction_by_address(&self, address: String) -> Result<Option<Transaction>>;
+    async fn last_transaction_by_address(&self, address: String) -> Result<Option<Transaction>>;
 
-    fn last_transaction_by_address_and_type(
+    async fn last_transaction_by_address_and_type(
         &self,
         address: String,
         transaction_type: TransactionType,
     ) -> Result<Option<Transaction>>;
 
-    fn last_exchange_transaction(
+    async fn last_exchange_transaction(
         &self,
         amount_asset: String,
         price_asset: String,
     ) -> Result<Option<Transaction>>;
 
-    fn last_leasing_balance(&self, address: String) -> Result<Option<LeasingBalance>>;
+    async fn last_leasing_balance(&self, address: String) -> Result<Option<LeasingBalance>>;
 
-    fn last_data_entry(&self, address: String, key: String) -> Result<Option<DataEntry>>;
+    async fn last_data_entry(&self, address: String, key: String) -> Result<Option<DataEntry>>;
 
-    fn find_matching_data_keys(
+    async fn find_matching_data_keys(
         &self,
         addresses: Vec<String>,
         key_patterns: Vec<String>,
@@ -43,6 +45,7 @@ mod repo_impl {
     use crate::error::Result;
     use crate::schema::{associated_addresses, data_entries, leasing_balances, transactions};
     use crate::waves::transactions::{Transaction, TransactionType};
+    use async_trait::async_trait;
     use wavesexchange_log::{debug, timer};
     use wavesexchange_topic::StateSingle;
 
@@ -61,179 +64,215 @@ mod repo_impl {
             PostgresProviderRepo { pool }
         }
 
-        fn get_conn(&self) -> Result<PooledPgConnection> {
-            Ok(self.pool.get()?)
+        async fn get_conn(&self) -> Result<PooledPgConnection> {
+            let conn = self.pool.get().await?;
+            Ok(conn)
         }
     }
 
+    #[async_trait]
     impl ProviderRepo for PostgresProviderRepo {
-        fn last_transaction_by_address(&self, address: String) -> Result<Option<Transaction>> {
-            self.get_conn()?.last_transaction_by_address(address)
+        async fn last_transaction_by_address(
+            &self,
+            address: String,
+        ) -> Result<Option<Transaction>> {
+            self.get_conn()
+                .await?
+                .last_transaction_by_address(address)
+                .await
         }
 
-        fn last_transaction_by_address_and_type(
+        async fn last_transaction_by_address_and_type(
             &self,
             address: String,
             transaction_type: TransactionType,
         ) -> Result<Option<Transaction>> {
-            self.get_conn()?
+            self.get_conn()
+                .await?
                 .last_transaction_by_address_and_type(address, transaction_type)
+                .await
         }
 
-        fn last_exchange_transaction(
+        async fn last_exchange_transaction(
             &self,
             amount_asset: String,
             price_asset: String,
         ) -> Result<Option<Transaction>> {
-            self.get_conn()?
+            self.get_conn()
+                .await?
                 .last_exchange_transaction(amount_asset, price_asset)
+                .await
         }
 
-        fn last_leasing_balance(&self, address: String) -> Result<Option<LeasingBalance>> {
-            self.get_conn()?.last_leasing_balance(address)
+        async fn last_leasing_balance(&self, address: String) -> Result<Option<LeasingBalance>> {
+            self.get_conn().await?.last_leasing_balance(address).await
         }
 
-        fn last_data_entry(&self, address: String, key: String) -> Result<Option<DataEntry>> {
-            self.get_conn()?.last_data_entry(address, key)
+        async fn last_data_entry(&self, address: String, key: String) -> Result<Option<DataEntry>> {
+            self.get_conn().await?.last_data_entry(address, key).await
         }
 
-        fn find_matching_data_keys(
+        async fn find_matching_data_keys(
             &self,
             addresses: Vec<String>,
             key_patterns: Vec<String>,
         ) -> Result<Vec<StateSingle>> {
-            self.get_conn()?
+            self.get_conn()
+                .await?
                 .find_matching_data_keys(addresses, key_patterns)
+                .await
         }
     }
 
+    #[async_trait]
     impl ProviderRepo for PooledPgConnection {
-        fn last_transaction_by_address(&self, address: String) -> Result<Option<Transaction>> {
-            timer!("last_transaction_by_address()", verbose);
+        async fn last_transaction_by_address(
+            &self,
+            address: String,
+        ) -> Result<Option<Transaction>> {
+            self.interact(|conn| {
+                timer!("last_transaction_by_address()", verbose);
 
-            Ok(associated_addresses::table
-                .inner_join(transactions::table)
-                .filter(associated_addresses::address.eq(address))
-                .select(transactions::all_columns.nullable())
-                .order(transactions::uid.desc())
-                .first::<Option<Transaction>>(self)
-                .optional()?
-                .flatten())
+                Ok(associated_addresses::table
+                    .inner_join(transactions::table)
+                    .filter(associated_addresses::address.eq(address))
+                    .select(transactions::all_columns.nullable())
+                    .order(transactions::uid.desc())
+                    .first::<Option<Transaction>>(conn)
+                    .optional()?
+                    .flatten())
+            })
+            .await?
         }
 
-        fn last_transaction_by_address_and_type(
+        async fn last_transaction_by_address_and_type(
             &self,
             address: String,
             transaction_type: TransactionType,
         ) -> Result<Option<Transaction>> {
-            timer!("last_transaction_by_address_and_type()", verbose);
+            self.interact(move |conn| {
+                timer!("last_transaction_by_address_and_type()", verbose);
 
-            Ok(associated_addresses::table
-                .inner_join(transactions::table)
-                .filter(associated_addresses::address.eq(address))
-                .filter(transactions::tx_type.eq(transaction_type))
-                .select(transactions::all_columns.nullable())
-                .order(transactions::uid.desc())
-                .first::<Option<Transaction>>(self)
-                .optional()?
-                .flatten())
+                Ok(associated_addresses::table
+                    .inner_join(transactions::table)
+                    .filter(associated_addresses::address.eq(address))
+                    .filter(transactions::tx_type.eq(transaction_type))
+                    .select(transactions::all_columns.nullable())
+                    .order(transactions::uid.desc())
+                    .first::<Option<Transaction>>(conn)
+                    .optional()?
+                    .flatten())
+            })
+            .await?
         }
 
-        fn last_exchange_transaction(
+        async fn last_exchange_transaction(
             &self,
             amount_asset: String,
             price_asset: String,
         ) -> Result<Option<Transaction>> {
-            timer!("last_exchange_transaction()", verbose);
+            self.interact(|conn| {
+                timer!("last_exchange_transaction()", verbose);
 
-            Ok(transactions::table
-                .filter(transactions::exchange_amount_asset.eq(amount_asset))
-                .filter(transactions::exchange_price_asset.eq(price_asset))
-                .select(transactions::all_columns.nullable())
-                .order(transactions::uid.desc())
-                .first::<Option<Transaction>>(self)
-                .optional()?
-                .flatten())
+                Ok(transactions::table
+                    .filter(transactions::exchange_amount_asset.eq(amount_asset))
+                    .filter(transactions::exchange_price_asset.eq(price_asset))
+                    .select(transactions::all_columns.nullable())
+                    .order(transactions::uid.desc())
+                    .first::<Option<Transaction>>(conn)
+                    .optional()?
+                    .flatten())
+            })
+            .await?
         }
 
-        fn last_leasing_balance(&self, address: String) -> Result<Option<LeasingBalance>> {
-            timer!("last_leasing_balance()", verbose);
+        async fn last_leasing_balance(&self, address: String) -> Result<Option<LeasingBalance>> {
+            self.interact(|conn| {
+                timer!("last_leasing_balance()", verbose);
 
-            Ok(leasing_balances::table
-                .filter(leasing_balances::address.eq(address))
-                .select(leasing_balances::all_columns.nullable())
-                .filter(leasing_balances::superseded_by.eq(MAX_UID))
-                .first::<Option<LeasingBalance>>(self)
-                .optional()?
-                .flatten())
+                Ok(leasing_balances::table
+                    .filter(leasing_balances::address.eq(address))
+                    .select(leasing_balances::all_columns.nullable())
+                    .filter(leasing_balances::superseded_by.eq(MAX_UID))
+                    .first::<Option<LeasingBalance>>(conn)
+                    .optional()?
+                    .flatten())
+            })
+            .await?
         }
 
-        fn last_data_entry(&self, address: String, key: String) -> Result<Option<DataEntry>> {
-            timer!("last_data_entry()", verbose);
+        async fn last_data_entry(&self, address: String, key: String) -> Result<Option<DataEntry>> {
+            self.interact(|conn| {
+                timer!("last_data_entry()", verbose);
 
-            Ok(data_entries::table
-                .filter(data_entries::address.eq(address))
-                .filter(data_entries::key.eq(key))
-                .filter(
-                    data_entries::value_binary
-                        .is_not_null()
-                        .or(data_entries::value_bool.is_not_null())
-                        .or(data_entries::value_integer.is_not_null())
-                        .or(data_entries::value_string.is_not_null()),
-                )
-                .select(data_entries::all_columns.nullable())
-                .filter(data_entries::superseded_by.eq(MAX_UID))
-                .first::<Option<DataEntry>>(self)
-                .optional()?
-                .flatten())
+                Ok(data_entries::table
+                    .filter(data_entries::address.eq(address))
+                    .filter(data_entries::key.eq(key))
+                    .filter(
+                        data_entries::value_binary
+                            .is_not_null()
+                            .or(data_entries::value_bool.is_not_null())
+                            .or(data_entries::value_integer.is_not_null())
+                            .or(data_entries::value_string.is_not_null()),
+                    )
+                    .select(data_entries::all_columns.nullable())
+                    .filter(data_entries::superseded_by.eq(MAX_UID))
+                    .first::<Option<DataEntry>>(conn)
+                    .optional()?
+                    .flatten())
+            })
+            .await?
         }
 
-        fn find_matching_data_keys(
+        async fn find_matching_data_keys(
             &self,
             addresses: Vec<String>,
             key_patterns: Vec<String>,
         ) -> Result<Vec<StateSingle>> {
-            timer!("find_matching_data_keys()", verbose);
+            self.interact(|conn| {
+                timer!("find_matching_data_keys()", verbose);
 
-            let start_time = std::time::Instant::now();
-            let (n_addr, n_patt) = (addresses.len(), key_patterns.len());
-            let has_patterns = key_patterns.iter().any(|s| pattern_utils::has_patterns(s));
-            let res: Vec<(String, String)> = if has_patterns {
-                let key_likes = key_patterns
-                    .iter()
-                    .map(String::as_str)
-                    .map(pattern_utils::pattern_to_sql_like)
+                let start_time = std::time::Instant::now();
+                let (n_addr, n_patt) = (addresses.len(), key_patterns.len());
+                let has_patterns = key_patterns.iter().any(|s| pattern_utils::has_patterns(s));
+                let res: Vec<(String, String)> = if has_patterns {
+                    let key_likes = key_patterns
+                        .iter()
+                        .map(String::as_str)
+                        .map(pattern_utils::pattern_to_sql_like)
+                        .collect::<Vec<_>>();
+                    data_entries::table
+                        .filter(data_entries::address.eq(any(addresses)))
+                        .filter(data_entries::key.like(any(key_likes)))
+                        .filter(data_entries::superseded_by.eq(MAX_UID))
+                        .select((data_entries::address, data_entries::key))
+                        .order((data_entries::address, data_entries::key))
+                        .load(conn)?
+                } else {
+                    data_entries::table
+                        .filter(data_entries::address.eq(any(addresses)))
+                        .filter(data_entries::key.eq(any(key_patterns)))
+                        .filter(data_entries::superseded_by.eq(MAX_UID))
+                        .select((data_entries::address, data_entries::key))
+                        .order((data_entries::address, data_entries::key))
+                        .load(conn)?
+                };
+                let res = res
+                    .into_iter()
+                    .map(|(address, key)| StateSingle { address, key })
                     .collect::<Vec<_>>();
-                data_entries::table
-                    .filter(data_entries::address.eq(any(addresses)))
-                    .filter(data_entries::key.like(any(key_likes)))
-                    .filter(data_entries::superseded_by.eq(MAX_UID))
-                    .select((data_entries::address, data_entries::key))
-                    .order((data_entries::address, data_entries::key))
-                    .load(self)?
-            } else {
-                data_entries::table
-                    .filter(data_entries::address.eq(any(addresses)))
-                    .filter(data_entries::key.eq(any(key_patterns)))
-                    .filter(data_entries::superseded_by.eq(MAX_UID))
-                    .select((data_entries::address, data_entries::key))
-                    .order((data_entries::address, data_entries::key))
-                    .load(self)?
-            };
-            let res = res
-                .into_iter()
-                .map(|(address, key)| StateSingle { address, key })
-                .collect::<Vec<_>>();
-            let elapsed = start_time.elapsed().as_millis();
-            debug!(
-                "fetched {} keys from {} addrs and {} patterns in {}ms",
-                res.len(),
-                n_addr,
-                n_patt,
-                elapsed,
-            );
+                let elapsed = start_time.elapsed().as_millis();
+                debug!(
+                    "fetched {} keys from {} addrs and {} patterns in {}ms",
+                    res.len(),
+                    n_addr,
+                    n_patt,
+                    elapsed,
+                );
 
-            Ok(res)
+                Ok(res)
+            })
+            .await?
         }
     }
 

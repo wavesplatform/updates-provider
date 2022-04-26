@@ -9,8 +9,14 @@ pub enum Error {
     ConfigLoadError(#[from] envy::Error),
     #[error("JoinError: {0}")]
     JoinError(#[from] tokio::task::JoinError),
-    #[error("PoolError: {0}")]
-    PoolError(#[from] diesel::r2d2::PoolError),
+    #[error("PgPoolCreateError: {0}")]
+    PgPoolCreateError(#[from] crate::db::pool::PgPoolCreateError),
+    #[error("PgPoolRuntimeError: {0}")]
+    PgPoolRuntimeError(#[from] crate::db::pool::PgPoolRuntimeError),
+    #[error("PgPoolSyncCallError: {0}")]
+    PgPoolSyncCallError(#[from] crate::db::pool::PgPoolSyncCallError),
+    #[error("DbError: {0}")]
+    DbError(#[from] diesel::result::Error),
     #[error("RedisError: {0}")]
     RedisError(#[from] crate::redis::RedisError),
     #[error("RedisPoolCreateError: {0}")]
@@ -47,10 +53,6 @@ pub enum Error {
     InvalidTransactionType(String),
     #[error("InvalidTransactionQuery: {0}")]
     InvalidTransactionQuery(ErrorQuery),
-    #[error("PostgresConnectionError: {0}")]
-    PostgresConnectionError(#[from] diesel::ConnectionError),
-    #[error("DbError: {0}")]
-    DbError(#[from] diesel::result::Error),
     #[error("GRPCBodyError: {0}")]
     GRPCBodyError(String),
     #[error("InvalidDBTransactionType: {0}")]

@@ -14,6 +14,7 @@ mod repo {
     use crate::db::{repo_provider::ProviderRepo, DataEntry, LeasingBalance};
     pub use crate::providers::watchlist::tests::item::TestItem;
     use crate::waves::transactions::{Transaction, TransactionType};
+    use async_trait::async_trait;
     use itertools::Itertools;
     use std::{
         collections::HashMap,
@@ -30,15 +31,16 @@ mod repo {
         }
     }
 
+    #[async_trait]
     impl ProviderRepo for TestProviderRepo {
-        fn last_transaction_by_address(
+        async fn last_transaction_by_address(
             &self,
             _address: String,
         ) -> crate::error::Result<Option<Transaction>> {
             unimplemented!()
         }
 
-        fn last_transaction_by_address_and_type(
+        async fn last_transaction_by_address_and_type(
             &self,
             _address: String,
             _transaction_type: TransactionType,
@@ -46,7 +48,7 @@ mod repo {
             unimplemented!()
         }
 
-        fn last_exchange_transaction(
+        async fn last_exchange_transaction(
             &self,
             _amount_asset: String,
             _price_asset: String,
@@ -54,14 +56,14 @@ mod repo {
             unimplemented!()
         }
 
-        fn last_leasing_balance(
+        async fn last_leasing_balance(
             &self,
             _address: String,
         ) -> crate::error::Result<Option<LeasingBalance>> {
             unimplemented!()
         }
 
-        fn last_data_entry(
+        async fn last_data_entry(
             &self,
             _address: String,
             _key: String,
@@ -69,7 +71,7 @@ mod repo {
             unimplemented!()
         }
 
-        fn find_matching_data_keys(
+        async fn find_matching_data_keys(
             &self,
             _addresses: Vec<String>,
             _key_patterns: Vec<String>,

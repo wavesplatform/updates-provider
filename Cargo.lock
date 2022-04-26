@@ -303,6 +303,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "deadpool-diesel"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f19e58f3b8948ab3408fb9c28534a9d7e34b3e34deb93114f6cddf1aa1fbe81d"
+dependencies = [
+ "deadpool",
+ "deadpool-sync",
+ "diesel",
+]
+
+[[package]]
 name = "deadpool-redis"
 version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -322,6 +333,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "deadpool-sync"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b1bea344b64b32537fde6e0f0179b1ede34d435636719dd40fe6a0f28218a61c"
+dependencies = [
+ "deadpool",
+]
+
+[[package]]
 name = "diesel"
 version = "1.4.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -336,7 +356,6 @@ dependencies = [
  "num-integer",
  "num-traits",
  "pq-sys",
- "r2d2",
  "serde_json",
 ]
 
@@ -1242,17 +1261,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "r2d2"
-version = "0.8.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "545c5bc2b880973c9c10e4067418407a0ccaa3091781d1671d46eb35107cb26f"
-dependencies = [
- "log",
- "parking_lot",
- "scheduled-thread-pool",
-]
-
-[[package]]
 name = "rand"
 version = "0.8.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1415,15 +1423,6 @@ checksum = "8f05ba609c234e60bee0d547fe94a4c7e9da733d1c962cf6e59efa4cd9c8bc75"
 dependencies = [
  "lazy_static",
  "winapi",
-]
-
-[[package]]
-name = "scheduled-thread-pool"
-version = "0.2.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc6f74fd1204073fa02d5d5d68bec8021be4c38690b61264b2fdb48083d0e7d7"
-dependencies = [
- "parking_lot",
 ]
 
 [[package]]
@@ -2077,6 +2076,7 @@ dependencies = [
  "blake2",
  "bs58",
  "deadpool",
+ "deadpool-diesel",
  "deadpool-redis",
  "diesel",
  "envy",
