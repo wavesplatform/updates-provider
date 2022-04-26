@@ -82,9 +82,9 @@ impl<R: ProviderRepo + Sync> LastValue<R> for wavesexchange_topic::Transaction {
                 address,
             }) => {
                 let transaction_type = TransactionType::try_from(tx_type)?;
-                if let Some(Transaction { id, .. }) =
-                    repo.last_transaction_by_address_and_type(address, transaction_type)?
-                {
+                if let Some(Transaction { id, .. }) = tokio::task::block_in_place(move || {
+                    repo.last_transaction_by_address_and_type(address, transaction_type)
+                })? {
                     id
                 } else {
                     serde_json::to_string(&None::<String>)?
