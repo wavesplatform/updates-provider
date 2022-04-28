@@ -46,4 +46,13 @@ impl ResourcesRepo for ResourcesRepoRedis {
         con.publish(key, value).await?;
         Ok(())
     }
+
+    async fn set_and_push(&self, resource: Topic, value: String) -> Result<(), Error> {
+        let mut con = self.pool.get().await?;
+        let key = String::from(resource);
+        debug!("[REDIS] set+publish '{}' = '{}'", key, value);
+        con.set(key.clone(), value.clone()).await?;
+        con.publish(key, value).await?;
+        Ok(())
+    }
 }

@@ -14,6 +14,7 @@ pub trait ResourcesRepo {
 
     async fn push(&self, resource: Topic, value: String) -> Result<(), Error>;
 
+    // This naive implementation is slow because it fetches 2 connections from the pool
     async fn set_and_push(&self, resource: Topic, value: String) -> Result<(), Error> {
         self.set(resource.clone(), value.clone()).await?;
         self.push(resource, value).await?;
