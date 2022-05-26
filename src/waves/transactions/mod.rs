@@ -7,6 +7,7 @@ use diesel::{
 use std::convert::{TryFrom, TryInto};
 use waves_protobuf_schemas::waves;
 use waves_protobuf_schemas::waves::transaction::Data;
+use wavesexchange_log as log;
 
 use crate::error::{Error, Result};
 use crate::schema::transactions;
@@ -248,6 +249,15 @@ pub fn parse_transactions(
     transaction_ids
         .iter()
         .zip(raw_transactions.iter())
+        .inspect(|&(tx_id, tx)| {
+            if tx.transaction.is_none() {
+                log::debug!(
+                    "Skipping Ethereum transaction: {}",
+                    bs58::encode(tx_id).into_string(),
+                );
+            }
+        })
+        .filter(|&(_, tx)| tx.transaction.is_some()) // Skip Ethereum transactions
         .map(|(tx_id, tx)| {
             let transaction = tx.transaction.as_ref().unwrap();
             let sender_public_key = &transaction.sender_public_key;
