@@ -280,9 +280,10 @@ impl Order {
     }
 
     fn bytes_v4(&self) -> Vec<u8> {
+        self.bytes_v3() //TODO until the v4 algorithm is known
         // реализация есть (согласно коду в ноде), но не факт что верная (а может изменится ¯\_(ツ)_/¯ ).
         // Ждем когда введут 4 версию ордеров (если введут) и код отвалится.
-        todo!()
+        // todo!("Order V4")
         // let mut order_proto: waves_protobuf_schemas::waves::Order = self.into();
         // order_proto.proofs = vec![];
         // let mut buffer = vec![];
