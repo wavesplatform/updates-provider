@@ -6,13 +6,17 @@ use diesel::{
 };
 use std::convert::{TryFrom, TryInto};
 use waves_protobuf_schemas::waves;
+use waves_protobuf_schemas::waves::events::transaction_metadata::Metadata;
 use waves_protobuf_schemas::waves::transaction::Data;
 use wavesexchange_log as log;
 
 use crate::error::{Error, Result};
 use crate::schema::transactions;
 
-use super::{address_from_public_key, encode_asset, maybe_add_addresses, Address, Amount};
+use super::{
+    address_from_public_key, encode_asset, maybe_add_addresses, maybe_add_addresses_from_meta,
+    Address, Amount,
+};
 
 pub mod exchange;
 
@@ -60,6 +64,8 @@ pub enum TransactionType {
     SetAssetScript = 15,
     InvokeScript = 16,
     UpdateAssetInfo = 17,
+    // Somehow 18 is missing
+    InvokeExpression = 19,
 }
 
 impl TryFrom<i16> for TransactionType {
@@ -84,6 +90,8 @@ impl TryFrom<i16> for TransactionType {
             15 => Ok(TransactionType::SetAssetScript),
             16 => Ok(TransactionType::InvokeScript),
             17 => Ok(TransactionType::UpdateAssetInfo),
+            // 18 is missing
+            19 => Ok(TransactionType::InvokeExpression),
             _ => Err(Error::InvalidTransactionType(
                 "unknown transaction type".into(),
             )),
@@ -131,6 +139,7 @@ impl From<&Data> for TransactionType {
             Data::SponsorFee(_) => TransactionType::Sponsorship,
             Data::SetAssetScript(_) => TransactionType::SetAssetScript,
             Data::UpdateAssetInfo(_) => TransactionType::UpdateAssetInfo,
+            Data::InvokeExpression(_) => TransactionType::InvokeExpression,
         }
     }
 }
@@ -162,6 +171,7 @@ impl TryFrom<wavesexchange_topic::TransactionType> for TransactionType {
             wavesexchange_topic::TransactionType::SetAssetScript => Ok(Self::SetAssetScript),
             wavesexchange_topic::TransactionType::InvokeScript => Ok(Self::InvokeScript),
             wavesexchange_topic::TransactionType::UpdateAssetInfo => Ok(Self::UpdateAssetInfo),
+            wavesexchange_topic::TransactionType::InvokeExpression => Ok(Self::InvokeExpression),
         }
     }
 }
@@ -173,7 +183,8 @@ pub struct TransactionUpdate {
     pub block_uid: String,
     pub addresses: Vec<Address>,
     pub data: Data,
-    pub sender: Address,
+    pub meta: Option<Metadata>,
+    pub sender_address: Address,
     pub sender_public_key: String,
     pub fee: Option<Amount>,
     pub timestamp: i64,
@@ -244,53 +255,74 @@ fn exchange_price_asset_from_update(update: &TransactionUpdate) -> Option<String
 pub fn parse_transactions(
     block_uid: String,
     raw_transactions: &[waves::SignedTransaction],
+    transactions_metadata: &[waves::events::TransactionMetadata],
     transaction_ids: &[Vec<u8>],
 ) -> Vec<TransactionUpdate> {
-    transaction_ids
-        .iter()
-        .zip(raw_transactions.iter())
-        .inspect(|&(tx_id, tx)| {
-            if tx.transaction.is_none() {
-                log::debug!(
-                    "Skipping Ethereum transaction: {}",
-                    bs58::encode(tx_id).into_string(),
-                );
+    let base58 = |bytes| bs58::encode(bytes).into_string();
+    let tx_ids = transaction_ids.iter().map(|tx_id| base58(tx_id));
+    let transactions = raw_transactions.iter();
+    let tx_meta = transactions_metadata.iter();
+    tx_ids
+        .zip(transactions)
+        .zip(tx_meta)
+        .filter_map(|((tx_id, tx), meta)| {
+            match tx.transaction.as_ref() {
+                Some(waves::signed_transaction::Transaction::WavesTransaction(transaction)) => {
+                    let chain_id = transaction.chain_id as u8;
+                    let mut addresses = vec![];
+                    let sender_public_key = &transaction.sender_public_key;
+                    let sender_address = {
+                        // The preferred way is to use new metadata
+                        if !meta.sender_address.is_empty() {
+                            Some(Address(base58(&meta.sender_address)))
+                        } else if !sender_public_key.is_empty() {
+                            // Fallback to the old method
+                            Some(address_from_public_key(sender_public_key, chain_id))
+                        } else {
+                            None
+                        }
+                    };
+                    if let Some(ref address) = sender_address {
+                        addresses.push(address.clone())
+                    }
+                    let data = transaction.data.clone().unwrap();
+                    let meta = meta.metadata.clone();
+                    maybe_add_addresses(&data, chain_id, &mut addresses);
+                    maybe_add_addresses_from_meta(&meta, &mut addresses);
+                    let tx_type = TransactionType::from(&data);
+                    let sender_address = {
+                        // It seems that old behavior was to compute this bogus "address" from zero-length input..
+                        // Keeping it for compatibility yet, but this is weird.
+                        sender_address
+                            .unwrap_or_else(|| address_from_public_key(sender_public_key, chain_id))
+                    };
+                    let update = TransactionUpdate {
+                        tx_type,
+                        data,
+                        meta,
+                        block_uid: block_uid.clone(),
+                        id: tx_id,
+                        addresses,
+                        sender_address,
+                        sender_public_key: base58(sender_public_key),
+                        fee: transaction.fee.as_ref().map(Into::into),
+                        timestamp: transaction.timestamp,
+                        version: transaction.version,
+                        proofs: tx.proofs.iter().map(|proof| base58(proof)).collect(),
+                    };
+                    Some(update)
+                }
+                Some(waves::signed_transaction::Transaction::EthereumTransaction(_)) => {
+                    // Skip Ethereum transactions
+                    log::debug!("Skipping Transaction::EthereumTransaction: {}", tx_id);
+                    None
+                }
+                None => {
+                    // Skip Ethereum transactions
+                    log::debug!("Skipping Transaction::EthereumTransaction: {}", tx_id);
+                    None
+                }
             }
-        })
-        .filter(|&(_, tx)| tx.transaction.is_some()) // Skip Ethereum transactions
-        .map(|(tx_id, tx)| {
-            let transaction = tx.transaction.as_ref().unwrap();
-            let sender_public_key = &transaction.sender_public_key;
-            let mut addresses = if sender_public_key.is_empty() {
-                vec![]
-            } else {
-                let sender = address_from_public_key(sender_public_key, transaction.chain_id as u8);
-                vec![sender]
-            };
-            let data = transaction.data.clone().unwrap();
-            maybe_add_addresses(&data, transaction.chain_id as u8, &mut addresses);
-            let tx_type = TransactionType::from(&data);
-            let tx = TransactionUpdate {
-                tx_type,
-                data,
-                block_uid: block_uid.clone(),
-                id: bs58::encode(tx_id).into_string(),
-                addresses,
-                sender: address_from_public_key(
-                    &transaction.sender_public_key,
-                    transaction.chain_id as u8,
-                ),
-                sender_public_key: bs58::encode(&transaction.sender_public_key).into_string(),
-                fee: transaction.fee.as_ref().map(Into::into),
-                timestamp: transaction.timestamp,
-                version: transaction.version,
-                proofs: tx
-                    .proofs
-                    .iter()
-                    .map(|proof| bs58::encode(proof).into_string())
-                    .collect(),
-            };
-            tx
         })
         .collect()
 }
