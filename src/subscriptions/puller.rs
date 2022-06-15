@@ -63,7 +63,8 @@ impl PullerImpl {
                     subscriptions_updates_sender.send(update).await.unwrap();
                 }
 
-                while let Some(msg) = pubsub.on_message().next().await {
+                let mut messages = pubsub.on_message();
+                while let Some(msg) = messages.next().await {
                     let payload = msg.get_payload::<String>().unwrap();
                     let event_name = payload.as_str();
                     if let "set" | "del" | "expired" = event_name {
