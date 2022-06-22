@@ -2,6 +2,7 @@ use serde::Serialize;
 use sha3::Digest;
 use std::convert::TryInto;
 use waves_protobuf_schemas::waves;
+use waves_protobuf_schemas::waves::events::transaction_metadata::Metadata;
 use waves_protobuf_schemas::waves::transaction::Data;
 
 use self::transactions::TransactionUpdate;
@@ -142,12 +143,12 @@ fn maybe_add_addresses(data: &Data, chain_id: u8, addresses: &mut Vec<Address>) 
             }
         }
         Data::Exchange(data) => {
-            for waves::Order {
-                sender_public_key, ..
-            } in data.orders.iter()
-            {
-                let address = address_from_public_key(sender_public_key, chain_id);
-                addresses.push(address);
+            for order in data.orders.iter() {
+                use waves::order::Sender;
+                if let Some(Sender::SenderPublicKey(ref sender_public_key)) = order.sender {
+                    let address = address_from_public_key(sender_public_key, chain_id);
+                    addresses.push(address);
+                }
             }
         }
         Data::Issue(_data) => (),
@@ -160,6 +161,33 @@ fn maybe_add_addresses(data: &Data, chain_id: u8, addresses: &mut Vec<Address>) 
         Data::SponsorFee(_data) => (),
         Data::SetAssetScript(_data) => (),
         Data::UpdateAssetInfo(_data) => (),
+        Data::InvokeExpression(_data) => (),
+    }
+}
+
+fn maybe_add_addresses_from_meta(meta: &Option<Metadata>, addresses: &mut Vec<Address>) {
+    match meta {
+        Some(Metadata::Transfer(data)) => {
+            add_address(&data.recipient_address, addresses);
+        }
+        Some(Metadata::Exchange(data)) => {
+            for address in data.order_sender_addresses.iter() {
+                add_address(address, addresses);
+            }
+        }
+        Some(Metadata::MassTransfer(data)) => {
+            for address in data.recipients_addresses.iter() {
+                add_address(address, addresses);
+            }
+        }
+        Some(Metadata::InvokeScript(data)) => {
+            add_address(&data.d_app_address, addresses);
+        }
+        Some(Metadata::Lease(data)) => {
+            add_address(&data.recipient_address, addresses);
+        }
+        Some(Metadata::Ethereum(_)) => (),
+        None => (),
     }
 }
 
@@ -175,6 +203,11 @@ fn maybe_address_from_recipient(
         let address = address_from_public_key_hash(pkh, chain_id);
         addresses.push(address)
     }
+}
+
+fn add_address(address: &Vec<u8>, addresses: &mut Vec<Address>) {
+    let address = Address(bs58::encode(address).into_string());
+    addresses.push(address)
 }
 
 #[test]
