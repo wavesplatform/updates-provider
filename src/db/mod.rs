@@ -196,6 +196,7 @@ impl TryFrom<std::sync::Arc<BlockchainUpdated>> for BlockchainUpdate {
             Some(Update::Append(Append {
                 body,
                 transaction_ids,
+                transactions_metadata,
                 transaction_state_updates,
                 ..
             })) => {
@@ -224,6 +225,7 @@ impl TryFrom<std::sync::Arc<BlockchainUpdated>> for BlockchainUpdate {
                         let transactions = parse_transactions(
                             block_uid.clone(),
                             raw_transactions,
+                            transactions_metadata,
                             transaction_ids,
                         );
                         Ok(BlockchainUpdate::Block(BlockMicroblockAppend {
@@ -253,6 +255,7 @@ impl TryFrom<std::sync::Arc<BlockchainUpdated>> for BlockchainUpdate {
                         let transactions = parse_transactions(
                             block_uid.clone(),
                             raw_transactions,
+                            transactions_metadata,
                             transaction_ids,
                         );
                         Ok(BlockchainUpdate::Microblock(BlockMicroblockAppend {

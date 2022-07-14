@@ -72,6 +72,7 @@ impl From<TransactionType> for Type {
             TransactionType::SetAssetScript => Self::SetAssetScript,
             TransactionType::InvokeScript => Self::InvokeScript,
             TransactionType::UpdateAssetInfo => Self::UpdateAssetInfo,
+            TransactionType::InvokeExpression => Self::InvokeExpression,
         }
     }
 }

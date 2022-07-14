@@ -1,8 +1,8 @@
 [package]
 name = "updates-provider"
-version = "1.4.6"
+version = "1.4.8"
 authors = ["Аleksej Petrov <apetrov@wavesplatform.com>"]
-edition = "2018"
+edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -11,6 +11,7 @@ anyhow = "1.0"
 async-trait = "0.1"
 blake2 = "0.9"
 bs58 = "0.3"
+hex = "0.4"
 envy = "0.4"
 futures = "0.3"
 itertools = "0.10"
@@ -18,6 +19,7 @@ lazy_static = "1.4"
 diesel = { version = "1.4.5", features = ["postgres", "r2d2", "chrono", "numeric", "serde_json"] }
 percent-encoding = "2.1"
 prost = { version = "0.8", features = ["no-recursion-limit"] }
+protofixer = { version = "0.1.0", git = "https://github.com/a-kordys/protofixer", tag = "v0.1.0" }
 prometheus = "0.12"
 r2d2 = "0.8"
 r2d2_redis = "0.14"
@@ -33,8 +35,11 @@ url = "2.2"
 warp = "0.3"
 wavesexchange_log = { git = "https://github.com/waves-exchange/wavesexchange-rs", tag = "wavesexchange_log/0.5.0" }
 wavesexchange_warp = { git = "https://github.com/waves-exchange/wavesexchange-rs", tag = "wavesexchange_warp/0.12.2" }
-wavesexchange_topic = { git = "https://github.com/waves-exchange/wavesexchange-rs", tag = "wavesexchange_topic/0.2.1" }
-waves-protobuf-schemas = { git = "https://github.com/wavesplatform/protobuf-schemas", rev = "dc1597077cbf55aac4cd514f5510ba346c45b361" }
+wavesexchange_topic = { git = "https://github.com/waves-exchange/wavesexchange-rs", tag = "wavesexchange_topic/0.2.2" }
+waves-protobuf-schemas = { git = "https://github.com/wavesplatform/protobuf-schemas", tag = "v1.4.3" }
+
+[dev-dependencies]
+base64 = "0.13"
 
 [[bin]]
 name = "service"
