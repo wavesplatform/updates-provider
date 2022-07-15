@@ -15,7 +15,7 @@ pub struct Amount {
     pub amount: i64,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 pub struct Address(pub String);
 
 #[derive(Clone, Debug)]
