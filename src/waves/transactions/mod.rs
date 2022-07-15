@@ -296,6 +296,9 @@ pub fn parse_transactions(
                         sender_address
                             .unwrap_or_else(|| address_from_public_key(sender_public_key, chain_id))
                     };
+                    // Deduplicate address list, because there can be dupes due to metadata processing in addition to tx body processing
+                    addresses.sort();
+                    addresses.dedup();
                     let update = TransactionUpdate {
                         tx_type,
                         data,
