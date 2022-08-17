@@ -14,6 +14,7 @@ mod repo {
     use crate::db::{repo_provider::ProviderRepo, DataEntry, LeasingBalance};
     pub use crate::providers::watchlist::tests::item::TestItem;
     use crate::waves::transactions::{Transaction, TransactionType};
+    use async_trait::async_trait;
     use itertools::Itertools;
     use std::{
         collections::HashMap,
@@ -30,15 +31,16 @@ mod repo {
         }
     }
 
+    #[async_trait]
     impl ProviderRepo for TestProviderRepo {
-        fn last_transaction_by_address(
+        async fn last_transaction_by_address(
             &self,
             _address: String,
         ) -> crate::error::Result<Option<Transaction>> {
             unimplemented!()
         }
 
-        fn last_transaction_by_address_and_type(
+        async fn last_transaction_by_address_and_type(
             &self,
             _address: String,
             _transaction_type: TransactionType,
@@ -46,7 +48,7 @@ mod repo {
             unimplemented!()
         }
 
-        fn last_exchange_transaction(
+        async fn last_exchange_transaction(
             &self,
             _amount_asset: String,
             _price_asset: String,
@@ -54,14 +56,14 @@ mod repo {
             unimplemented!()
         }
 
-        fn last_leasing_balance(
+        async fn last_leasing_balance(
             &self,
             _address: String,
         ) -> crate::error::Result<Option<LeasingBalance>> {
             unimplemented!()
         }
 
-        fn last_data_entry(
+        async fn last_data_entry(
             &self,
             _address: String,
             _key: String,
@@ -69,7 +71,7 @@ mod repo {
             unimplemented!()
         }
 
-        fn find_matching_data_keys(
+        async fn find_matching_data_keys(
             &self,
             _addresses: Vec<String>,
             _key_patterns: Vec<String>,
@@ -283,20 +285,24 @@ async fn test_updates_provider() -> anyhow::Result<()> {
         let watchlist = watchlist.clone();
         async move {
             let mut wl = watchlist.write().await;
-            wl.delete_old();
+            wl.delete_old().await;
         }
     };
 
     // Subscribe to non-existing key
     assert!(!db_repo.has_value(&TestItem("topic://state/address/foo")));
     assert_eq!(
-        res_repo.get(&Topic::try_from("topic://state/address/foo")?)?,
+        res_repo
+            .get(&Topic::try_from("topic://state/address/foo")?)
+            .await?,
         None
     );
     subscribe("topic://state/address/foo").await;
     sync().await;
     assert_eq!(
-        res_repo.get(&Topic::try_from("topic://state/address/foo")?)?,
+        res_repo
+            .get(&Topic::try_from("topic://state/address/foo")?)
+            .await?,
         Some("NONE".to_string())
     );
 
@@ -304,13 +310,17 @@ async fn test_updates_provider() -> anyhow::Result<()> {
     db_repo.put_value(TestItem("topic://state/address/bar"), "bar_value");
     assert!(db_repo.has_value(&TestItem("topic://state/address/bar")));
     assert_eq!(
-        res_repo.get(&Topic::try_from("topic://state/address/bar")?)?,
+        res_repo
+            .get(&Topic::try_from("topic://state/address/bar")?)
+            .await?,
         None
     );
     subscribe("topic://state/address/bar").await;
     sync().await;
     assert_eq!(
-        res_repo.get(&Topic::try_from("topic://state/address/bar")?)?,
+        res_repo
+            .get(&Topic::try_from("topic://state/address/bar")?)
+            .await?,
         Some("bar_value".to_string())
     );
 
@@ -319,11 +329,15 @@ async fn test_updates_provider() -> anyhow::Result<()> {
     push_update("bar", Some("updated_bar")).await;
     sync().await;
     assert_eq!(
-        res_repo.get(&Topic::try_from("topic://state/address/foo")?)?,
+        res_repo
+            .get(&Topic::try_from("topic://state/address/foo")?)
+            .await?,
         Some("updated_foo".to_string())
     );
     assert_eq!(
-        res_repo.get(&Topic::try_from("topic://state/address/bar")?)?,
+        res_repo
+            .get(&Topic::try_from("topic://state/address/bar")?)
+            .await?,
         Some("updated_bar".to_string())
     );
 
@@ -333,9 +347,11 @@ async fn test_updates_provider() -> anyhow::Result<()> {
 
     // Subscribe to multitopic, no data exists
     assert_eq!(
-        res_repo.get(&Topic::try_from(
-            "topic://state?address__in[]=address&key__match_any[]=multi*"
-        )?)?,
+        res_repo
+            .get(&Topic::try_from(
+                "topic://state?address__in[]=address&key__match_any[]=multi*"
+            )?)
+            .await?,
         None
     );
     assert!(db_repo
@@ -344,47 +360,61 @@ async fn test_updates_provider() -> anyhow::Result<()> {
     subscribe("topic://state?address__in[]=address&key__match_any[]=multi*").await;
     sync().await;
     assert_eq!(
-        res_repo.get(&Topic::try_from(
-            "topic://state?address__in[]=address&key__match_any[]=multi*"
-        )?)?,
+        res_repo
+            .get(&Topic::try_from(
+                "topic://state?address__in[]=address&key__match_any[]=multi*"
+            )?)
+            .await?,
         Some("[]".to_string())
     );
 
     // Now emit a blockchain update so that the above multitopic will get a subtopic
     assert!(!db_repo.has_value(&TestItem("topic://state/address/multi1")));
     assert_eq!(
-        res_repo.get(&Topic::try_from("topic://state/address/multi1")?)?,
+        res_repo
+            .get(&Topic::try_from("topic://state/address/multi1")?)
+            .await?,
         None
     );
     push_update("multi1", Some("value_1")).await;
     sync().await;
     assert_eq!(
-        res_repo.get(&Topic::try_from("topic://state/address/multi1")?)?,
+        res_repo
+            .get(&Topic::try_from("topic://state/address/multi1")?)
+            .await?,
         Some("value_1".to_string())
     );
     assert_eq!(
-        res_repo.get(&Topic::try_from(
-            "topic://state?address__in[]=address&key__match_any[]=multi*"
-        )?)?,
+        res_repo
+            .get(&Topic::try_from(
+                "topic://state?address__in[]=address&key__match_any[]=multi*"
+            )?)
+            .await?,
         Some(r#"["topic://state/address/multi1"]"#.to_string())
     );
 
     // Emit another blockchain update so that the above multitopic will get second subtopic
     assert!(!db_repo.has_value(&TestItem("topic://state/address/multi2")));
     assert_eq!(
-        res_repo.get(&Topic::try_from("topic://state/address/multi2")?)?,
+        res_repo
+            .get(&Topic::try_from("topic://state/address/multi2")?)
+            .await?,
         None
     );
     push_update("multi2", Some("value_2")).await;
     sync().await;
     assert_eq!(
-        res_repo.get(&Topic::try_from("topic://state/address/multi2")?)?,
+        res_repo
+            .get(&Topic::try_from("topic://state/address/multi2")?)
+            .await?,
         Some("value_2".to_string())
     );
     assert_eq!(
-        res_repo.get(&Topic::try_from(
-            "topic://state?address__in[]=address&key__match_any[]=multi*"
-        )?)?,
+        res_repo
+            .get(&Topic::try_from(
+                "topic://state?address__in[]=address&key__match_any[]=multi*"
+            )?)
+            .await?,
         Some(r#"["topic://state/address/multi1","topic://state/address/multi2"]"#.to_string())
     );
 
@@ -392,18 +422,22 @@ async fn test_updates_provider() -> anyhow::Result<()> {
     // Deleted topic should still remain under multitopic so that clients can receive 'deleted' event
     assert!(!db_repo.has_value(&TestItem("topic://state/address/multi3")));
     assert_eq!(
-        res_repo.get(&Topic::try_from("topic://state/address/multi3")?)?,
+        res_repo
+            .get(&Topic::try_from("topic://state/address/multi3")?)
+            .await?,
         None
     );
     push_update("multi2", None).await;
     push_update("multi3", Some("value_3")).await;
     sync().await;
     assert_eq!(
-        res_repo.get(&Topic::try_from("topic://state/address/multi3")?)?,
+        res_repo
+            .get(&Topic::try_from("topic://state/address/multi3")?)
+            .await?,
         Some("value_3".to_string())
     );
     assert_eq!(
-        res_repo.get(&Topic::try_from("topic://state?address__in[]=address&key__match_any[]=multi*")?)?,
+        res_repo.get(&Topic::try_from("topic://state?address__in[]=address&key__match_any[]=multi*")?).await?,
         Some(r#"["topic://state/address/multi1","topic://state/address/multi2","topic://state/address/multi3"]"#.to_string())
     );
 
@@ -412,9 +446,11 @@ async fn test_updates_provider() -> anyhow::Result<()> {
     sync().await;
     force_watchlist_cleanup().await;
     assert_eq!(
-        res_repo.get(&Topic::try_from(
-            "topic://state?address__in[]=address&key__match_any[]=multi*"
-        )?)?,
+        res_repo
+            .get(&Topic::try_from(
+                "topic://state?address__in[]=address&key__match_any[]=multi*"
+            )?)
+            .await?,
         None
     );
 
@@ -422,15 +458,21 @@ async fn test_updates_provider() -> anyhow::Result<()> {
     push_update("multi1", Some("value_1_updated")).await;
     sync().await;
     assert_eq!(
-        res_repo.get(&Topic::try_from("topic://state/address/multi1")?)?,
+        res_repo
+            .get(&Topic::try_from("topic://state/address/multi1")?)
+            .await?,
         None
     );
     assert_eq!(
-        res_repo.get(&Topic::try_from("topic://state/address/multi2")?)?,
+        res_repo
+            .get(&Topic::try_from("topic://state/address/multi2")?)
+            .await?,
         None
     );
     assert_eq!(
-        res_repo.get(&Topic::try_from("topic://state/address/multi3")?)?,
+        res_repo
+            .get(&Topic::try_from("topic://state/address/multi3")?)
+            .await?,
         None
     );
 
@@ -442,27 +484,35 @@ async fn test_updates_provider() -> anyhow::Result<()> {
     subscribe("topic://state?address__in[]=address&key__match_any[]=multi*").await;
     sync().await;
     assert_eq!(
-        res_repo.get(&Topic::try_from(
-            "topic://state?address__in[]=address&key__match_any[]=multi*"
-        )?)?,
+        res_repo
+            .get(&Topic::try_from(
+                "topic://state?address__in[]=address&key__match_any[]=multi*"
+            )?)
+            .await?,
         Some(r#"["topic://state/address/multi1","topic://state/address/multi2"]"#.to_string())
     );
 
     // Subscribe to multitopic, data exists in db & redis
     assert_eq!(
-        res_repo.get(&Topic::try_from("topic://state/address/multi1")?)?,
+        res_repo
+            .get(&Topic::try_from("topic://state/address/multi1")?)
+            .await?,
         Some("value_1".to_string())
     );
     assert_eq!(
-        res_repo.get(&Topic::try_from("topic://state/address/multi2")?)?,
+        res_repo
+            .get(&Topic::try_from("topic://state/address/multi2")?)
+            .await?,
         Some("value_2".to_string())
     );
     subscribe("topic://state?address__in[]=address&key__match_any[]=m*").await;
     sync().await;
     assert_eq!(
-        res_repo.get(&Topic::try_from(
-            "topic://state?address__in[]=address&key__match_any[]=m*"
-        )?)?,
+        res_repo
+            .get(&Topic::try_from(
+                "topic://state?address__in[]=address&key__match_any[]=m*"
+            )?)
+            .await?,
         Some(r#"["topic://state/address/multi1","topic://state/address/multi2"]"#.to_string())
     );
 

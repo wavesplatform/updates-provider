@@ -73,7 +73,7 @@ where
                 }
                 _ = interval.tick() => {
                     let mut watchlist_lock = self.watchlist.write().await;
-                    watchlist_lock.delete_old();
+                    watchlist_lock.delete_old().await;
                 }
             }
         }
@@ -197,18 +197,18 @@ where
             .write()
             .await
             .insert_value(data, current_value.clone());
-        resources_repo.set_and_push(resource, current_value)?;
+        resources_repo.set_and_push(resource, current_value).await?;
         Ok(())
     }
 }
 
-async fn check_and_maybe_insert<T: Item<P>, R: ResourcesRepo, P: ProviderRepo>(
+async fn check_and_maybe_insert<T: Item<P>, R: ResourcesRepo + Sync, P: ProviderRepo>(
     resources_repo: &Arc<R>,
     repo: &P,
     value: T,
 ) -> Result<Option<HashSet<String>>> {
     let topic = value.clone().into();
-    let existing_value = resources_repo.get(&topic)?;
+    let existing_value = resources_repo.get(&topic).await?;
     let need_to_publish = existing_value.is_none();
     let topic_value = if let Some(existing_value) = existing_value {
         existing_value
@@ -223,12 +223,12 @@ async fn check_and_maybe_insert<T: Item<P>, R: ResourcesRepo, P: ProviderRepo>(
         for subtopic in subtopics {
             let subtopic = Topic::try_from(subtopic.as_str())
                 .map_err(|_| Error::InvalidTopic(subtopic.clone()))?;
-            if resources_repo.get(&subtopic)?.is_none() {
+            if resources_repo.get(&subtopic).await?.is_none() {
                 missing_values += 1;
                 let subtopic_value = T::maybe_item(&subtopic)
                     .ok_or_else(|| Error::InvalidTopic(subtopic.clone().into()))?;
                 let new_value = subtopic_value.last_value(repo).await?;
-                resources_repo.set_and_push(subtopic, new_value)?;
+                resources_repo.set_and_push(subtopic, new_value).await?;
             }
         }
         // This is odd when some subtopics exist in redis and some don't
@@ -242,20 +242,20 @@ async fn check_and_maybe_insert<T: Item<P>, R: ResourcesRepo, P: ProviderRepo>(
     }
 
     if need_to_publish {
-        resources_repo.set_and_push(topic, topic_value)?;
+        resources_repo.set_and_push(topic, topic_value).await?;
     }
 
     Ok(subtopics)
 }
 
-async fn append_subtopic_to_multitopic<T: Item<P>, R: ResourcesRepo, P: ProviderRepo>(
+async fn append_subtopic_to_multitopic<T: Item<P>, R: ResourcesRepo + Sync, P: ProviderRepo>(
     resources_repo: &Arc<R>,
     multitopic_item: T,
     subtopic_item: T,
     watchlist: &Arc<RwLock<WatchList<T, R>>>,
 ) -> Result<()> {
     let multitopic = multitopic_item.clone().into();
-    let existing_value = resources_repo.get(&multitopic)?;
+    let existing_value = resources_repo.get(&multitopic).await?;
     let mut subtopics = if let Some(existing_value) = existing_value {
         subtopics_from_topic_value(&multitopic, &existing_value)?.expect("must be multitopic")
     } else {
@@ -276,7 +276,9 @@ async fn append_subtopic_to_multitopic<T: Item<P>, R: ResourcesRepo, P: Provider
         .write()
         .await
         .update_multitopic(multitopic_item, subtopics);
-    resources_repo.set_and_push(multitopic, subtopics_str)?;
+    resources_repo
+        .set_and_push(multitopic, subtopics_str)
+        .await?;
     Ok(())
 }
 

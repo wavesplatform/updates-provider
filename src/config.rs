@@ -48,16 +48,8 @@ fn default_pgport() -> u16 {
     5432
 }
 
-fn default_pg_pool_min_size() -> u8 {
-    1
-}
-
 fn default_pg_pool_size() -> u8 {
     4
-}
-
-fn default_pg_pool_idle_timeout_minutes() -> u16 {
-    5
 }
 
 #[derive(Deserialize)]
@@ -68,12 +60,8 @@ pub struct PostgresConfig {
     pub database: String,
     pub user: String,
     pub password: String,
-    #[serde(default = "default_pg_pool_min_size")]
-    pub pool_min_size: u8,
     #[serde(default = "default_pg_pool_size")]
     pub pool_size: u8,
-    #[serde(default = "default_pg_pool_idle_timeout_minutes")]
-    pub pool_idle_timeout_minutes: u16,
 }
 
 pub struct DatabaseConfig {

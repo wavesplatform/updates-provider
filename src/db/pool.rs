@@ -1,26 +1,68 @@
-use std::time::Duration;
+use prometheus::IntGauge;
 
-use diesel::pg::PgConnection;
-use diesel::r2d2::{ConnectionManager, Pool};
-use r2d2::PooledConnection;
+use deadpool_diesel::postgres::{Connection, InteractError, Manager, Pool, Runtime};
 
 use crate::{config::PostgresConfig, error::Error};
 
-pub type PgPool = Pool<ConnectionManager<PgConnection>>;
-pub type PooledPgConnection = PooledConnection<ConnectionManager<PgConnection>>;
+pub use deadpool::managed::BuildError;
 
-pub fn new(config: &PostgresConfig) -> Result<PgPool, Error> {
+pub type PgPool = Pool;
+pub type PooledPgConnection = Connection;
+pub type PgPoolCreateError = BuildError<deadpool_diesel::Error>;
+pub type PgPoolRuntimeError = deadpool::managed::PoolError<deadpool_diesel::Error>;
+
+pub fn new(config: &PostgresConfig, gauge: IntGauge) -> Result<PgPoolWithStats, Error> {
     let db_url = format!(
         "postgres://{}:{}@{}:{}/{}",
         config.user, config.password, config.host, config.port, config.database
     );
 
-    let manager = ConnectionManager::<PgConnection>::new(db_url);
-    Ok(Pool::builder()
-        .min_idle(Some(config.pool_min_size as u32))
-        .max_size(config.pool_size as u32)
-        .idle_timeout(Some(Duration::from_secs(
-            config.pool_idle_timeout_minutes as u64 * 60,
-        )))
-        .build(manager)?)
+    let manager = Manager::new(db_url, Runtime::Tokio1);
+
+    let pool = Pool::builder(manager)
+        .max_size(config.pool_size as usize)
+        .build()?;
+
+    Ok(PgPoolWithStats::new(pool, gauge))
+}
+
+#[derive(Debug)]
+pub struct PgPoolSyncCallError(std::sync::Mutex<InteractError>);
+
+impl From<InteractError> for PgPoolSyncCallError {
+    fn from(err: InteractError) -> Self {
+        PgPoolSyncCallError(std::sync::Mutex::new(err))
+    }
+}
+
+impl std::fmt::Display for PgPoolSyncCallError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0.lock().unwrap())
+    }
+}
+
+impl std::error::Error for PgPoolSyncCallError {}
+
+impl From<InteractError> for crate::Error {
+    fn from(err: InteractError) -> Self {
+        crate::Error::PgPoolSyncCallError(err.into())
+    }
+}
+
+#[derive(Clone)]
+pub struct PgPoolWithStats {
+    pool: PgPool,
+    gauge: IntGauge,
+}
+
+impl PgPoolWithStats {
+    pub fn new(pool: PgPool, gauge: IntGauge) -> Self {
+        PgPoolWithStats { pool, gauge }
+    }
+
+    pub async fn get(&self) -> Result<PooledPgConnection, PgPoolRuntimeError> {
+        let res = self.pool.get().await;
+        self.gauge.set(self.pool.status().available as i64);
+        res
+    }
 }

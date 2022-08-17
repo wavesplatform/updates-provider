@@ -1,24 +1,24 @@
 use super::{Subscriptions, SubscriptionsRepo};
 use crate::error::Error;
-use r2d2::Pool;
-use r2d2_redis::redis::Commands;
-use r2d2_redis::RedisConnectionManager;
+use crate::redis::{AsyncCommands, RedisPoolWithStats};
+use async_trait::async_trait;
 
 pub struct SubscriptionsRepoImpl {
-    pool: Pool<RedisConnectionManager>,
+    pool: RedisPoolWithStats,
 }
 
 impl SubscriptionsRepoImpl {
-    pub fn new(pool: Pool<RedisConnectionManager>) -> SubscriptionsRepoImpl {
+    pub fn new(pool: RedisPoolWithStats) -> SubscriptionsRepoImpl {
         SubscriptionsRepoImpl { pool }
     }
 }
 
+#[async_trait]
 impl SubscriptionsRepo for SubscriptionsRepoImpl {
-    fn get_subscriptions(&self) -> Result<Subscriptions, Error> {
-        let mut con = self.pool.get()?;
+    async fn get_subscriptions(&self) -> Result<Subscriptions, Error> {
+        let mut con = self.pool.get().await?;
 
-        let subscriptions = con.keys("sub:*")?;
+        let subscriptions = con.keys("sub:*").await?;
 
         Ok(subscriptions)
     }

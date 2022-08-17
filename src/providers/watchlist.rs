@@ -230,7 +230,7 @@ impl<T: WatchListItem, R: ResourcesRepo> WatchList<T, R> {
             .or_insert_with(|| item.new_matcher());
     }
 
-    pub fn delete_old(&mut self) {
+    pub async fn delete_old(&mut self) {
         let now = Instant::now();
         let keys = self
             .items
@@ -252,13 +252,17 @@ impl<T: WatchListItem, R: ResourcesRepo> WatchList<T, R> {
         for item in keys {
             self.items.remove(&item);
             self.patterns.remove(&item);
-            let res = self.repo.del(T::into(item));
+            let res = self.repo.del(T::into(item)).await;
             if let Some(err) = res.err() {
                 warn!("Failed to delete Redis key: '{:?}' (ignoring)", err);
             }
         }
         let elapsed = Instant::now().duration_since(now);
-        debug!("delete_old: Removed {} expired keys in {} ms", num_keys, elapsed.as_millis());
+        debug!(
+            "delete_old: Removed {} expired keys in {} ms",
+            num_keys,
+            elapsed.as_millis()
+        );
     }
 
     pub fn key_watch_status(&self, key: &T) -> KeyWatchStatus<T> {
@@ -382,6 +386,7 @@ pub mod tests {
 
     pub mod repo {
         use crate::{error::Error, resources::ResourcesRepo};
+        use async_trait::async_trait;
         use std::{
             collections::HashMap,
             sync::{Arc, Mutex},
@@ -396,25 +401,26 @@ pub mod tests {
             }
         }
 
+        #[async_trait]
         impl ResourcesRepo for TestResourcesRepo {
-            fn get(&self, resource: &Topic) -> Result<Option<String>, Error> {
+            async fn get(&self, resource: &Topic) -> Result<Option<String>, Error> {
                 let data = self.0.lock().unwrap();
                 Ok(data.get(resource).cloned())
             }
 
-            fn set(&self, resource: Topic, value: String) -> Result<(), Error> {
+            async fn set(&self, resource: Topic, value: String) -> Result<(), Error> {
                 let mut data = self.0.lock().unwrap();
                 data.insert(resource, value);
                 Ok(())
             }
 
-            fn del(&self, resource: Topic) -> Result<(), Error> {
+            async fn del(&self, resource: Topic) -> Result<(), Error> {
                 let mut data = self.0.lock().unwrap();
                 data.remove(&resource);
                 Ok(())
             }
 
-            fn push(&self, _resource: Topic, _value: String) -> Result<(), Error> {
+            async fn push(&self, _resource: Topic, _value: String) -> Result<(), Error> {
                 Ok(())
             }
         }
@@ -553,8 +559,8 @@ pub mod tests {
         };
     }
 
-    #[test]
-    fn test_watchlist_simple() {
+    #[tokio::test]
+    async fn test_watchlist_simple() {
         // Setup
         let repo = Arc::new(TestResourcesRepo::default());
         let keep_alive = Duration::from_nanos(1);
@@ -584,15 +590,15 @@ pub mod tests {
         });
         assert!(res.is_ok());
 
-        std::thread::sleep(ensure_dead);
-        wl.delete_old();
+        tokio::time::sleep(ensure_dead).await;
+        wl.delete_old().await;
 
         assert_not_watched!(wl, "topic://state/address/foo");
         assert_value!(wl, "topic://state/address/foo", None);
     }
 
-    #[test]
-    fn test_watchlist_patterns() {
+    #[tokio::test]
+    async fn test_watchlist_patterns() {
         use std::iter::FromIterator;
         let set = |items: Vec<&str>| HashSet::from_iter(items.into_iter().map(ToString::to_string));
 
@@ -640,8 +646,8 @@ pub mod tests {
                 "topic://state/address/foo3",
             ]),
         );
-        std::thread::sleep(ensure_dead);
-        wl.delete_old();
+        tokio::time::sleep(ensure_dead).await;
+        wl.delete_old().await;
         assert_watched!(wl, "topic://state/address/foo1");
         assert_watched!(wl, "topic://state/address/foo3");
         assert_matched!(wl, "topic://state/address/foo2");
@@ -652,10 +658,13 @@ pub mod tests {
         });
         assert!(res.is_ok());
 
-        std::thread::sleep(ensure_dead);
-        wl.delete_old();
+        tokio::time::sleep(ensure_dead).await;
+        wl.delete_old().await;
 
-        assert_not_watched!(wl, "topic://state?address__in[]=address&key__match_any[]=foo*");
+        assert_not_watched!(
+            wl,
+            "topic://state?address__in[]=address&key__match_any[]=foo*"
+        );
         assert_not_watched!(wl, "topic://state/address/foo1");
         assert_not_watched!(wl, "topic://state/address/foo2");
         assert_not_watched!(wl, "topic://state/address/foo3");

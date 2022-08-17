@@ -1,10 +1,8 @@
 [package]
 name = "updates-provider"
-version = "1.4.8"
+version = "1.4.9"
 authors = ["Аleksej Petrov <apetrov@wavesplatform.com>"]
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 anyhow = "1.0"
@@ -16,13 +14,14 @@ envy = "0.4"
 futures = "0.3"
 itertools = "0.10"
 lazy_static = "1.4"
-diesel = { version = "1.4.5", features = ["postgres", "r2d2", "chrono", "numeric", "serde_json"] }
+diesel = { version = "1.4", features = ["postgres", "chrono", "numeric", "serde_json"] }
+deadpool = { version = "0.9", default-features = false, features = ["managed", "rt_tokio_1"] }
+deadpool-redis = { version = "0.10", default-features = false, features = ["rt_tokio_1"] }
+deadpool-diesel = { version = "0.3", default-features = false, features = ["postgres", "rt_tokio_1"] }
 percent-encoding = "2.1"
 prost = { version = "0.8", features = ["no-recursion-limit"] }
 protofixer = { version = "0.1.0", git = "https://github.com/a-kordys/protofixer", tag = "v0.1.0" }
 prometheus = "0.12"
-r2d2 = "0.8"
-r2d2_redis = "0.14"
 regex = "1.5"
 reqwest = "0.11"
 serde = { version = "1.0", features = ["derive"] }

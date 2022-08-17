@@ -15,9 +15,9 @@ pub struct ProviderWithUpdatesSender<R: ResourcesRepo> {
     pub provider: Provider<R>,
 }
 
-impl<R: ResourcesRepo> Provider<R> {
+impl<R: ResourcesRepo + Sync> Provider<R> {
     pub async fn init(resources_repo: Arc<R>) -> Result<ProviderWithUpdatesSender<R>, Error> {
-        let last_height = get_last_height(resources_repo.clone())?;
+        let last_height = get_last_height(resources_repo.clone()).await?;
         // random channel buffer size
         let (tx, rx) = mpsc::channel(20);
 
@@ -36,7 +36,8 @@ impl<R: ResourcesRepo> Provider<R> {
             let height = blockchain_updated.height;
             if self.last_height != height {
                 self.resources_repo
-                    .set_and_push(Topic::BlockchainHeight, height.to_string())?;
+                    .set_and_push(Topic::BlockchainHeight, height.to_string())
+                    .await?;
                 self.last_height = height;
             }
         }
@@ -45,9 +46,9 @@ impl<R: ResourcesRepo> Provider<R> {
     }
 }
 
-fn get_last_height<R: ResourcesRepo>(resources_repo: Arc<R>) -> Result<i32, Error> {
+async fn get_last_height<R: ResourcesRepo>(resources_repo: Arc<R>) -> Result<i32, Error> {
     let topic = Topic::BlockchainHeight;
-    if let Some(height) = resources_repo.get(&topic)? {
+    if let Some(height) = resources_repo.get(&topic).await? {
         if let Ok(height) = height.parse() {
             return Ok(height);
         }
