@@ -266,26 +266,24 @@ impl<T: WatchListItem, R: ResourcesRepo> WatchList<T, R> {
     }
 
     pub fn key_watch_status(&self, key: &T) -> KeyWatchStatus<T> {
+        if T::PATTERNS_SUPPORTED && !self.patterns.is_empty() {
+            let matched_patterns = self
+                .patterns
+                .iter()
+                .filter(|&(_, matcher)| matcher.is_match(key))
+                .map(|(pattern, _)| pattern.clone())
+                .collect_vec();
+
+            if !matched_patterns.is_empty() {
+                return KeyWatchStatus::MatchesPattern(matched_patterns);
+            }
+        }
+
         if self.items.contains_key(key) {
             return KeyWatchStatus::Watched;
         }
 
-        if !T::PATTERNS_SUPPORTED || self.patterns.is_empty() {
-            return KeyWatchStatus::NotWatched;
-        }
-
-        let matched_patterns = self
-            .patterns
-            .iter()
-            .filter(|&(_, matcher)| matcher.is_match(key))
-            .map(|(pattern, _)| pattern.clone())
-            .collect_vec();
-
-        if matched_patterns.is_empty() {
-            KeyWatchStatus::NotWatched
-        } else {
-            KeyWatchStatus::MatchesPattern(matched_patterns)
-        }
+        return KeyWatchStatus::NotWatched;
     }
 
     pub fn get_value(&self, key: &T) -> Option<&String> {
