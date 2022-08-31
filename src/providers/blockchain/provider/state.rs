@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use itertools::Itertools;
 use regex::Regex;
 use std::collections::HashSet;
-use wavesexchange_topic::{State, StateMultiPatterns, StateSingle, Topic};
+use wx_topic::{State, StateMultiPatterns, StateSingle, TopicData};
 
 use super::{DataFromBlock, Item, LastValue};
 use crate::db::repo_provider::ProviderRepo;
@@ -49,8 +49,8 @@ impl<R: ProviderRepo + Sync> LastValue<R> for State {
                     .await?;
                 let matching_topics = matching_keys
                     .into_iter()
-                    .map_into::<Topic>()
-                    .map_into::<String>()
+                    .map_into::<TopicData>()
+                    .map(|topic| topic.as_uri_string())
                     .collect_vec();
                 serde_json::to_string(&matching_topics)?
             }

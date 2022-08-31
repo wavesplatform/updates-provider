@@ -4,7 +4,7 @@ pub mod repo;
 
 use crate::error::Error;
 use async_trait::async_trait;
-use wavesexchange_topic::Topic;
+use wx_topic::Topic;
 
 type Subscriptions = Vec<String>;
 

@@ -4,7 +4,7 @@ use super::{DataEntry, LeasingBalance};
 use crate::error::Result;
 use crate::waves::transactions::{Transaction, TransactionType};
 use async_trait::async_trait;
-use wavesexchange_topic::StateSingle;
+use wx_topic::StateSingle;
 
 pub use self::repo_impl::PostgresProviderRepo;
 
@@ -47,7 +47,7 @@ mod repo_impl {
     use crate::waves::transactions::{Transaction, TransactionType};
     use async_trait::async_trait;
     use wavesexchange_log::{debug, timer};
-    use wavesexchange_topic::StateSingle;
+    use wx_topic::StateSingle;
 
     const MAX_UID: i64 = i64::MAX - 1;
 

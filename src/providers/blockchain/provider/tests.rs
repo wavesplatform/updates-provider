@@ -7,8 +7,8 @@ use crate::providers::{
 };
 use crate::resources::ResourcesRepo;
 use crate::waves::{BlockMicroblockAppend, DataEntry, Fragments, ValueDataEntry};
-use std::{convert::TryFrom, sync::Arc, time::Duration};
-use wavesexchange_topic::Topic;
+use std::{sync::Arc, time::Duration};
+use wx_topic::Topic;
 
 mod repo {
     use crate::db::{repo_provider::ProviderRepo, DataEntry, LeasingBalance};
@@ -20,7 +20,7 @@ mod repo {
         collections::HashMap,
         sync::{Arc, Mutex},
     };
-    use wavesexchange_topic::StateSingle;
+    use wx_topic::StateSingle;
 
     #[derive(Clone)]
     pub struct TestProviderRepo(Arc<Mutex<HashMap<TestItem, String>>>);
@@ -293,7 +293,7 @@ async fn test_updates_provider() -> anyhow::Result<()> {
     assert!(!db_repo.has_value(&TestItem("topic://state/address/foo")));
     assert_eq!(
         res_repo
-            .get(&Topic::try_from("topic://state/address/foo")?)
+            .get(&Topic::parse_str("topic://state/address/foo")?)
             .await?,
         None
     );
@@ -301,7 +301,7 @@ async fn test_updates_provider() -> anyhow::Result<()> {
     sync().await;
     assert_eq!(
         res_repo
-            .get(&Topic::try_from("topic://state/address/foo")?)
+            .get(&Topic::parse_str("topic://state/address/foo")?)
             .await?,
         Some("NONE".to_string())
     );
@@ -311,7 +311,7 @@ async fn test_updates_provider() -> anyhow::Result<()> {
     assert!(db_repo.has_value(&TestItem("topic://state/address/bar")));
     assert_eq!(
         res_repo
-            .get(&Topic::try_from("topic://state/address/bar")?)
+            .get(&Topic::parse_str("topic://state/address/bar")?)
             .await?,
         None
     );
@@ -319,7 +319,7 @@ async fn test_updates_provider() -> anyhow::Result<()> {
     sync().await;
     assert_eq!(
         res_repo
-            .get(&Topic::try_from("topic://state/address/bar")?)
+            .get(&Topic::parse_str("topic://state/address/bar")?)
             .await?,
         Some("bar_value".to_string())
     );
@@ -330,13 +330,13 @@ async fn test_updates_provider() -> anyhow::Result<()> {
     sync().await;
     assert_eq!(
         res_repo
-            .get(&Topic::try_from("topic://state/address/foo")?)
+            .get(&Topic::parse_str("topic://state/address/foo")?)
             .await?,
         Some("updated_foo".to_string())
     );
     assert_eq!(
         res_repo
-            .get(&Topic::try_from("topic://state/address/bar")?)
+            .get(&Topic::parse_str("topic://state/address/bar")?)
             .await?,
         Some("updated_bar".to_string())
     );
@@ -348,7 +348,7 @@ async fn test_updates_provider() -> anyhow::Result<()> {
     // Subscribe to multitopic, no data exists
     assert_eq!(
         res_repo
-            .get(&Topic::try_from(
+            .get(&Topic::parse_str(
                 "topic://state?address__in[]=address&key__match_any[]=multi*"
             )?)
             .await?,
@@ -361,7 +361,7 @@ async fn test_updates_provider() -> anyhow::Result<()> {
     sync().await;
     assert_eq!(
         res_repo
-            .get(&Topic::try_from(
+            .get(&Topic::parse_str(
                 "topic://state?address__in[]=address&key__match_any[]=multi*"
             )?)
             .await?,
@@ -372,7 +372,7 @@ async fn test_updates_provider() -> anyhow::Result<()> {
     assert!(!db_repo.has_value(&TestItem("topic://state/address/multi1")));
     assert_eq!(
         res_repo
-            .get(&Topic::try_from("topic://state/address/multi1")?)
+            .get(&Topic::parse_str("topic://state/address/multi1")?)
             .await?,
         None
     );
@@ -380,13 +380,13 @@ async fn test_updates_provider() -> anyhow::Result<()> {
     sync().await;
     assert_eq!(
         res_repo
-            .get(&Topic::try_from("topic://state/address/multi1")?)
+            .get(&Topic::parse_str("topic://state/address/multi1")?)
             .await?,
         Some("value_1".to_string())
     );
     assert_eq!(
         res_repo
-            .get(&Topic::try_from(
+            .get(&Topic::parse_str(
                 "topic://state?address__in[]=address&key__match_any[]=multi*"
             )?)
             .await?,
@@ -397,7 +397,7 @@ async fn test_updates_provider() -> anyhow::Result<()> {
     assert!(!db_repo.has_value(&TestItem("topic://state/address/multi2")));
     assert_eq!(
         res_repo
-            .get(&Topic::try_from("topic://state/address/multi2")?)
+            .get(&Topic::parse_str("topic://state/address/multi2")?)
             .await?,
         None
     );
@@ -405,13 +405,13 @@ async fn test_updates_provider() -> anyhow::Result<()> {
     sync().await;
     assert_eq!(
         res_repo
-            .get(&Topic::try_from("topic://state/address/multi2")?)
+            .get(&Topic::parse_str("topic://state/address/multi2")?)
             .await?,
         Some("value_2".to_string())
     );
     assert_eq!(
         res_repo
-            .get(&Topic::try_from(
+            .get(&Topic::parse_str(
                 "topic://state?address__in[]=address&key__match_any[]=multi*"
             )?)
             .await?,
@@ -423,7 +423,7 @@ async fn test_updates_provider() -> anyhow::Result<()> {
     assert!(!db_repo.has_value(&TestItem("topic://state/address/multi3")));
     assert_eq!(
         res_repo
-            .get(&Topic::try_from("topic://state/address/multi3")?)
+            .get(&Topic::parse_str("topic://state/address/multi3")?)
             .await?,
         None
     );
@@ -432,12 +432,12 @@ async fn test_updates_provider() -> anyhow::Result<()> {
     sync().await;
     assert_eq!(
         res_repo
-            .get(&Topic::try_from("topic://state/address/multi3")?)
+            .get(&Topic::parse_str("topic://state/address/multi3")?)
             .await?,
         Some("value_3".to_string())
     );
     assert_eq!(
-        res_repo.get(&Topic::try_from("topic://state?address__in[]=address&key__match_any[]=multi*")?).await?,
+        res_repo.get(&Topic::parse_str("topic://state?address__in[]=address&key__match_any[]=multi*")?).await?,
         Some(r#"["topic://state/address/multi1","topic://state/address/multi2","topic://state/address/multi3"]"#.to_string())
     );
 
@@ -447,7 +447,7 @@ async fn test_updates_provider() -> anyhow::Result<()> {
     force_watchlist_cleanup().await;
     assert_eq!(
         res_repo
-            .get(&Topic::try_from(
+            .get(&Topic::parse_str(
                 "topic://state?address__in[]=address&key__match_any[]=multi*"
             )?)
             .await?,
@@ -459,19 +459,19 @@ async fn test_updates_provider() -> anyhow::Result<()> {
     sync().await;
     assert_eq!(
         res_repo
-            .get(&Topic::try_from("topic://state/address/multi1")?)
+            .get(&Topic::parse_str("topic://state/address/multi1")?)
             .await?,
         None
     );
     assert_eq!(
         res_repo
-            .get(&Topic::try_from("topic://state/address/multi2")?)
+            .get(&Topic::parse_str("topic://state/address/multi2")?)
             .await?,
         None
     );
     assert_eq!(
         res_repo
-            .get(&Topic::try_from("topic://state/address/multi3")?)
+            .get(&Topic::parse_str("topic://state/address/multi3")?)
             .await?,
         None
     );
@@ -485,7 +485,7 @@ async fn test_updates_provider() -> anyhow::Result<()> {
     sync().await;
     assert_eq!(
         res_repo
-            .get(&Topic::try_from(
+            .get(&Topic::parse_str(
                 "topic://state?address__in[]=address&key__match_any[]=multi*"
             )?)
             .await?,
@@ -495,13 +495,13 @@ async fn test_updates_provider() -> anyhow::Result<()> {
     // Subscribe to multitopic, data exists in db & redis
     assert_eq!(
         res_repo
-            .get(&Topic::try_from("topic://state/address/multi1")?)
+            .get(&Topic::parse_str("topic://state/address/multi1")?)
             .await?,
         Some("value_1".to_string())
     );
     assert_eq!(
         res_repo
-            .get(&Topic::try_from("topic://state/address/multi2")?)
+            .get(&Topic::parse_str("topic://state/address/multi2")?)
             .await?,
         Some("value_2".to_string())
     );
@@ -509,7 +509,7 @@ async fn test_updates_provider() -> anyhow::Result<()> {
     sync().await;
     assert_eq!(
         res_repo
-            .get(&Topic::try_from(
+            .get(&Topic::parse_str(
                 "topic://state?address__in[]=address&key__match_any[]=m*"
             )?)
             .await?,

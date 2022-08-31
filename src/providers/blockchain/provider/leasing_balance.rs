@@ -4,7 +4,7 @@ use super::{DataFromBlock, Item, LastValue};
 use crate::{
     db::repo_provider::ProviderRepo, error::Result, providers::watchlist::KeyPattern, waves,
 };
-use wavesexchange_topic::LeasingBalance;
+use wx_topic::LeasingBalance;
 
 impl DataFromBlock for LeasingBalance {
     fn data_from_block(block: &waves::BlockMicroblockAppend) -> Vec<(String, Self)> {
