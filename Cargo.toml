@@ -21,7 +21,7 @@ deadpool-diesel = { version = "0.3", default-features = false, features = ["post
 percent-encoding = "2.1"
 prost = { version = "0.8", features = ["no-recursion-limit"] }
 protofixer = { version = "0.1.0", git = "https://github.com/a-kordys/protofixer", tag = "v0.1.0" }
-prometheus = "0.12"
+prometheus = "0.13"
 regex = "1.5"
 reqwest = "0.11"
 serde = { version = "1.0", features = ["derive"] }
@@ -33,7 +33,7 @@ tonic = "0.5"
 url = "2.2"
 warp = "0.3"
 wavesexchange_log = { git = "https://github.com/waves-exchange/wavesexchange-rs", tag = "wavesexchange_log/0.5.0" }
-wavesexchange_warp = { git = "https://github.com/waves-exchange/wavesexchange-rs", tag = "wavesexchange_warp/0.12.2" }
+wavesexchange_warp = { git = "https://github.com/waves-exchange/wavesexchange-rs", branch = "DATA-1774_metrics" }
 wavesexchange_topic = { git = "https://github.com/waves-exchange/wavesexchange-rs", tag = "wavesexchange_topic/0.2.2" }
 waves-protobuf-schemas = { git = "https://github.com/wavesplatform/protobuf-schemas", tag = "v1.4.3" }
 

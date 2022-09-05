@@ -34,7 +34,6 @@ fn main() -> Result<(), Error> {
 }
 
 async fn tokio_main() -> Result<(), Error> {
-    metrics::register_metrics();
     let redis_config = config::load_redis()?;
     let postgres_config = config::load_postgres()?;
     let configs_updater_config = config::load_configs_updater()?;
