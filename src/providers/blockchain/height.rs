@@ -2,7 +2,7 @@ use crate::{error::Error, resources::ResourcesRepo};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use waves_protobuf_schemas::waves::events::BlockchainUpdated;
-use wavesexchange_topic::Topic;
+use wx_topic::{BlockchainHeight, TopicData};
 
 pub struct Provider<R: ResourcesRepo> {
     resources_repo: Arc<R>,
@@ -32,11 +32,12 @@ impl<R: ResourcesRepo + Sync> Provider<R> {
     }
 
     pub async fn run(&mut self) -> Result<(), Error> {
+        let topic = TopicData::BlockchainHeight(BlockchainHeight).as_topic();
         while let Some(blockchain_updated) = self.rx.recv().await {
             let height = blockchain_updated.height;
             if self.last_height != height {
                 self.resources_repo
-                    .set_and_push(Topic::BlockchainHeight, height.to_string())
+                    .set_and_push(&topic, height.to_string())
                     .await?;
                 self.last_height = height;
             }
@@ -47,7 +48,7 @@ impl<R: ResourcesRepo + Sync> Provider<R> {
 }
 
 async fn get_last_height<R: ResourcesRepo>(resources_repo: Arc<R>) -> Result<i32, Error> {
-    let topic = Topic::BlockchainHeight;
+    let topic = TopicData::BlockchainHeight(BlockchainHeight).as_topic();
     if let Some(height) = resources_repo.get(&topic).await? {
         if let Ok(height) = height.parse() {
             return Ok(height);

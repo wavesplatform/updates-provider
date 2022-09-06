@@ -2,14 +2,13 @@ use crate::{error::Error, resources::ResourcesRepo, subscriptions::SubscriptionE
 use itertools::Itertools;
 use std::{
     collections::{HashMap, HashSet},
-    convert::TryFrom,
     fmt::Debug,
     hash::Hash,
     sync::Arc,
     time::{Duration, Instant},
 };
 use wavesexchange_log::{debug, warn};
-use wavesexchange_topic::Topic;
+use wx_topic::{Topic, TopicData};
 
 #[derive(Debug)]
 pub struct WatchList<T: WatchListItem, R: ResourcesRepo> {
@@ -70,7 +69,7 @@ impl ItemInfo {
 }
 
 pub trait WatchListItem:
-    Eq + Hash + Into<Topic> + MaybeFromTopic + Into<String> + KeyPattern + Clone + Debug
+    Eq + Hash + Into<TopicData> + MaybeFromTopic + KeyPattern + Clone + Debug
 {
 }
 
@@ -80,13 +79,13 @@ pub enum WatchListUpdate<T: WatchListItem> {
     Removed { item: T },
 }
 
-pub trait MaybeFromUpdate: std::fmt::Debug + Send + Sync {
+pub trait MaybeFromUpdate: Debug + Send + Sync {
     fn maybe_from_update(update: &SubscriptionEvent) -> Option<Self>
     where
         Self: Sized;
 }
 
-impl<T: WatchListItem + std::fmt::Debug + Send + Sync> MaybeFromUpdate for WatchListUpdate<T> {
+impl<T: WatchListItem + Debug + Send + Sync> MaybeFromUpdate for WatchListUpdate<T> {
     fn maybe_from_update(update: &SubscriptionEvent) -> Option<Self> {
         match update {
             SubscriptionEvent::Updated { topic } => {
@@ -129,7 +128,7 @@ impl<T: WatchListItem, R: ResourcesRepo> WatchList<T, R> {
         topics
             .into_iter()
             .map(String::as_str)
-            .map(Topic::try_from)
+            .map(Topic::parse_str)
             .map_ok(|subtopic| T::maybe_item(&subtopic))
             .map(|result| match result {
                 Ok(Some(value)) => Ok(value),
@@ -145,7 +144,7 @@ impl<T: WatchListItem, R: ResourcesRepo> WatchList<T, R> {
                 let item_info = self.create_or_refresh_item(item.to_owned());
                 let update_metric = item_info.watch_direct();
                 if update_metric {
-                    let topic: Topic = item.clone().into();
+                    let topic = item.clone().into(); //TODO Bad design - cloning is unnecessary
                     self.metric_increase(true, topic.is_multi_topic());
                 }
             }
@@ -161,7 +160,7 @@ impl<T: WatchListItem, R: ResourcesRepo> WatchList<T, R> {
                     let subtopic_items = item_info.subtopics.as_ref().map(Self::collect_as_items);
 
                     if update_metric {
-                        let topic: Topic = item.clone().into();
+                        let topic = item.clone().into(); //TODO Bad design - cloning is unnecessary
                         self.metric_decrease(true, topic.is_multi_topic());
                     }
 
@@ -173,7 +172,7 @@ impl<T: WatchListItem, R: ResourcesRepo> WatchList<T, R> {
                                     subtopic_item_info.delete_after(self.delete_timeout);
                                 }
                                 if update_metric {
-                                    let subtopic: Topic = subtopic_item.clone().into();
+                                    let subtopic = subtopic_item.clone().into(); //TODO Bad design - cloning is unnecessary
                                     self.metric_decrease(false, subtopic.is_multi_topic());
                                 }
                             }
@@ -194,7 +193,7 @@ impl<T: WatchListItem, R: ResourcesRepo> WatchList<T, R> {
                 item_info.subtopics = Some(subtopics);
             }
             for item in updated {
-                let topic: Topic = item.clone().into();
+                let topic = item.clone().into(); //TODO Bad design - cloning is unnecessary
                 let item_info = self.create_or_refresh_item(item);
                 let update_metric = item_info.watch_indirect();
                 if update_metric {
@@ -208,7 +207,7 @@ impl<T: WatchListItem, R: ResourcesRepo> WatchList<T, R> {
                         item_info.delete_after(self.delete_timeout);
                     }
                     if update_metric {
-                        let topic: Topic = item.clone().into();
+                        let topic = item.clone().into(); //TODO Bad design - cloning is unnecessary
                         self.metric_decrease(false, topic.is_multi_topic());
                     }
                 }
@@ -217,7 +216,7 @@ impl<T: WatchListItem, R: ResourcesRepo> WatchList<T, R> {
             let added = Self::collect_as_items(&subtopics);
             item_info.subtopics = Some(subtopics);
             for item in added {
-                let topic: Topic = item.clone().into();
+                let topic = item.clone().into(); //TODO Bad design - cloning is unnecessary
                 let item_info = self.create_or_refresh_item(item);
                 let update_metric = item_info.watch_indirect();
                 if update_metric {
@@ -252,7 +251,8 @@ impl<T: WatchListItem, R: ResourcesRepo> WatchList<T, R> {
         for item in keys {
             self.items.remove(&item);
             self.patterns.remove(&item);
-            let res = self.repo.del(T::into(item)).await;
+            let topic = item.into().as_topic();
+            let res = self.repo.del(&topic).await;
             if let Some(err) = res.err() {
                 warn!("Failed to delete Redis key: '{:?}' (ignoring)", err);
             }
@@ -389,7 +389,7 @@ pub mod tests {
             collections::HashMap,
             sync::{Arc, Mutex},
         };
-        use wavesexchange_topic::Topic;
+        use wx_topic::Topic;
 
         pub struct TestResourcesRepo(Arc<Mutex<HashMap<Topic, String>>>);
 
@@ -406,19 +406,19 @@ pub mod tests {
                 Ok(data.get(resource).cloned())
             }
 
-            async fn set(&self, resource: Topic, value: String) -> Result<(), Error> {
+            async fn set(&self, resource: &Topic, value: String) -> Result<(), Error> {
                 let mut data = self.0.lock().unwrap();
-                data.insert(resource, value);
+                data.insert(resource.to_owned(), value);
                 Ok(())
             }
 
-            async fn del(&self, resource: Topic) -> Result<(), Error> {
+            async fn del(&self, resource: &Topic) -> Result<(), Error> {
                 let mut data = self.0.lock().unwrap();
-                data.remove(&resource);
+                data.remove(resource);
                 Ok(())
             }
 
-            async fn push(&self, _resource: Topic, _value: String) -> Result<(), Error> {
+            async fn push(&self, _resource: &Topic, _value: String) -> Result<(), Error> {
                 Ok(())
             }
         }
@@ -433,22 +433,22 @@ pub mod tests {
 
     pub mod item {
         use super::super::{KeyPattern, MaybeFromTopic, PatternMatcher, WatchListItem};
-        use std::{convert::TryFrom, hash::Hash};
-        use wavesexchange_topic::{State, StateMultiPatterns, StateSingle, Topic};
+        use std::hash::Hash;
+        use wx_topic::{State, StateMultiPatterns, StateSingle, Topic, TopicData};
 
         #[derive(Clone, PartialEq, Eq, Hash, Debug)]
         pub struct TestItem(pub &'static str);
 
-        impl Into<Topic> for TestItem {
-            fn into(self) -> Topic {
-                Topic::try_from(self.0).unwrap()
+        impl Into<TopicData> for TestItem {
+            fn into(self) -> TopicData {
+                Topic::parse_str(self.0).unwrap().data()
             }
         }
 
         impl MaybeFromTopic for TestItem {
             fn maybe_item(topic: &Topic) -> Option<Self> {
-                let s = String::from(topic.clone());
-                let s = Box::leak(Box::new(s));
+                let s = topic.to_string();
+                let s = Box::leak(Box::new(s)); // Leaking is ok for unit tests
                 Some(TestItem(s.as_str()))
             }
         }
@@ -473,17 +473,17 @@ pub mod tests {
         impl TestItem {
             pub fn matched_subtopic_prefix(&self) -> String {
                 if self.0.ends_with('*') {
-                    let topic = Topic::try_from(self.0).unwrap();
-                    let (address, key_pattern) = match topic {
-                        Topic::State(State::MultiPatterns(StateMultiPatterns {
+                    let topic = Topic::parse_str(self.0).unwrap();
+                    let (address, key_pattern) = match topic.data() {
+                        TopicData::State(State::MultiPatterns(StateMultiPatterns {
                             addresses,
                             key_patterns,
                         })) => (addresses[0].clone(), key_patterns[0].clone()),
                         _ => panic!("test is broken"),
                     };
                     let key = key_pattern[0..key_pattern.len() - 1].to_string(); // Strip '*' at the end
-                    let topic = Topic::State(State::Single(StateSingle { address, key }));
-                    topic.into()
+                    let topic = TopicData::State(State::Single(StateSingle { address, key }));
+                    topic.as_uri_string()
                 } else {
                     self.0.into()
                 }
@@ -632,8 +632,8 @@ pub mod tests {
                 "topic://state/address/foo2",
             ]),
         );
-        assert_watched!(wl, "topic://state/address/foo1");
-        assert_watched!(wl, "topic://state/address/foo2");
+        assert_matched!(wl, "topic://state/address/foo1");
+        assert_matched!(wl, "topic://state/address/foo2");
         assert_matched!(wl, "topic://state/address/foo3");
 
         // Change subtopics
@@ -646,8 +646,8 @@ pub mod tests {
         );
         tokio::time::sleep(ensure_dead).await;
         wl.delete_old().await;
-        assert_watched!(wl, "topic://state/address/foo1");
-        assert_watched!(wl, "topic://state/address/foo3");
+        assert_matched!(wl, "topic://state/address/foo1");
+        assert_matched!(wl, "topic://state/address/foo3");
         assert_matched!(wl, "topic://state/address/foo2");
 
         // Remove pattern item

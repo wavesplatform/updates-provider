@@ -144,34 +144,34 @@ impl From<&Data> for TransactionType {
     }
 }
 
-impl TryFrom<wavesexchange_topic::TransactionType> for TransactionType {
+impl TryFrom<wx_topic::TransactionType> for TransactionType {
     type Error = Error;
 
     fn try_from(
-        value: wavesexchange_topic::TransactionType,
+        value: wx_topic::TransactionType,
     ) -> core::result::Result<Self, Self::Error> {
         match value {
-            wavesexchange_topic::TransactionType::All => {
+            wx_topic::TransactionType::All => {
                 Err(Error::InvalidDBTransactionType(value.to_string()))
             }
-            wavesexchange_topic::TransactionType::Genesis => Ok(Self::Genesis),
-            wavesexchange_topic::TransactionType::Payment => Ok(Self::Payment),
-            wavesexchange_topic::TransactionType::Issue => Ok(Self::Issue),
-            wavesexchange_topic::TransactionType::Transfer => Ok(Self::Transfer),
-            wavesexchange_topic::TransactionType::Reissue => Ok(Self::Reissue),
-            wavesexchange_topic::TransactionType::Burn => Ok(Self::Burn),
-            wavesexchange_topic::TransactionType::Exchange => Ok(Self::Exchange),
-            wavesexchange_topic::TransactionType::Lease => Ok(Self::Lease),
-            wavesexchange_topic::TransactionType::LeaseCancel => Ok(Self::LeaseCancel),
-            wavesexchange_topic::TransactionType::Alias => Ok(Self::Alias),
-            wavesexchange_topic::TransactionType::MassTransfer => Ok(Self::MassTransfer),
-            wavesexchange_topic::TransactionType::Data => Ok(Self::Data),
-            wavesexchange_topic::TransactionType::SetScript => Ok(Self::SetScript),
-            wavesexchange_topic::TransactionType::Sponsorship => Ok(Self::Sponsorship),
-            wavesexchange_topic::TransactionType::SetAssetScript => Ok(Self::SetAssetScript),
-            wavesexchange_topic::TransactionType::InvokeScript => Ok(Self::InvokeScript),
-            wavesexchange_topic::TransactionType::UpdateAssetInfo => Ok(Self::UpdateAssetInfo),
-            wavesexchange_topic::TransactionType::InvokeExpression => Ok(Self::InvokeExpression),
+            wx_topic::TransactionType::Genesis => Ok(Self::Genesis),
+            wx_topic::TransactionType::Payment => Ok(Self::Payment),
+            wx_topic::TransactionType::Issue => Ok(Self::Issue),
+            wx_topic::TransactionType::Transfer => Ok(Self::Transfer),
+            wx_topic::TransactionType::Reissue => Ok(Self::Reissue),
+            wx_topic::TransactionType::Burn => Ok(Self::Burn),
+            wx_topic::TransactionType::Exchange => Ok(Self::Exchange),
+            wx_topic::TransactionType::Lease => Ok(Self::Lease),
+            wx_topic::TransactionType::LeaseCancel => Ok(Self::LeaseCancel),
+            wx_topic::TransactionType::Alias => Ok(Self::Alias),
+            wx_topic::TransactionType::MassTransfer => Ok(Self::MassTransfer),
+            wx_topic::TransactionType::Data => Ok(Self::Data),
+            wx_topic::TransactionType::SetScript => Ok(Self::SetScript),
+            wx_topic::TransactionType::Sponsorship => Ok(Self::Sponsorship),
+            wx_topic::TransactionType::SetAssetScript => Ok(Self::SetAssetScript),
+            wx_topic::TransactionType::InvokeScript => Ok(Self::InvokeScript),
+            wx_topic::TransactionType::UpdateAssetInfo => Ok(Self::UpdateAssetInfo),
+            wx_topic::TransactionType::InvokeExpression => Ok(Self::InvokeExpression),
         }
     }
 }

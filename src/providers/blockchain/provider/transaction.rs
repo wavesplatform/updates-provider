@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use std::convert::TryFrom;
-use wavesexchange_topic::{TransactionByAddress, TransactionExchange, TransactionType as Type};
+use wx_topic::{TransactionByAddress, TransactionExchange, TransactionType as Type};
 
 use super::{DataFromBlock, Item, LastValue};
 use crate::db::repo_provider::ProviderRepo;
@@ -10,7 +10,7 @@ use crate::waves::transactions::exchange::ExchangeData;
 use crate::waves::transactions::{Transaction, TransactionType, TransactionUpdate};
 use crate::waves::{Address, BlockMicroblockAppend};
 
-impl DataFromBlock for wavesexchange_topic::Transaction {
+impl DataFromBlock for wx_topic::Transaction {
     fn data_from_block(block: &BlockMicroblockAppend) -> Vec<(String, Self)> {
         block
             .transactions
@@ -33,7 +33,7 @@ impl DataFromBlock for wavesexchange_topic::Transaction {
                         .as_ref()
                         .map(|x| x.to_owned())
                         .unwrap_or_else(|| "WAVES".to_string());
-                    let data = wavesexchange_topic::Transaction::Exchange(TransactionExchange {
+                    let data = wx_topic::Transaction::Exchange(TransactionExchange {
                         amount_asset,
                         price_asset,
                     });
@@ -42,13 +42,13 @@ impl DataFromBlock for wavesexchange_topic::Transaction {
                 }
                 let tx: Tx = tx_update.into();
                 for address in tx.addresses {
-                    let data = wavesexchange_topic::Transaction::ByAddress(TransactionByAddress {
+                    let data = wx_topic::Transaction::ByAddress(TransactionByAddress {
                         address: address.0.clone(),
                         tx_type: tx.tx_type.into(),
                     });
                     let current_value = tx.id.clone();
                     txs.push((current_value, data));
-                    let data = wavesexchange_topic::Transaction::ByAddress(TransactionByAddress {
+                    let data = wx_topic::Transaction::ByAddress(TransactionByAddress {
                         address: address.0,
                         tx_type: Type::All,
                     });
@@ -62,10 +62,10 @@ impl DataFromBlock for wavesexchange_topic::Transaction {
 }
 
 #[async_trait]
-impl<R: ProviderRepo + Sync> LastValue<R> for wavesexchange_topic::Transaction {
+impl<R: ProviderRepo + Sync> LastValue<R> for wx_topic::Transaction {
     async fn last_value(self, repo: &R) -> Result<String> {
         Ok(match self {
-            wavesexchange_topic::Transaction::ByAddress(TransactionByAddress {
+            wx_topic::Transaction::ByAddress(TransactionByAddress {
                 tx_type: Type::All,
                 address,
             }) => {
@@ -77,7 +77,7 @@ impl<R: ProviderRepo + Sync> LastValue<R> for wavesexchange_topic::Transaction {
                     serde_json::to_string(&None::<String>)?
                 }
             }
-            wavesexchange_topic::Transaction::ByAddress(TransactionByAddress {
+            wx_topic::Transaction::ByAddress(TransactionByAddress {
                 tx_type,
                 address,
             }) => {
@@ -91,7 +91,7 @@ impl<R: ProviderRepo + Sync> LastValue<R> for wavesexchange_topic::Transaction {
                     serde_json::to_string(&None::<String>)?
                 }
             }
-            wavesexchange_topic::Transaction::Exchange(TransactionExchange {
+            wx_topic::Transaction::Exchange(TransactionExchange {
                 amount_asset,
                 price_asset,
             }) => {
@@ -128,7 +128,7 @@ impl From<&TransactionUpdate> for Tx {
 }
 
 #[allow(clippy::unused_unit)]
-impl KeyPattern for wavesexchange_topic::Transaction {
+impl KeyPattern for wx_topic::Transaction {
     const PATTERNS_SUPPORTED: bool = false;
     type PatternMatcher = ();
 
@@ -137,4 +137,4 @@ impl KeyPattern for wavesexchange_topic::Transaction {
     }
 }
 
-impl<R: ProviderRepo + Sync> Item<R> for wavesexchange_topic::Transaction {}
+impl<R: ProviderRepo + Sync> Item<R> for wx_topic::Transaction {}
