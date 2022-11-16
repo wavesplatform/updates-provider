@@ -21,7 +21,6 @@ use crate::metrics::*;
 use crate::providers::{blockchain, UpdatesProvider};
 use crate::resources::repo::ResourcesRepoRedis;
 use std::sync::Arc;
-use warp::Filter;
 use wavesexchange_log::{error, info};
 use wavesexchange_warp::MetricsWarpBuilder;
 
@@ -42,7 +41,7 @@ async fn tokio_main() -> Result<(), Error> {
 
     let metrics = tokio::spawn(
         MetricsWarpBuilder::new()
-            .with_metrics_port(server_config.metrics_port + 1)
+            .with_metrics_port(server_config.metrics_port)
             .with_metric(&*WATCHLISTS_TOPICS)
             .with_metric(&*WATCHLISTS_SUBSCRIPTIONS)
             .with_metric(&*REDIS_INPUT_QUEUE_SIZE)
