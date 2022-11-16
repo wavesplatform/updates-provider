@@ -235,10 +235,10 @@ mod repo_impl {
         fn insert_data_entries(&mut self, entries: &[DataEntry]) -> Result<()> {
             timer!("insert_data_entries()", verbose);
 
-            // one data entry has 10 columns
+            // one data entry has 18 columns
             // pg cannot insert more then 65535
-            // so the biggest chunk should be less then 6553
-            let chunk_size = 6500;
+            // so the biggest chunk should be less then 3640
+            let chunk_size = 3600;
             for chunk in entries.iter().chunks_from_iter(chunk_size) {
                 diesel::insert_into(data_entries::table)
                     .values(chunk)
@@ -393,7 +393,7 @@ mod repo_impl {
         fn insert_leasing_balances(&mut self, entries: &[LeasingBalance]) -> Result<()> {
             timer!("insert_leasing_balances()", verbose);
 
-            // one data entry has 6 columns
+            // one leasing balance entry has 6 columns
             // pg cannot insert more then 65535
             // so the biggest chunk should be less then 10922
             let chunk_size = 10000;

@@ -38,6 +38,14 @@ table! {
         value_bool -> Nullable<Bool>,
         value_integer -> Nullable<BigInt>,
         value_string -> Nullable<Varchar>,
+        key_frag_0 -> Nullable<Varchar>,
+        key_frag_1 -> Nullable<Varchar>,
+        key_frag_2 -> Nullable<Varchar>,
+        key_frag_3 -> Nullable<Varchar>,
+        key_frag_4 -> Nullable<Varchar>,
+        key_frag_5 -> Nullable<Varchar>,
+        key_frag_6 -> Nullable<Varchar>,
+        key_frag_7 -> Nullable<Varchar>,
     }
 }
 
