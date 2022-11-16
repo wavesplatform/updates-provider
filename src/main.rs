@@ -205,7 +205,7 @@ async fn tokio_main() -> Result<(), Error> {
         }
     });
 
-    let api_handle = tokio::spawn(async move { api::start(server_config.port).await });
+    let api_handle = tokio::spawn(async move { api::start(server_config.metrics_port).await });
 
     tokio::select! {
         _ = blockchain_puller_handle => {}
