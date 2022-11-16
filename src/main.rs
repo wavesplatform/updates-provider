@@ -2,7 +2,6 @@
 extern crate diesel;
 extern crate wavesexchange_topic as wx_topic;
 
-mod api;
 mod config;
 mod db;
 mod error;
@@ -25,6 +24,7 @@ use crate::metrics::{
 use crate::providers::{blockchain, UpdatesProvider};
 use crate::resources::repo::ResourcesRepoRedis;
 use std::sync::Arc;
+use warp::Filter;
 use wavesexchange_log::{error, info};
 
 fn main() -> Result<(), Error> {
@@ -205,7 +205,18 @@ async fn tokio_main() -> Result<(), Error> {
         }
     });
 
-    let api_handle = tokio::spawn(async move { api::start(server_config.metrics_port).await });
+    let api_handle = tokio::spawn(async move {
+        let metrics =
+            warp::path!("metrics").and_then(|| async { Ok::<_, warp::Rejection>("metrics ok") });
+
+        info!(
+            "Starting web server at 0.0.0.0:{}",
+            server_config.metrics_port
+        );
+        warp::serve(metrics)
+            .run(([0, 0, 0, 0], server_config.metrics_port))
+            .await;
+    });
 
     tokio::select! {
         _ = blockchain_puller_handle => {}
