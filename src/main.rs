@@ -17,15 +17,13 @@ mod waves;
 
 use crate::db::{repo_consumer::PostgresConsumerRepo, repo_provider::PostgresProviderRepo};
 use crate::error::Error;
-use crate::metrics::{
-    POSTGRES_READ_CONNECTIONS_AVAILABLE, POSTGRES_WRITE_CONNECTIONS_AVAILABLE,
-    REDIS_CONNECTIONS_AVAILABLE,
-};
+use crate::metrics::*;
 use crate::providers::{blockchain, UpdatesProvider};
 use crate::resources::repo::ResourcesRepoRedis;
 use std::sync::Arc;
 use warp::Filter;
 use wavesexchange_log::{error, info};
+use wavesexchange_warp::MetricsWarpBuilder;
 
 fn main() -> Result<(), Error> {
     let rt = tokio::runtime::Runtime::new().unwrap();
@@ -35,13 +33,25 @@ fn main() -> Result<(), Error> {
 }
 
 async fn tokio_main() -> Result<(), Error> {
-    //metrics::register_metrics();
     let redis_config = config::load_redis()?;
     let postgres_config = config::load_postgres()?;
     let configs_updater_config = config::load_configs_updater()?;
     let test_resources_config = config::load_test_resources_updater()?;
     let blockchain_config = config::load_blockchain()?;
     let server_config = config::load_api()?;
+
+    let metrics = tokio::spawn(
+        MetricsWarpBuilder::new()
+            .with_metrics_port(server_config.metrics_port + 1)
+            .with_metric(&*WATCHLISTS_TOPICS)
+            .with_metric(&*WATCHLISTS_SUBSCRIPTIONS)
+            .with_metric(&*REDIS_INPUT_QUEUE_SIZE)
+            .with_metric(&*REDIS_CONNECTIONS_AVAILABLE)
+            .with_metric(&*POSTGRES_READ_CONNECTIONS_AVAILABLE)
+            .with_metric(&*POSTGRES_WRITE_CONNECTIONS_AVAILABLE)
+            .with_metric(&*DB_WRITE_TIME)
+            .run_async(),
+    );
 
     let redis_connection_url = format!(
         "redis://{}:{}@{}:{}/",
