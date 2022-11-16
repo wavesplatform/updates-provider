@@ -215,24 +215,11 @@ async fn tokio_main() -> Result<(), Error> {
         }
     });
 
-    let api_handle = tokio::spawn(async move {
-        let metrics =
-            warp::path!("metrics").and_then(|| async { Ok::<_, warp::Rejection>("metrics ok") });
-
-        info!(
-            "Starting web server at 0.0.0.0:{}",
-            server_config.metrics_port
-        );
-        warp::serve(metrics)
-            .run(([0, 0, 0, 0], server_config.metrics_port))
-            .await;
-    });
-
     tokio::select! {
         _ = blockchain_puller_handle => {}
         _ = blockchain_updater_handle => {}
         _ = subscriptions_updates_pusher_handle => {}
-        result = api_handle => {
+        result = metrics => {
             result?;
         }
     }
