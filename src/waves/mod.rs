@@ -28,6 +28,14 @@ pub struct BlockMicroblockAppend {
     pub leasing_balances: Vec<LeasingBalance>,
 }
 
+#[derive(Clone, Debug)]
+pub struct RollbackData {
+    pub block_id: String,
+    pub removed_transaction_ids: Vec<String>,
+    pub data_entries: Vec<DataEntry>,
+    pub leasing_balances: Vec<LeasingBalance>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct DataEntry {
     pub address: String,

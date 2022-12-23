@@ -117,16 +117,16 @@ mod repo {
 }
 
 mod item {
-    use super::super::{DataFromBlock, Item, LastValue};
+    use super::super::{BlockData, DataFromBlock, Item, LastValue};
     use super::repo::TestProviderRepo;
     pub use crate::providers::watchlist::tests::item::TestItem;
-    use crate::waves::{BlockMicroblockAppend, ValueDataEntry};
+    use crate::waves::{BlockMicroblockAppend, RollbackData, ValueDataEntry};
     use async_trait::async_trait;
 
     impl Item<TestProviderRepo> for TestItem {}
 
     impl DataFromBlock for TestItem {
-        fn data_from_block(block: &BlockMicroblockAppend) -> Vec<(String, Self)> {
+        fn data_from_block(block: &BlockMicroblockAppend) -> Vec<BlockData<TestItem>> {
             block
                 .data_entries
                 .iter()
@@ -141,9 +141,13 @@ mod item {
                     let topic = format!("topic://state/{}/{}", address, key);
                     let topic = Box::leak(Box::new(topic)).as_str();
                     let data = TestItem(topic);
-                    (value.to_string(), data)
+                    BlockData::new(value.to_string(), data)
                 })
                 .collect()
+        }
+
+        fn data_from_rollback(_rollback: &RollbackData) -> Vec<BlockData<Self>> {
+            unimplemented!() // Not used in tests
         }
     }
 
@@ -189,7 +193,7 @@ mod item {
         };
         let data = TestItem::data_from_block(&block);
         assert_eq!(data.len(), 1);
-        let (data_value, data_item) = &data[0];
+        let (data_value, data_item) = (&data[0].current_value, &data[0].data);
         assert_eq!(data_value, "baz");
         assert_eq!(data_item, &TestItem("topic://state/foo/bar"));
     }
