@@ -4,27 +4,34 @@ use regex::Regex;
 use std::collections::HashSet;
 use wx_topic::{State, StateMultiPatterns, StateSingle, TopicData};
 
-use super::{DataFromBlock, Item, LastValue};
+use super::{BlockData, DataFromBlock, Item, LastValue};
 use crate::db::repo_provider::ProviderRepo;
 use crate::error::Result;
 use crate::providers::watchlist::{KeyPattern, PatternMatcher};
 use crate::waves;
 
 impl DataFromBlock for State {
-    fn data_from_block(block: &waves::BlockMicroblockAppend) -> Vec<(String, Self)> {
-        block
-            .data_entries
-            .iter()
-            .map(|de| {
-                let data = State::Single(StateSingle {
-                    address: de.address.to_owned(),
-                    key: de.key.to_owned(),
-                });
-                let current_value = serde_json::to_string(de).unwrap();
-                (current_value, data)
-            })
-            .collect()
+    fn data_from_block(block: &waves::BlockMicroblockAppend) -> Vec<BlockData<State>> {
+        extract_data_entries(&block.data_entries)
     }
+
+    fn data_from_rollback(rollback: &waves::RollbackData) -> Vec<BlockData<State>> {
+        extract_data_entries(&rollback.data_entries)
+    }
+}
+
+fn extract_data_entries(data_entries: &[waves::DataEntry]) -> Vec<BlockData<State>> {
+    data_entries
+        .iter()
+        .map(|de| {
+            let data = State::Single(StateSingle {
+                address: de.address.to_owned(),
+                key: de.key.to_owned(),
+            });
+            let current_value = serde_json::to_string(de).unwrap();
+            BlockData::new(current_value, data)
+        })
+        .collect()
 }
 
 #[async_trait]

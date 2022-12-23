@@ -15,7 +15,7 @@ use crate::schema::{associated_addresses, blocks_microblocks, data_entries, leas
 use crate::waves::transactions::{parse_transactions, InsertableTransaction};
 use crate::waves::{
     Address, BlockMicroblockAppend, DataEntry as DataEntryDTO, DataEntryFragment, Fragments,
-    LeasingBalance as LeasingBalanceDTO, ValueDataEntry,
+    LeasingBalance as LeasingBalanceDTO, RollbackData, ValueDataEntry,
 };
 
 pub const FRAGMENT_SEPARATOR: &str = "__";
@@ -61,7 +61,7 @@ impl From<(String, &Address)> for AssociatedAddress {
 pub enum BlockchainUpdate {
     Block(BlockMicroblockAppend),
     Microblock(BlockMicroblockAppend),
-    Rollback(String),
+    Rollback(RollbackData),
 }
 
 #[derive(Debug)]
@@ -205,16 +205,16 @@ impl TryFrom<std::sync::Arc<BlockchainUpdated>> for BlockchainUpdate {
                 let mut data_entries = vec![];
                 let mut leasing_balances = vec![];
 
-                for (idx, su) in transaction_state_updates.iter().enumerate() {
+                for (idx, state_update) in transaction_state_updates.iter().enumerate() {
                     let transaction_id =
                         bs58::encode(&transaction_ids.get(idx).unwrap()).into_string();
-                    for deu in su.data_entries.iter() {
-                        let de = DataEntryDTO::from((deu, &transaction_id));
-                        data_entries.push(de);
+                    for data_entry_update in state_update.data_entries.iter() {
+                        let data_entry = convert_data_entry(data_entry_update, &transaction_id);
+                        data_entries.push(data_entry);
                     }
-                    for lu in su.leasing_for_address.iter() {
-                        let l = LeasingBalanceDTO::from(lu);
-                        leasing_balances.push(l);
+                    for leasing_update in state_update.leasing_for_address.iter() {
+                        let leasing_balance = LeasingBalanceDTO::from(leasing_update);
+                        leasing_balances.push(leasing_balance);
                     }
                 }
 
@@ -270,9 +270,32 @@ impl TryFrom<std::sync::Arc<BlockchainUpdated>> for BlockchainUpdate {
                     _ => Err(Error::GRPCBodyError("Append body is empty.".to_string())),
                 }
             }
-            Some(Update::Rollback(_)) => Ok(BlockchainUpdate::Rollback(
-                bs58::encode(&value.id).into_string(),
-            )),
+            Some(Update::Rollback(rollback)) => {
+                let mut removed_transaction_ids = vec![];
+                let mut data_entries = vec![];
+                let mut leasing_balances = vec![];
+                for tx_id in rollback.removed_transaction_ids.iter() {
+                    let transaction_id = bs58::encode(tx_id).into_string();
+                    removed_transaction_ids.push(transaction_id);
+                }
+                if let Some(state_update) = rollback.rollback_state_update.as_ref() {
+                    for data_entry_update in state_update.data_entries.iter() {
+                        let data_entry = convert_data_entry(data_entry_update, "");
+                        data_entries.push(data_entry);
+                    }
+                    for leasing_update in state_update.leasing_for_address.iter() {
+                        let leasing_balance = LeasingBalanceDTO::from(leasing_update);
+                        leasing_balances.push(leasing_balance);
+                    }
+                }
+                let block_id = bs58::encode(&value.id).into_string();
+                Ok(BlockchainUpdate::Rollback(RollbackData {
+                    block_id,
+                    removed_transaction_ids,
+                    data_entries,
+                    leasing_balances,
+                }))
+            }
             _ => Err(Error::GRPCBodyError(
                 "Unknown blockchain update.".to_string(),
             )),
@@ -280,38 +303,32 @@ impl TryFrom<std::sync::Arc<BlockchainUpdated>> for BlockchainUpdate {
     }
 }
 
-// from data_entry with transaction_id
-impl From<(&waves::events::state_update::DataEntryUpdate, &String)> for DataEntryDTO {
-    fn from(de: (&waves::events::state_update::DataEntryUpdate, &String)) -> Self {
-        let transaction_id = de.1.to_owned();
-        let deu = de.0.data_entry.as_ref().unwrap();
+fn convert_data_entry(
+    data_entry_update: &waves::events::state_update::DataEntryUpdate,
+    transaction_id: &str,
+) -> DataEntryDTO {
+    let transaction_id = transaction_id.to_owned();
+    let deu = data_entry_update.data_entry.as_ref().unwrap();
 
-        let value = match deu.value.as_ref() {
-            Some(Value::IntValue(v)) => ValueDataEntry::Integer(v.to_owned()),
-            Some(Value::BoolValue(v)) => ValueDataEntry::Bool(v.to_owned()),
-            Some(Value::BinaryValue(v)) => ValueDataEntry::Binary(v.to_owned()),
-            Some(Value::StringValue(v)) => ValueDataEntry::String(v.replace("\0", "\\0")),
-            None => ValueDataEntry::Null,
-        };
-        // nul symbol is badly processed at least by PostgreSQL
-        // so escape this for safety
-        let key =
-            de.0.data_entry
-                .as_ref()
-                .unwrap()
-                .key
-                .clone()
-                .replace("\0", "\\0");
+    let value = match deu.value.as_ref() {
+        Some(Value::IntValue(v)) => ValueDataEntry::Integer(v.to_owned()),
+        Some(Value::BoolValue(v)) => ValueDataEntry::Bool(v.to_owned()),
+        Some(Value::BinaryValue(v)) => ValueDataEntry::Binary(v.to_owned()),
+        Some(Value::StringValue(v)) => ValueDataEntry::String(v.replace("\0", "\\0")),
+        None => ValueDataEntry::Null,
+    };
+    // nul symbol is badly processed at least by PostgreSQL
+    // so escape this for safety
+    let key = deu.key.clone().replace("\0", "\\0");
 
-        let fragments = Fragments::from((&key, &value));
+    let fragments = Fragments::from((&key, &value));
 
-        Self {
-            address: bs58::encode(&de.0.address).into_string(),
-            key,
-            transaction_id,
-            value,
-            fragments,
-        }
+    DataEntryDTO {
+        address: bs58::encode(&data_entry_update.address).into_string(),
+        key,
+        transaction_id,
+        value,
+        fragments,
     }
 }
 

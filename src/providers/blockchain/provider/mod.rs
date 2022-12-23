@@ -18,7 +18,7 @@ use crate::db::{repo_provider::ProviderRepo, BlockchainUpdate};
 use crate::error::{Error, Result};
 use crate::providers::watchlist::KeyWatchStatus;
 use crate::resources::ResourcesRepo;
-use crate::waves::BlockMicroblockAppend;
+use crate::waves::{BlockMicroblockAppend, RollbackData};
 
 pub trait Item<R: ProviderRepo>:
     WatchListItem + Send + Sync + LastValue<R> + DataFromBlock
@@ -59,6 +59,7 @@ where
         }
     }
 
+    /// Blockchain updates receive loop
     async fn run(&mut self) -> Result<()> {
         let mut interval = tokio::time::interval(self.clean_timeout);
         loop {
@@ -84,6 +85,7 @@ where
         self.watchlist.clone()
     }
 
+    /// Handles updates from blockchain and processes watched ones
     async fn process_updates(
         &mut self,
         blockchain_updates: Arc<Vec<BlockchainUpdate>>,
@@ -91,44 +93,67 @@ where
         for blockchain_update in blockchain_updates.iter() {
             match blockchain_update {
                 BlockchainUpdate::Block(block) | BlockchainUpdate::Microblock(block) => {
-                    self.check_and_process(block).await?
+                    self.process_block(block).await?
                 }
-                BlockchainUpdate::Rollback(_) => (),
+                BlockchainUpdate::Rollback(rollback) => self.process_rollback(rollback).await?,
             }
         }
 
         Ok(())
     }
 
-    async fn check_and_process(&self, block: &BlockMicroblockAppend) -> Result<()> {
-        for (current_value, data) in T::data_from_block(block) {
-            let watch_status = self.watchlist.read().await.key_watch_status(&data);
+    async fn process_block(&self, block: &BlockMicroblockAppend) -> Result<()> {
+        let repo = &self.resources_repo;
+        let watchlist = &self.watchlist;
+        for block_data in T::data_from_block(block) {
+            let key = &block_data.data;
+            let value = block_data.current_value;
+            let watch_status = watchlist.read().await.key_watch_status(key);
             match watch_status {
                 KeyWatchStatus::NotWatched => { /* Ignore */ }
                 KeyWatchStatus::Watched => {
-                    Self::watchlist_process(
-                        &data,
-                        current_value,
-                        &self.resources_repo,
-                        &self.watchlist,
-                    )
-                    .await?;
+                    Self::watchlist_process(key, value, repo, watchlist).await?;
                 }
                 KeyWatchStatus::MatchesPattern(pattern_items) => {
-                    Self::watchlist_process(
-                        &data,
-                        current_value,
-                        &self.resources_repo,
-                        &self.watchlist,
-                    )
-                    .await?;
+                    Self::watchlist_process(key, value, repo, watchlist).await?;
 
                     for pattern_item in pattern_items {
                         append_subtopic_to_multitopic(
-                            &self.resources_repo,
+                            repo,
                             pattern_item,
-                            data.clone(),
-                            &self.watchlist,
+                            block_data.data.clone(),
+                            watchlist,
+                        )
+                        .await?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    async fn process_rollback(&self, rollback: &RollbackData) -> Result<()> {
+        let repo = &self.resources_repo;
+        let watchlist = &self.watchlist;
+        for block_data in T::data_from_rollback(rollback) {
+            let key = &block_data.data;
+            let value = block_data.current_value;
+            let watch_status = watchlist.read().await.key_watch_status(key);
+            //TODO should it be different for rollback? (if not - deduplicate)
+            match watch_status {
+                KeyWatchStatus::NotWatched => { /* Ignore */ }
+                KeyWatchStatus::Watched => {
+                    Self::watchlist_process(key, value, repo, watchlist).await?;
+                }
+                KeyWatchStatus::MatchesPattern(pattern_items) => {
+                    Self::watchlist_process(key, value, repo, watchlist).await?;
+
+                    for pattern_item in pattern_items {
+                        append_subtopic_to_multitopic(
+                            repo,
+                            pattern_item,
+                            block_data.data.clone(),
+                            watchlist,
                         )
                         .await?;
                     }
@@ -146,6 +171,7 @@ where
     R: ResourcesRepo + Send + Sync + 'static,
     P: ProviderRepo + Clone + Send + Sync + 'static,
 {
+    /// Run 2 async tasks: handler of subscribe/unsubscribe events & handler of blockchain updates
     async fn fetch_updates(mut self) -> Result<mpsc::Sender<WatchListUpdate<T>>> {
         let (subscriptions_updates_sender, mut subscriptions_updates_receiver) = mpsc::channel(20);
 
@@ -196,7 +222,9 @@ where
             .write()
             .await
             .insert_value(data, current_value.clone());
-        resources_repo.set_and_push(&resource, current_value).await?;
+        resources_repo
+            .set_and_push(&resource, current_value)
+            .await?;
         Ok(())
     }
 }
@@ -292,7 +320,24 @@ fn subtopics_from_topic_value(topic: &Topic, value: &str) -> Result<Option<HashS
 }
 
 pub trait DataFromBlock: Sized {
-    fn data_from_block(block: &BlockMicroblockAppend) -> Vec<(String, Self)>;
+    fn data_from_block(block: &BlockMicroblockAppend) -> Vec<BlockData<Self>>;
+    fn data_from_rollback(rollback: &RollbackData) -> Vec<BlockData<Self>>;
+}
+
+pub struct BlockData<T> {
+    /// Topic (internal representation)
+    pub data: T,
+    /// Topic's value (as JSON)
+    pub current_value: String,
+}
+
+impl<T> BlockData<T> {
+    pub fn new(current_value: String, data: T) -> Self {
+        BlockData {
+            data,
+            current_value,
+        }
+    }
 }
 
 #[async_trait]

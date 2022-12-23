@@ -258,7 +258,7 @@ async fn insert_blockchain_updates<'a, R: ConsumerRepo>(
             match update {
                 BlockchainUpdate::Block(block) => appends.push(block),
                 BlockchainUpdate::Microblock(block) => appends.push(block),
-                BlockchainUpdate::Rollback(block_id) => rollback_block_id = Some(block_id),
+                BlockchainUpdate::Rollback(rb) => rollback_block_id = Some(&rb.block_id),
             }
         }
         insert_appends(ops, appends)?;
