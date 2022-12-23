@@ -1,11 +1,13 @@
-use prost::Message;
 use protofixer::sort_protobuf_message_inplace;
 use serde::Serialize;
 use std::convert::TryFrom;
-use waves_protobuf_schemas::waves::{
-    self,
-    events::transaction_metadata::{ExchangeMetadata, Metadata},
-    transaction::Data,
+use waves_protobuf_schemas::{
+    prost::Message,
+    waves::{
+        self,
+        events::transaction_metadata::{ExchangeMetadata, Metadata},
+        transaction::Data,
+    },
 };
 
 use super::{Address, TransactionUpdate};

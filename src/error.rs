@@ -1,4 +1,4 @@
-use waves_protobuf_schemas::waves::transaction::Data;
+use waves_protobuf_schemas::{tonic, waves::transaction::Data};
 
 pub type Result<T> = std::result::Result<T, Error>;
 
