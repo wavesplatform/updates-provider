@@ -1,6 +1,6 @@
 [package]
 name = "updates-provider"
-version = "1.4.10"
+version = "1.4.11"
 authors = ["Аleksej Petrov <apetrov@wavesplatform.com>", "Alex Kordys <akordys@web3tech.ru>"]
 edition = "2021"
 
