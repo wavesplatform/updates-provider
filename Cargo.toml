@@ -14,10 +14,10 @@ envy = "0.4"
 futures = "0.3"
 itertools = "0.10"
 lazy_static = "1"
-diesel = { version = "1", features = ["postgres", "chrono", "numeric", "serde_json"] }
+diesel = { version = "2", features = ["postgres", "chrono", "numeric", "serde_json"] }
 deadpool = { version = "0.9", default-features = false, features = ["managed", "rt_tokio_1"] }
-deadpool-redis = { version = "0.10", default-features = false, features = ["rt_tokio_1"] }
-deadpool-diesel = { version = "0.3", default-features = false, features = ["postgres", "rt_tokio_1"] }
+deadpool-redis = { version = "0.11", default-features = false, features = ["rt_tokio_1"] }
+deadpool-diesel = { version = "0.4", default-features = false, features = ["postgres", "rt_tokio_1"] }
 percent-encoding = "2.1"
 protofixer = { version = "0.1.0", git = "https://github.com/a-kordys/protofixer", tag = "v0.1.0" }
 prometheus = "0.13"

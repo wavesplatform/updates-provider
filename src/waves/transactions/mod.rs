@@ -21,7 +21,7 @@ use super::{
 pub mod exchange;
 
 #[derive(Clone, Debug, QueryableByName, Queryable)]
-#[table_name = "transactions"]
+#[diesel(table_name = transactions)]
 pub struct Transaction {
     pub uid: i64,
     pub block_uid: i64,
@@ -33,7 +33,7 @@ pub struct Transaction {
 }
 
 #[derive(Clone, Debug, Insertable)]
-#[table_name = "transactions"]
+#[diesel(table_name = transactions)]
 pub struct InsertableTransaction {
     pub block_uid: i64,
     pub id: String,
@@ -45,7 +45,7 @@ pub struct InsertableTransaction {
 
 #[repr(i16)]
 #[derive(Clone, Debug, Copy, AsExpression, FromSqlRow)]
-#[sql_type = "SmallInt"]
+#[diesel(sql_type = SmallInt)]
 pub enum TransactionType {
     Genesis = 1,
     Payment = 2,
@@ -99,13 +99,13 @@ impl TryFrom<i16> for TransactionType {
     }
 }
 
-impl<DB> ToSql<SmallInt, DB> for TransactionType
+impl ToSql<SmallInt, diesel::pg::Pg> for TransactionType
 where
-    DB: diesel::backend::Backend,
-    i16: ToSql<SmallInt, DB>,
+    i16: ToSql<SmallInt, diesel::pg::Pg>,
 {
-    fn to_sql<W: std::io::Write>(&self, out: &mut Output<W, DB>) -> diesel::serialize::Result {
-        (*self as i16).to_sql(out)
+    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, diesel::pg::Pg>) -> diesel::serialize::Result {
+        let value = *self as i16;
+        <i16 as ToSql<SmallInt, diesel::pg::Pg>>::to_sql(&value, &mut out.reborrow())
     }
 }
 
@@ -114,7 +114,7 @@ where
     DB: diesel::backend::Backend,
     i16: FromSql<SmallInt, DB>,
 {
-    fn from_sql(bytes: Option<&DB::RawValue>) -> diesel::deserialize::Result<Self> {
+    fn from_sql(bytes: diesel::backend::RawValue<DB>) -> diesel::deserialize::Result<Self> {
         Ok(i16::from_sql(bytes)?.try_into()?)
     }
 }

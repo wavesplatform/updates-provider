@@ -34,7 +34,7 @@ pub struct Config {
 }
 
 #[derive(Clone, Debug, Insertable, QueryableByName)]
-#[table_name = "blocks_microblocks"]
+#[diesel(table_name = blocks_microblocks)]
 pub struct BlockMicroblock {
     pub id: String,
     pub time_stamp: Option<i64>,
@@ -42,7 +42,7 @@ pub struct BlockMicroblock {
 }
 
 #[derive(Clone, Debug, Insertable, QueryableByName, PartialEq, Eq, Hash)]
-#[table_name = "associated_addresses"]
+#[diesel(table_name = associated_addresses)]
 pub struct AssociatedAddress {
     pub address: String,
     pub transaction_id: String,
@@ -77,7 +77,7 @@ pub struct PrevHandledHeight {
 }
 
 #[derive(Clone, Debug, Insertable)]
-#[table_name = "data_entries"]
+#[diesel(table_name = data_entries)]
 pub struct DataEntryUpdate {
     pub superseded_by: i64,
     pub address: String,
@@ -107,7 +107,7 @@ impl Hash for DeletedDataEntry {
 }
 
 #[derive(Clone, Debug, Insertable, QueryableByName, Queryable)]
-#[table_name = "data_entries"]
+#[diesel(table_name = data_entries)]
 pub struct DataEntry {
     pub block_uid: i64,
     pub transaction_id: String,
@@ -137,7 +137,7 @@ impl Hash for DataEntry {
 }
 
 #[derive(Clone, Debug, Insertable)]
-#[table_name = "leasing_balances"]
+#[diesel(table_name = leasing_balances)]
 pub struct LeasingBalanceUpdate {
     pub superseded_by: i64,
     pub address: String,
@@ -164,7 +164,7 @@ impl Hash for DeletedLeasingBalance {
 }
 
 #[derive(Clone, Debug, Insertable, QueryableByName, Queryable)]
-#[table_name = "leasing_balances"]
+#[diesel(table_name = leasing_balances)]
 pub struct LeasingBalance {
     pub block_uid: i64,
     pub uid: i64,

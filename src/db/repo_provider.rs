@@ -36,7 +36,6 @@ pub trait ProviderRepo {
 }
 
 mod repo_impl {
-    use diesel::dsl::any;
     use diesel::prelude::*;
 
     use super::ProviderRepo;
@@ -229,6 +228,11 @@ mod repo_impl {
             addresses: Vec<String>,
             key_patterns: Vec<String>,
         ) -> Result<Vec<StateSingle>> {
+            // Function `dsl::any()` is deprecated in Diesel 2.0 in favor of `.eq_any()`,
+            // but there is no `.like_any()` function - don't know how to fix `like(any(...))` call
+            #[allow(deprecated)] // for import
+            use diesel::dsl::any;
+            #[allow(deprecated)] // for usages
             self.interact(|conn| {
                 timer!("find_matching_data_keys()", verbose);
 
