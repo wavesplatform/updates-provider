@@ -4,10 +4,10 @@ use crate::metrics::REDIS_INPUT_QUEUE_SIZE;
 use crate::redis::{DedicatedConnection, RedisPoolWithStats};
 use futures::StreamExt;
 use std::sync::Arc;
-use std::{convert::TryFrom, time::Duration};
+use std::time::Duration;
 use tokio::time::Instant;
 use wavesexchange_log::{debug, info, warn};
-use wavesexchange_topic::Topic;
+use wx_topic::Topic;
 
 pub struct PullerImpl {
     subscriptions_repo: Arc<dyn SubscriptionsRepo + Send + Sync + 'static>,
@@ -75,7 +75,7 @@ impl PullerImpl {
                             .unwrap_or_else(|| {
                                 panic!("wrong redis subscribe channel: {:?}", channel)
                             });
-                        let topic = Topic::try_from(subscribe_key).unwrap();
+                        let topic = Topic::parse_str(subscribe_key).unwrap();
                         let update = if let "set" = event_name {
                             SubscriptionEvent::Updated { topic }
                         } else {
@@ -111,7 +111,7 @@ async fn get_initial_subscriptions(
         .iter()
         .filter_map(|subscriptions_key| {
             if let Some(key) = subscriptions_key.strip_prefix("sub:") {
-                if let Ok(topic) = Topic::try_from(key) {
+                if let Ok(topic) = Topic::parse_str(key) {
                     return Some(SubscriptionEvent::Updated { topic });
                 }
             }

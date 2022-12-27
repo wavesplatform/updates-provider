@@ -21,7 +21,7 @@ use super::{
 pub mod exchange;
 
 #[derive(Clone, Debug, QueryableByName, Queryable)]
-#[table_name = "transactions"]
+#[diesel(table_name = transactions)]
 pub struct Transaction {
     pub uid: i64,
     pub block_uid: i64,
@@ -33,7 +33,7 @@ pub struct Transaction {
 }
 
 #[derive(Clone, Debug, Insertable)]
-#[table_name = "transactions"]
+#[diesel(table_name = transactions)]
 pub struct InsertableTransaction {
     pub block_uid: i64,
     pub id: String,
@@ -45,7 +45,7 @@ pub struct InsertableTransaction {
 
 #[repr(i16)]
 #[derive(Clone, Debug, Copy, AsExpression, FromSqlRow)]
-#[sql_type = "SmallInt"]
+#[diesel(sql_type = SmallInt)]
 pub enum TransactionType {
     Genesis = 1,
     Payment = 2,
@@ -99,13 +99,13 @@ impl TryFrom<i16> for TransactionType {
     }
 }
 
-impl<DB> ToSql<SmallInt, DB> for TransactionType
+impl ToSql<SmallInt, diesel::pg::Pg> for TransactionType
 where
-    DB: diesel::backend::Backend,
-    i16: ToSql<SmallInt, DB>,
+    i16: ToSql<SmallInt, diesel::pg::Pg>,
 {
-    fn to_sql<W: std::io::Write>(&self, out: &mut Output<W, DB>) -> diesel::serialize::Result {
-        (*self as i16).to_sql(out)
+    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, diesel::pg::Pg>) -> diesel::serialize::Result {
+        let value = *self as i16;
+        <i16 as ToSql<SmallInt, diesel::pg::Pg>>::to_sql(&value, &mut out.reborrow())
     }
 }
 
@@ -114,7 +114,7 @@ where
     DB: diesel::backend::Backend,
     i16: FromSql<SmallInt, DB>,
 {
-    fn from_sql(bytes: Option<&DB::RawValue>) -> diesel::deserialize::Result<Self> {
+    fn from_sql(bytes: diesel::backend::RawValue<DB>) -> diesel::deserialize::Result<Self> {
         Ok(i16::from_sql(bytes)?.try_into()?)
     }
 }
@@ -144,34 +144,34 @@ impl From<&Data> for TransactionType {
     }
 }
 
-impl TryFrom<wavesexchange_topic::TransactionType> for TransactionType {
+impl TryFrom<wx_topic::TransactionType> for TransactionType {
     type Error = Error;
 
     fn try_from(
-        value: wavesexchange_topic::TransactionType,
+        value: wx_topic::TransactionType,
     ) -> core::result::Result<Self, Self::Error> {
         match value {
-            wavesexchange_topic::TransactionType::All => {
+            wx_topic::TransactionType::All => {
                 Err(Error::InvalidDBTransactionType(value.to_string()))
             }
-            wavesexchange_topic::TransactionType::Genesis => Ok(Self::Genesis),
-            wavesexchange_topic::TransactionType::Payment => Ok(Self::Payment),
-            wavesexchange_topic::TransactionType::Issue => Ok(Self::Issue),
-            wavesexchange_topic::TransactionType::Transfer => Ok(Self::Transfer),
-            wavesexchange_topic::TransactionType::Reissue => Ok(Self::Reissue),
-            wavesexchange_topic::TransactionType::Burn => Ok(Self::Burn),
-            wavesexchange_topic::TransactionType::Exchange => Ok(Self::Exchange),
-            wavesexchange_topic::TransactionType::Lease => Ok(Self::Lease),
-            wavesexchange_topic::TransactionType::LeaseCancel => Ok(Self::LeaseCancel),
-            wavesexchange_topic::TransactionType::Alias => Ok(Self::Alias),
-            wavesexchange_topic::TransactionType::MassTransfer => Ok(Self::MassTransfer),
-            wavesexchange_topic::TransactionType::Data => Ok(Self::Data),
-            wavesexchange_topic::TransactionType::SetScript => Ok(Self::SetScript),
-            wavesexchange_topic::TransactionType::Sponsorship => Ok(Self::Sponsorship),
-            wavesexchange_topic::TransactionType::SetAssetScript => Ok(Self::SetAssetScript),
-            wavesexchange_topic::TransactionType::InvokeScript => Ok(Self::InvokeScript),
-            wavesexchange_topic::TransactionType::UpdateAssetInfo => Ok(Self::UpdateAssetInfo),
-            wavesexchange_topic::TransactionType::InvokeExpression => Ok(Self::InvokeExpression),
+            wx_topic::TransactionType::Genesis => Ok(Self::Genesis),
+            wx_topic::TransactionType::Payment => Ok(Self::Payment),
+            wx_topic::TransactionType::Issue => Ok(Self::Issue),
+            wx_topic::TransactionType::Transfer => Ok(Self::Transfer),
+            wx_topic::TransactionType::Reissue => Ok(Self::Reissue),
+            wx_topic::TransactionType::Burn => Ok(Self::Burn),
+            wx_topic::TransactionType::Exchange => Ok(Self::Exchange),
+            wx_topic::TransactionType::Lease => Ok(Self::Lease),
+            wx_topic::TransactionType::LeaseCancel => Ok(Self::LeaseCancel),
+            wx_topic::TransactionType::Alias => Ok(Self::Alias),
+            wx_topic::TransactionType::MassTransfer => Ok(Self::MassTransfer),
+            wx_topic::TransactionType::Data => Ok(Self::Data),
+            wx_topic::TransactionType::SetScript => Ok(Self::SetScript),
+            wx_topic::TransactionType::Sponsorship => Ok(Self::Sponsorship),
+            wx_topic::TransactionType::SetAssetScript => Ok(Self::SetAssetScript),
+            wx_topic::TransactionType::InvokeScript => Ok(Self::InvokeScript),
+            wx_topic::TransactionType::UpdateAssetInfo => Ok(Self::UpdateAssetInfo),
+            wx_topic::TransactionType::InvokeExpression => Ok(Self::InvokeExpression),
         }
     }
 }

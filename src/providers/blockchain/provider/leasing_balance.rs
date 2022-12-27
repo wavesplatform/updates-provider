@@ -1,25 +1,34 @@
 use async_trait::async_trait;
 
-use super::{DataFromBlock, Item, LastValue};
+use super::{BlockData, DataFromBlock, Item, LastValue};
 use crate::{
     db::repo_provider::ProviderRepo, error::Result, providers::watchlist::KeyPattern, waves,
 };
-use wavesexchange_topic::LeasingBalance;
+use wx_topic::LeasingBalance;
 
 impl DataFromBlock for LeasingBalance {
-    fn data_from_block(block: &waves::BlockMicroblockAppend) -> Vec<(String, Self)> {
-        block
-            .leasing_balances
-            .iter()
-            .map(|lb| {
-                let data = LeasingBalance {
-                    address: lb.address.to_owned(),
-                };
-                let current_value = serde_json::to_string(lb).unwrap();
-                (current_value, data)
-            })
-            .collect()
+    fn data_from_block(block: &waves::BlockMicroblockAppend) -> Vec<BlockData<LeasingBalance>> {
+        extract_leasing_balances(&block.leasing_balances)
     }
+
+    fn data_from_rollback(rollback: &waves::RollbackData) -> Vec<BlockData<LeasingBalance>> {
+        extract_leasing_balances(&rollback.leasing_balances)
+    }
+}
+
+fn extract_leasing_balances(
+    leasing_balances: &[waves::LeasingBalance],
+) -> Vec<BlockData<LeasingBalance>> {
+    leasing_balances
+        .iter()
+        .map(|lb| {
+            let data = LeasingBalance {
+                address: lb.address.to_owned(),
+            };
+            let current_value = serde_json::to_string(lb).unwrap();
+            BlockData::new(current_value, data)
+        })
+        .collect()
 }
 
 #[async_trait]

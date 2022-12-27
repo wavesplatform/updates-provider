@@ -258,7 +258,7 @@ async fn insert_blockchain_updates<'a, R: ConsumerRepo>(
             match update {
                 BlockchainUpdate::Block(block) => appends.push(block),
                 BlockchainUpdate::Microblock(block) => appends.push(block),
-                BlockchainUpdate::Rollback(block_id) => rollback_block_id = Some(block_id),
+                BlockchainUpdate::Rollback(rb) => rollback_block_id = Some(&rb.block_id),
             }
         }
         insert_appends(ops, appends)?;
@@ -275,7 +275,7 @@ async fn insert_blockchain_updates<'a, R: ConsumerRepo>(
 }
 
 fn insert_appends<O: ConsumerRepoOperations>(
-    repo_ops: &O,
+    repo_ops: &mut O,
     appends: Vec<&BlockMicroblockAppend>,
 ) -> Result<()> {
     if !appends.is_empty() {
@@ -294,7 +294,7 @@ fn insert_appends<O: ConsumerRepoOperations>(
 }
 
 fn insert_blocks<O: ConsumerRepoOperations>(
-    repo_ops: &O,
+    repo_ops: &mut O,
     appends: &[&BlockMicroblockAppend],
 ) -> Result<Vec<i64>> {
     let blocks = appends.iter().map(|&b| b.into()).collect::<Vec<_>>();
@@ -309,7 +309,7 @@ fn insert_blocks<O: ConsumerRepoOperations>(
 }
 
 fn insert_transactions<'a, O: ConsumerRepoOperations>(
-    repo_ops: &O,
+    repo_ops: &mut O,
     transaction_updates: impl Iterator<Item = impl Iterator<Item = &'a TransactionUpdate>>,
     block_uids: &[i64],
 ) -> Result<()> {
@@ -340,7 +340,7 @@ fn insert_transactions<'a, O: ConsumerRepoOperations>(
 }
 
 fn insert_addresses<'a, O: ConsumerRepoOperations>(
-    repo_ops: &O,
+    repo_ops: &mut O,
     transaction_updates: impl Iterator<Item = impl Iterator<Item = &'a TransactionUpdate>>,
 ) -> Result<()> {
     let start = Instant::now();
@@ -371,7 +371,7 @@ fn insert_addresses<'a, O: ConsumerRepoOperations>(
 }
 
 fn insert_data_entries<O: ConsumerRepoOperations>(
-    repo_ops: &O,
+    repo_ops: &mut O,
     blocks_updates: &[&BlockMicroblockAppend],
     block_uids: &[i64],
 ) -> Result<()> {
@@ -439,7 +439,7 @@ fn insert_data_entries<O: ConsumerRepoOperations>(
 }
 
 fn insert_leasing_balances<O: ConsumerRepoOperations>(
-    repo_ops: &O,
+    repo_ops: &mut O,
     blocks_updates: &[&BlockMicroblockAppend],
     block_uids: &[i64],
 ) -> Result<()> {
@@ -505,12 +505,15 @@ fn insert_leasing_balances<O: ConsumerRepoOperations>(
     Ok(())
 }
 
-fn rollback<O: ConsumerRepoOperations>(repo_ops: &O, block_id: &str) -> Result<()> {
+fn rollback<O: ConsumerRepoOperations>(repo_ops: &mut O, block_id: &str) -> Result<()> {
     let block_uid = repo_ops.get_block_uid(block_id)?;
     rollback_by_block_uid(repo_ops, block_uid)
 }
 
-fn rollback_by_block_uid<O: ConsumerRepoOperations>(repo_ops: &O, block_uid: i64) -> Result<()> {
+fn rollback_by_block_uid<O: ConsumerRepoOperations>(
+    repo_ops: &mut O,
+    block_uid: i64,
+) -> Result<()> {
     let deletes = repo_ops.rollback_data_entries(&block_uid)?;
 
     let mut grouped_deletes = HashMap::new();

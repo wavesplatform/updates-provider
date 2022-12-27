@@ -2,29 +2,36 @@ use async_trait::async_trait;
 use itertools::Itertools;
 use regex::Regex;
 use std::collections::HashSet;
-use wavesexchange_topic::{State, StateMultiPatterns, StateSingle, Topic};
+use wx_topic::{State, StateMultiPatterns, StateSingle, TopicData};
 
-use super::{DataFromBlock, Item, LastValue};
+use super::{BlockData, DataFromBlock, Item, LastValue};
 use crate::db::repo_provider::ProviderRepo;
 use crate::error::Result;
 use crate::providers::watchlist::{KeyPattern, PatternMatcher};
 use crate::waves;
 
 impl DataFromBlock for State {
-    fn data_from_block(block: &waves::BlockMicroblockAppend) -> Vec<(String, Self)> {
-        block
-            .data_entries
-            .iter()
-            .map(|de| {
-                let data = State::Single(StateSingle {
-                    address: de.address.to_owned(),
-                    key: de.key.to_owned(),
-                });
-                let current_value = serde_json::to_string(de).unwrap();
-                (current_value, data)
-            })
-            .collect()
+    fn data_from_block(block: &waves::BlockMicroblockAppend) -> Vec<BlockData<State>> {
+        extract_data_entries(&block.data_entries)
     }
+
+    fn data_from_rollback(rollback: &waves::RollbackData) -> Vec<BlockData<State>> {
+        extract_data_entries(&rollback.data_entries)
+    }
+}
+
+fn extract_data_entries(data_entries: &[waves::DataEntry]) -> Vec<BlockData<State>> {
+    data_entries
+        .iter()
+        .map(|de| {
+            let data = State::Single(StateSingle {
+                address: de.address.to_owned(),
+                key: de.key.to_owned(),
+            });
+            let current_value = serde_json::to_string(de).unwrap();
+            BlockData::new(current_value, data)
+        })
+        .collect()
 }
 
 #[async_trait]
@@ -49,8 +56,8 @@ impl<R: ProviderRepo + Sync> LastValue<R> for State {
                     .await?;
                 let matching_topics = matching_keys
                     .into_iter()
-                    .map_into::<Topic>()
-                    .map_into::<String>()
+                    .map_into::<TopicData>()
+                    .map(|topic| topic.as_uri_string())
                     .collect_vec();
                 serde_json::to_string(&matching_topics)?
             }

@@ -1,24 +1,26 @@
 use async_trait::async_trait;
 use std::convert::TryFrom;
-use wavesexchange_topic::{TransactionByAddress, TransactionExchange, TransactionType as Type};
+use wx_topic::{Transaction, TransactionByAddress, TransactionExchange, TransactionType};
 
-use super::{DataFromBlock, Item, LastValue};
+use super::{BlockData, DataFromBlock, Item, LastValue};
 use crate::db::repo_provider::ProviderRepo;
 use crate::error::Result;
 use crate::providers::watchlist::KeyPattern;
-use crate::waves::transactions::exchange::ExchangeData;
-use crate::waves::transactions::{Transaction, TransactionType, TransactionUpdate};
-use crate::waves::{Address, BlockMicroblockAppend};
+use crate::waves;
 
-impl DataFromBlock for wavesexchange_topic::Transaction {
-    fn data_from_block(block: &BlockMicroblockAppend) -> Vec<(String, Self)> {
+impl DataFromBlock for Transaction {
+    fn data_from_block(block: &waves::BlockMicroblockAppend) -> Vec<BlockData<Transaction>> {
         block
             .transactions
             .iter()
             .flat_map(|tx_update| {
-                let mut txs = vec![];
-                if let TransactionType::Exchange = tx_update.tx_type {
-                    let exchange_data = ExchangeData::try_from(tx_update).unwrap();
+                let tx_id = tx_update.id.to_owned();
+                let tx_type = tx_update.tx_type.into();
+                let tx_addresses = tx_update.addresses.to_owned();
+                let mut txs = Vec::with_capacity(1 + 2 * tx_addresses.len());
+                if let waves::transactions::TransactionType::Exchange = tx_update.tx_type {
+                    let exchange_data =
+                        waves::transactions::exchange::ExchangeData::try_from(tx_update).unwrap();
                     let amount_asset = exchange_data
                         .order1
                         .asset_pair
@@ -33,43 +35,47 @@ impl DataFromBlock for wavesexchange_topic::Transaction {
                         .as_ref()
                         .map(|x| x.to_owned())
                         .unwrap_or_else(|| "WAVES".to_string());
-                    let data = wavesexchange_topic::Transaction::Exchange(TransactionExchange {
+                    let data = Transaction::Exchange(TransactionExchange {
                         amount_asset,
                         price_asset,
                     });
                     let current_value = serde_json::to_string(&exchange_data).unwrap();
-                    txs.push((current_value, data))
+                    txs.push(BlockData::new(current_value, data))
                 }
-                let tx: Tx = tx_update.into();
-                for address in tx.addresses {
-                    let data = wavesexchange_topic::Transaction::ByAddress(TransactionByAddress {
+                for address in tx_addresses {
+                    let data = Transaction::ByAddress(TransactionByAddress {
                         address: address.0.clone(),
-                        tx_type: tx.tx_type.into(),
+                        tx_type,
                     });
-                    let current_value = tx.id.clone();
-                    txs.push((current_value, data));
-                    let data = wavesexchange_topic::Transaction::ByAddress(TransactionByAddress {
+                    let current_value = tx_id.clone();
+                    txs.push(BlockData::new(current_value, data));
+                    let data = Transaction::ByAddress(TransactionByAddress {
                         address: address.0,
-                        tx_type: Type::All,
+                        tx_type: TransactionType::All,
                     });
-                    let current_value = tx.id.clone();
-                    txs.push((current_value, data));
+                    let current_value = tx_id.clone();
+                    txs.push(BlockData::new(current_value, data));
                 }
                 txs
             })
             .collect()
     }
+
+    fn data_from_rollback(_rollback: &waves::RollbackData) -> Vec<BlockData<Transaction>> {
+        //TODO process somehow rollback.removed_transaction_ids (is it possible??)
+        vec![]
+    }
 }
 
 #[async_trait]
-impl<R: ProviderRepo + Sync> LastValue<R> for wavesexchange_topic::Transaction {
+impl<R: ProviderRepo + Sync> LastValue<R> for Transaction {
     async fn last_value(self, repo: &R) -> Result<String> {
         Ok(match self {
-            wavesexchange_topic::Transaction::ByAddress(TransactionByAddress {
-                tx_type: Type::All,
+            Transaction::ByAddress(TransactionByAddress {
+                tx_type: TransactionType::All,
                 address,
             }) => {
-                if let Some(Transaction { id, .. }) =
+                if let Some(waves::transactions::Transaction { id, .. }) =
                     repo.last_transaction_by_address(address).await?
                 {
                     id
@@ -77,12 +83,9 @@ impl<R: ProviderRepo + Sync> LastValue<R> for wavesexchange_topic::Transaction {
                     serde_json::to_string(&None::<String>)?
                 }
             }
-            wavesexchange_topic::Transaction::ByAddress(TransactionByAddress {
-                tx_type,
-                address,
-            }) => {
-                let transaction_type = TransactionType::try_from(tx_type)?;
-                if let Some(Transaction { id, .. }) = repo
+            Transaction::ByAddress(TransactionByAddress { tx_type, address }) => {
+                let transaction_type = waves::transactions::TransactionType::try_from(tx_type)?;
+                if let Some(waves::transactions::Transaction { id, .. }) = repo
                     .last_transaction_by_address_and_type(address, transaction_type)
                     .await?
                 {
@@ -91,11 +94,11 @@ impl<R: ProviderRepo + Sync> LastValue<R> for wavesexchange_topic::Transaction {
                     serde_json::to_string(&None::<String>)?
                 }
             }
-            wavesexchange_topic::Transaction::Exchange(TransactionExchange {
+            Transaction::Exchange(TransactionExchange {
                 amount_asset,
                 price_asset,
             }) => {
-                if let Some(Transaction {
+                if let Some(waves::transactions::Transaction {
                     body: Some(body_value),
                     ..
                 }) = repo
@@ -111,24 +114,8 @@ impl<R: ProviderRepo + Sync> LastValue<R> for wavesexchange_topic::Transaction {
     }
 }
 
-struct Tx {
-    id: String,
-    tx_type: TransactionType,
-    addresses: Vec<Address>,
-}
-
-impl From<&TransactionUpdate> for Tx {
-    fn from(value: &TransactionUpdate) -> Self {
-        Self {
-            id: value.id.to_owned(),
-            tx_type: value.tx_type,
-            addresses: value.addresses.to_owned(),
-        }
-    }
-}
-
 #[allow(clippy::unused_unit)]
-impl KeyPattern for wavesexchange_topic::Transaction {
+impl KeyPattern for Transaction {
     const PATTERNS_SUPPORTED: bool = false;
     type PatternMatcher = ();
 
@@ -137,4 +124,4 @@ impl KeyPattern for wavesexchange_topic::Transaction {
     }
 }
 
-impl<R: ProviderRepo + Sync> Item<R> for wavesexchange_topic::Transaction {}
+impl<R: ProviderRepo + Sync> Item<R> for Transaction {}

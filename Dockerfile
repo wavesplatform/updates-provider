@@ -1,7 +1,8 @@
-FROM rust:1.61 as builder
+FROM rust:1.63 as builder
 WORKDIR /usr/src/service
 
 RUN rustup component add rustfmt
+RUN apt-get update && apt-get install -y protobuf-compiler
 
 RUN echo "fn main() {}" > dummy.rs
 COPY Cargo.* ./

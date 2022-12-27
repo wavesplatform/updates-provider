@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use reqwest::{Client, ClientBuilder};
 use std::time::Duration;
 use wavesexchange_log::error;
-use wavesexchange_topic::TestResource;
+use wx_topic::{TestResource, TopicData};
 
 #[async_trait]
 pub trait ConfigsRepo {
@@ -39,12 +39,13 @@ impl TestResourcesRequester {
 #[async_trait]
 impl Requester<TestResource> for TestResourcesRequester {
     async fn get(&self, test_resource: &TestResource) -> Result<String, Error> {
+        let topic_data: TopicData = test_resource.clone().into();
         let test_resource_url = reqwest::Url::parse(
             format!(
                 "{}/{}",
                 self.test_resources_base_url,
-                String::from(test_resource.to_owned())
-                    .strip_prefix("test_resource/")
+                topic_data.as_uri_string()
+                    .strip_prefix("topic://test_resource/")
                     .unwrap(),
             )
             .as_ref(),

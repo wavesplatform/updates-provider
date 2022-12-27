@@ -1,7 +1,7 @@
 #![allow(clippy::unused_unit)]
 
-use wavesexchange_topic::{
-    BlockchainHeight, ConfigFile, ConfigParameters, LeasingBalance, State, TestResource, Topic,
+use wx_topic::{
+    BlockchainHeight, ConfigFile, LeasingBalance, State, TestResource, Topic,
     Transaction, TransactionByAddress, TransactionExchange, TransactionType as Type,
 };
 
@@ -10,8 +10,8 @@ use crate::waves::transactions::TransactionType;
 
 impl MaybeFromTopic for ConfigFile {
     fn maybe_item(topic: &Topic) -> Option<Self> {
-        if let Topic::Config(ConfigParameters { file }) = topic {
-            return Some(file.to_owned());
+        if let Some(conf_res) = topic.data().as_config() {
+            return Some(conf_res.file.to_owned());
         }
         None
     }
@@ -21,7 +21,7 @@ impl WatchListItem for ConfigFile {}
 
 impl MaybeFromTopic for State {
     fn maybe_item(topic: &Topic) -> Option<Self> {
-        if let Topic::State(state) = topic {
+        if let Some(state) = topic.data().as_state() {
             return Some(state.to_owned());
         }
         None
@@ -32,7 +32,7 @@ impl WatchListItem for State {}
 
 impl MaybeFromTopic for TestResource {
     fn maybe_item(topic: &Topic) -> Option<Self> {
-        if let Topic::TestResource(test_resource) = topic {
+        if let Some(test_resource) = topic.data().as_test_resource() {
             return Some(test_resource.to_owned());
         }
         None
@@ -43,8 +43,8 @@ impl WatchListItem for TestResource {}
 
 impl MaybeFromTopic for BlockchainHeight {
     fn maybe_item(topic: &Topic) -> Option<Self> {
-        if let Topic::BlockchainHeight = topic {
-            return Some(Self {});
+        if let Some(blockchain_height) = topic.data().as_blockchain_height() {
+            return Some(blockchain_height.to_owned());
         }
         None
     }
@@ -79,8 +79,10 @@ impl From<TransactionType> for Type {
 
 impl MaybeFromTopic for TransactionByAddress {
     fn maybe_item(topic: &Topic) -> Option<Self> {
-        if let Topic::Transaction(Transaction::ByAddress(transaction)) = topic {
-            return Some(transaction.to_owned());
+        if let Some(transaction) = topic.data().as_transaction() {
+            if let Transaction::ByAddress(transaction) = transaction {
+                return Some(transaction.to_owned());
+            }
         }
         None
     }
@@ -88,8 +90,10 @@ impl MaybeFromTopic for TransactionByAddress {
 
 impl MaybeFromTopic for TransactionExchange {
     fn maybe_item(topic: &Topic) -> Option<Self> {
-        if let Topic::Transaction(Transaction::Exchange(transaction)) = topic {
-            return Some(transaction.to_owned());
+        if let Some(transaction) = topic.data().as_transaction() {
+            if let Transaction::Exchange(transaction) = transaction {
+                return Some(transaction.to_owned());
+            }
         }
         None
     }
@@ -97,7 +101,7 @@ impl MaybeFromTopic for TransactionExchange {
 
 impl MaybeFromTopic for Transaction {
     fn maybe_item(topic: &Topic) -> Option<Self> {
-        if let Topic::Transaction(transaction) = topic {
+        if let Some(transaction) = topic.data().as_transaction() {
             return Some(transaction.to_owned());
         }
         None
@@ -110,7 +114,7 @@ impl WatchListItem for Transaction {}
 
 impl MaybeFromTopic for LeasingBalance {
     fn maybe_item(topic: &Topic) -> Option<Self> {
-        if let Topic::LeasingBalance(leasing_balance) = topic {
+        if let Some(leasing_balance) = topic.data().as_leasing_balance() {
             return Some(leasing_balance.to_owned());
         }
         None

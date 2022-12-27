@@ -4,7 +4,7 @@ use super::{DataEntry, LeasingBalance};
 use crate::error::Result;
 use crate::waves::transactions::{Transaction, TransactionType};
 use async_trait::async_trait;
-use wavesexchange_topic::StateSingle;
+use wx_topic::StateSingle;
 
 pub use self::repo_impl::PostgresProviderRepo;
 
@@ -36,7 +36,6 @@ pub trait ProviderRepo {
 }
 
 mod repo_impl {
-    use diesel::dsl::any;
     use diesel::prelude::*;
 
     use super::ProviderRepo;
@@ -47,7 +46,7 @@ mod repo_impl {
     use crate::waves::transactions::{Transaction, TransactionType};
     use async_trait::async_trait;
     use wavesexchange_log::{debug, timer};
-    use wavesexchange_topic::StateSingle;
+    use wx_topic::StateSingle;
 
     const MAX_UID: i64 = i64::MAX - 1;
 
@@ -229,6 +228,11 @@ mod repo_impl {
             addresses: Vec<String>,
             key_patterns: Vec<String>,
         ) -> Result<Vec<StateSingle>> {
+            // Function `dsl::any()` is deprecated in Diesel 2.0 in favor of `.eq_any()`,
+            // but there is no `.like_any()` function - don't know how to fix `like(any(...))` call
+            #[allow(deprecated)] // for import
+            use diesel::dsl::any;
+            #[allow(deprecated)] // for usages
             self.interact(|conn| {
                 timer!("find_matching_data_keys()", verbose);
 
