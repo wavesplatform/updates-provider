@@ -1,6 +1,4 @@
 use serde::Serialize;
-use sha3::Digest;
-use std::convert::TryInto;
 use waves_protobuf_schemas::waves;
 use waves_protobuf_schemas::waves::events::transaction_metadata::Metadata;
 use waves_protobuf_schemas::waves::transaction::Data;
@@ -112,18 +110,18 @@ fn address_from_public_key_hash(pkh: &[u8], chain_id: u8) -> Address {
 }
 
 fn keccak256(message: &[u8]) -> [u8; 32] {
-    let mut hasher = sha3::Keccak256::new();
-    hasher.input(message);
-    hasher.result().into()
+    use sha3::{Digest, Keccak256};
+    let mut hasher = Keccak256::new();
+    hasher.update(message);
+    hasher.finalize().into()
 }
 
 pub fn blake2b256(message: &[u8]) -> [u8; 32] {
-    use blake2::digest::{Update, VariableOutput};
-    let mut hasher = blake2::VarBlake2b::new(32).unwrap();
+    use blake2::{digest::consts::U32, Blake2b, Digest};
+    let mut hasher = Blake2b::<U32>::new();
     hasher.update(message);
-    let mut arr = [0u8; 32];
-    hasher.finalize_variable(|res| arr = res.try_into().unwrap());
-    arr
+    let res = hasher.finalize();
+    res.into()
 }
 
 fn maybe_add_addresses(data: &Data, chain_id: u8, addresses: &mut Vec<Address>) {

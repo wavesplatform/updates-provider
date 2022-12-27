@@ -1,12 +1,15 @@
 use crate::error::Error;
 use std::sync::Arc;
 use tokio::sync::mpsc::Sender;
-use tonic::transport::Channel;
-use waves_protobuf_schemas::waves::events::{
-    grpc::{
-        blockchain_updates_api_client::BlockchainUpdatesApiClient, SubscribeEvent, SubscribeRequest,
+use waves_protobuf_schemas::{
+    tonic::{self, transport::Channel},
+    waves::events::{
+        grpc::{
+            blockchain_updates_api_client::BlockchainUpdatesApiClient, SubscribeEvent,
+            SubscribeRequest,
+        },
+        BlockchainUpdated,
     },
-    BlockchainUpdated,
 };
 use wavesexchange_log::info;
 

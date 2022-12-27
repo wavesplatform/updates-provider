@@ -18,73 +18,73 @@ pub trait ConsumerRepo {
     /// Execute some operations on a pooled connection without creating a database transaction.
     async fn execute<F, R>(&self, f: F) -> Result<R>
     where
-        F: FnOnce(&Self::Operations) -> Result<R> + Send + 'static,
+        F: FnOnce(&mut Self::Operations) -> Result<R> + Send + 'static,
         R: Send + 'static;
 
     /// Execute some operations within a database transaction.
     async fn transaction<F, R>(&self, f: F) -> Result<R>
     where
-        F: FnOnce(&Self::Operations) -> Result<R> + Send + 'static,
+        F: FnOnce(&mut Self::Operations) -> Result<R> + Send + 'static,
         R: Send + 'static;
 }
 
 pub trait ConsumerRepoOperations {
-    fn get_prev_handled_height(&self) -> Result<Option<PrevHandledHeight>>;
+    fn get_prev_handled_height(&mut self) -> Result<Option<PrevHandledHeight>>;
 
-    fn get_block_uid(&self, block_id: &str) -> Result<i64>;
+    fn get_block_uid(&mut self, block_id: &str) -> Result<i64>;
 
-    fn get_key_block_uid(&self) -> Result<i64>;
+    fn get_key_block_uid(&mut self) -> Result<i64>;
 
-    fn get_total_block_id(&self) -> Result<Option<String>>;
+    fn get_total_block_id(&mut self) -> Result<Option<String>>;
 
-    fn get_next_update_uid(&self) -> Result<i64>;
+    fn get_next_update_uid(&mut self) -> Result<i64>;
 
-    fn insert_blocks_or_microblocks(&self, blocks: &[BlockMicroblock]) -> Result<Vec<i64>>;
+    fn insert_blocks_or_microblocks(&mut self, blocks: &[BlockMicroblock]) -> Result<Vec<i64>>;
 
-    fn insert_transactions(&self, transactions: &[InsertableTransaction]) -> Result<()>;
+    fn insert_transactions(&mut self, transactions: &[InsertableTransaction]) -> Result<()>;
 
-    fn insert_associated_addresses(&self, addrs: &[AssociatedAddress]) -> Result<()>;
+    fn insert_associated_addresses(&mut self, addrs: &[AssociatedAddress]) -> Result<()>;
 
-    fn insert_data_entries(&self, entries: &[DataEntry]) -> Result<()>;
+    fn insert_data_entries(&mut self, entries: &[DataEntry]) -> Result<()>;
 
-    fn close_superseded_by(&self, updates: &[DataEntryUpdate]) -> Result<()>;
+    fn close_superseded_by(&mut self, updates: &[DataEntryUpdate]) -> Result<()>;
 
-    fn reopen_superseded_by(&self, current_superseded_by: &[i64]) -> Result<()>;
+    fn reopen_superseded_by(&mut self, current_superseded_by: &[i64]) -> Result<()>;
 
-    fn set_next_update_uid(&self, uid: i64) -> Result<()>;
+    fn set_next_update_uid(&mut self, uid: i64) -> Result<()>;
 
-    fn change_block_id(&self, block_uid: &i64, new_block_id: &str) -> Result<()>;
+    fn change_block_id(&mut self, block_uid: &i64, new_block_id: &str) -> Result<()>;
 
-    fn update_transactions_block_references(&self, block_uid: &i64) -> Result<()>;
+    fn update_transactions_block_references(&mut self, block_uid: &i64) -> Result<()>;
 
-    fn delete_microblocks(&self) -> Result<()>;
+    fn delete_microblocks(&mut self) -> Result<()>;
 
-    fn rollback_blocks_microblocks(&self, block_uid: &i64) -> Result<()>;
+    fn rollback_blocks_microblocks(&mut self, block_uid: &i64) -> Result<()>;
 
-    fn rollback_data_entries(&self, block_uid: &i64) -> Result<Vec<DeletedDataEntry>>;
+    fn rollback_data_entries(&mut self, block_uid: &i64) -> Result<Vec<DeletedDataEntry>>;
 
-    fn update_data_entries_block_references(&self, block_uid: &i64) -> Result<()>;
+    fn update_data_entries_block_references(&mut self, block_uid: &i64) -> Result<()>;
 
-    fn close_lease_superseded_by(&self, updates: &[LeasingBalanceUpdate]) -> Result<()>;
+    fn close_lease_superseded_by(&mut self, updates: &[LeasingBalanceUpdate]) -> Result<()>;
 
-    fn reopen_lease_superseded_by(&self, current_superseded_by: &[i64]) -> Result<()>;
+    fn reopen_lease_superseded_by(&mut self, current_superseded_by: &[i64]) -> Result<()>;
 
-    fn insert_leasing_balances(&self, entries: &[LeasingBalance]) -> Result<()>;
+    fn insert_leasing_balances(&mut self, entries: &[LeasingBalance]) -> Result<()>;
 
-    fn set_next_lease_update_uid(&self, new_uid: i64) -> Result<()>;
+    fn set_next_lease_update_uid(&mut self, new_uid: i64) -> Result<()>;
 
-    fn rollback_leasing_balances(&self, block_uid: &i64) -> Result<Vec<DeletedLeasingBalance>>;
+    fn rollback_leasing_balances(&mut self, block_uid: &i64) -> Result<Vec<DeletedLeasingBalance>>;
 
-    fn update_leasing_balances_block_references(&self, block_uid: &i64) -> Result<()>;
+    fn update_leasing_balances_block_references(&mut self, block_uid: &i64) -> Result<()>;
 
-    fn get_next_lease_update_uid(&self) -> Result<i64>;
+    fn get_next_lease_update_uid(&mut self) -> Result<i64>;
 }
 
 mod repo_impl {
     use async_trait::async_trait;
 
     use diesel::prelude::*;
-    use diesel::sql_types::{Array, BigInt, VarChar};
+    use diesel::sql_types::{Array, BigInt, Integer, VarChar};
 
     use super::{
         AssociatedAddress, BlockMicroblock, DataEntry, DataEntryUpdate, DeletedDataEntry,
@@ -132,40 +132,39 @@ mod repo_impl {
 
         async fn execute<F, R>(&self, f: F) -> Result<R>
         where
-            F: FnOnce(&PgConnection) -> Result<R> + Send + 'static,
+            F: FnOnce(&mut PgConnection) -> Result<R> + Send + 'static,
             R: Send + 'static,
         {
             let conn = self.get_conn().await?;
-            conn.interact(|conn| f(&*conn)).await?
+            conn.interact(|conn| f(conn)).await?
         }
 
         async fn transaction<F, R>(&self, f: F) -> Result<R>
         where
-            F: FnOnce(&PgConnection) -> Result<R> + Send + 'static,
+            F: FnOnce(&mut PgConnection) -> Result<R> + Send + 'static,
             R: Send + 'static,
         {
             let conn = self.get_conn().await?;
-            conn.interact(|conn| conn.transaction(|| f(&*conn))).await?
+            conn.interact(|conn| conn.transaction(|conn| f(conn)))
+                .await?
         }
     }
 
     impl ConsumerRepoOperations for PgConnection {
-        fn get_prev_handled_height(&self) -> Result<Option<PrevHandledHeight>> {
+        fn get_prev_handled_height(&mut self) -> Result<Option<PrevHandledHeight>> {
             timer!("get_prev_handled_height()", verbose);
 
             Ok(blocks_microblocks
                 .select((blocks_microblocks::uid, blocks_microblocks::height))
-                .filter(
-                    blocks_microblocks::height.eq(diesel::expression::sql_literal::sql(
-                        "(select max(height) - 1 from blocks_microblocks)",
-                    )),
-                )
+                .filter(blocks_microblocks::height.eq(diesel::dsl::sql::<Integer>(
+                    "(select max(height) - 1 from blocks_microblocks)",
+                )))
                 .order(blocks_microblocks::uid.asc())
                 .first(self)
                 .optional()?)
         }
 
-        fn get_block_uid(&self, block_id: &str) -> Result<i64> {
+        fn get_block_uid(&mut self, block_id: &str) -> Result<i64> {
             timer!("get_block_uid()", verbose);
 
             Ok(blocks_microblocks
@@ -174,16 +173,16 @@ mod repo_impl {
                 .get_result(self)?)
         }
 
-        fn get_key_block_uid(&self) -> Result<i64> {
+        fn get_key_block_uid(&mut self) -> Result<i64> {
             timer!("get_key_block_uid()", verbose);
 
             Ok(blocks_microblocks
-                .select(diesel::expression::sql_literal::sql("max(uid)"))
+                .select(diesel::dsl::sql::<BigInt>("max(uid)"))
                 .filter(blocks_microblocks::time_stamp.is_not_null())
                 .get_result(self)?)
         }
 
-        fn get_total_block_id(&self) -> Result<Option<String>> {
+        fn get_total_block_id(&mut self) -> Result<Option<String>> {
             timer!("get_total_block_id()", verbose);
 
             Ok(blocks_microblocks
@@ -194,7 +193,7 @@ mod repo_impl {
                 .optional()?)
         }
 
-        fn get_next_update_uid(&self) -> Result<i64> {
+        fn get_next_update_uid(&mut self) -> Result<i64> {
             timer!("get_next_update_uid()", verbose);
 
             Ok(data_entries_uid_seq
@@ -202,7 +201,7 @@ mod repo_impl {
                 .first(self)?)
         }
 
-        fn insert_blocks_or_microblocks(&self, blocks: &[BlockMicroblock]) -> Result<Vec<i64>> {
+        fn insert_blocks_or_microblocks(&mut self, blocks: &[BlockMicroblock]) -> Result<Vec<i64>> {
             timer!("insert_blocks_or_microblocks()", verbose);
 
             Ok(diesel::insert_into(blocks_microblocks::table)
@@ -211,7 +210,7 @@ mod repo_impl {
                 .get_results(self)?)
         }
 
-        fn insert_transactions(&self, transactions: &[InsertableTransaction]) -> Result<()> {
+        fn insert_transactions(&mut self, transactions: &[InsertableTransaction]) -> Result<()> {
             timer!("insert_transactions()", verbose);
 
             diesel::insert_into(transactions::table)
@@ -222,7 +221,7 @@ mod repo_impl {
             Ok(())
         }
 
-        fn insert_associated_addresses(&self, addrs: &[AssociatedAddress]) -> Result<()> {
+        fn insert_associated_addresses(&mut self, addrs: &[AssociatedAddress]) -> Result<()> {
             timer!("insert_associated_addresses()", verbose);
 
             diesel::insert_into(associated_addresses::table)
@@ -233,7 +232,7 @@ mod repo_impl {
             Ok(())
         }
 
-        fn insert_data_entries(&self, entries: &[DataEntry]) -> Result<()> {
+        fn insert_data_entries(&mut self, entries: &[DataEntry]) -> Result<()> {
             timer!("insert_data_entries()", verbose);
 
             // one data entry has 10 columns
@@ -249,7 +248,7 @@ mod repo_impl {
             Ok(())
         }
 
-        fn close_superseded_by(&self, updates: &[DataEntryUpdate]) -> Result<()> {
+        fn close_superseded_by(&mut self, updates: &[DataEntryUpdate]) -> Result<()> {
             timer!("close_superseded_by()", verbose);
 
             let mut addresses = vec![];
@@ -271,7 +270,7 @@ mod repo_impl {
             Ok(())
         }
 
-        fn reopen_superseded_by(&self, current_superseded_by: &[i64]) -> Result<()> {
+        fn reopen_superseded_by(&mut self, current_superseded_by: &[i64]) -> Result<()> {
             timer!("reopen_superseded_by()", verbose);
 
             diesel::sql_query("UPDATE data_entries SET superseded_by = $1 FROM (SELECT UNNEST($2) AS superseded_by) AS current WHERE data_entries.superseded_by = current.superseded_by;")
@@ -282,7 +281,7 @@ mod repo_impl {
             Ok(())
         }
 
-        fn set_next_update_uid(&self, new_uid: i64) -> Result<()> {
+        fn set_next_update_uid(&mut self, new_uid: i64) -> Result<()> {
             timer!("set_next_update_uid()", verbose);
 
             Ok(diesel::sql_query(format!(
@@ -293,7 +292,7 @@ mod repo_impl {
             .map(|_| ())?)
         }
 
-        fn change_block_id(&self, block_uid: &i64, new_block_id: &str) -> Result<()> {
+        fn change_block_id(&mut self, block_uid: &i64, new_block_id: &str) -> Result<()> {
             timer!("change_block_id()", verbose);
 
             Ok(diesel::update(blocks_microblocks::table)
@@ -303,7 +302,7 @@ mod repo_impl {
                 .map(|_| ())?)
         }
 
-        fn update_transactions_block_references(&self, block_uid: &i64) -> Result<()> {
+        fn update_transactions_block_references(&mut self, block_uid: &i64) -> Result<()> {
             timer!("update_transactions_block_references()", verbose);
 
             diesel::update(transactions::table)
@@ -314,7 +313,7 @@ mod repo_impl {
             Ok(())
         }
 
-        fn delete_microblocks(&self) -> Result<()> {
+        fn delete_microblocks(&mut self) -> Result<()> {
             timer!("delete_microblocks()", verbose);
 
             Ok(diesel::delete(blocks_microblocks::table)
@@ -323,7 +322,7 @@ mod repo_impl {
                 .map(|_| ())?)
         }
 
-        fn rollback_blocks_microblocks(&self, block_uid: &i64) -> Result<()> {
+        fn rollback_blocks_microblocks(&mut self, block_uid: &i64) -> Result<()> {
             timer!("rollback_blocks_microblocks()", verbose);
 
             Ok(diesel::delete(blocks_microblocks::table)
@@ -332,7 +331,7 @@ mod repo_impl {
                 .map(|_| ())?)
         }
 
-        fn rollback_data_entries(&self, block_uid: &i64) -> Result<Vec<DeletedDataEntry>> {
+        fn rollback_data_entries(&mut self, block_uid: &i64) -> Result<Vec<DeletedDataEntry>> {
             timer!("rollback_data_entries()", verbose);
 
             Ok(diesel::delete(data_entries::table)
@@ -350,7 +349,7 @@ mod repo_impl {
                 })?)
         }
 
-        fn update_data_entries_block_references(&self, block_uid: &i64) -> Result<()> {
+        fn update_data_entries_block_references(&mut self, block_uid: &i64) -> Result<()> {
             timer!("update_data_entries_block_references()", verbose);
 
             diesel::update(data_entries::table)
@@ -361,7 +360,7 @@ mod repo_impl {
             Ok(())
         }
 
-        fn close_lease_superseded_by(&self, updates: &[LeasingBalanceUpdate]) -> Result<()> {
+        fn close_lease_superseded_by(&mut self, updates: &[LeasingBalanceUpdate]) -> Result<()> {
             timer!("close_lease_superseded_by()", verbose);
 
             let mut addresses = vec![];
@@ -380,7 +379,7 @@ mod repo_impl {
             Ok(())
         }
 
-        fn reopen_lease_superseded_by(&self, current_superseded_by: &[i64]) -> Result<()> {
+        fn reopen_lease_superseded_by(&mut self, current_superseded_by: &[i64]) -> Result<()> {
             timer!("reopen_lease_superseded_by()", verbose);
 
             diesel::sql_query("UPDATE leasing_balances SET superseded_by = $1 FROM (SELECT UNNEST($2) AS superseded_by) AS current WHERE leasing_balances.superseded_by = current.superseded_by;")
@@ -391,7 +390,7 @@ mod repo_impl {
             Ok(())
         }
 
-        fn insert_leasing_balances(&self, entries: &[LeasingBalance]) -> Result<()> {
+        fn insert_leasing_balances(&mut self, entries: &[LeasingBalance]) -> Result<()> {
             timer!("insert_leasing_balances()", verbose);
 
             // one data entry has 6 columns
@@ -407,7 +406,7 @@ mod repo_impl {
             Ok(())
         }
 
-        fn set_next_lease_update_uid(&self, new_uid: i64) -> Result<()> {
+        fn set_next_lease_update_uid(&mut self, new_uid: i64) -> Result<()> {
             timer!("set_next_lease_update_uid()", verbose);
 
             Ok(diesel::sql_query(format!(
@@ -418,7 +417,10 @@ mod repo_impl {
             .map(|_| ())?)
         }
 
-        fn rollback_leasing_balances(&self, block_uid: &i64) -> Result<Vec<DeletedLeasingBalance>> {
+        fn rollback_leasing_balances(
+            &mut self,
+            block_uid: &i64,
+        ) -> Result<Vec<DeletedLeasingBalance>> {
             timer!("rollback_leasing_balances()", verbose);
 
             Ok(diesel::delete(leasing_balances::table)
@@ -435,7 +437,7 @@ mod repo_impl {
                 })?)
         }
 
-        fn update_leasing_balances_block_references(&self, block_uid: &i64) -> Result<()> {
+        fn update_leasing_balances_block_references(&mut self, block_uid: &i64) -> Result<()> {
             timer!("update_leasing_balances_block_references()", verbose);
 
             diesel::update(leasing_balances::table)
@@ -446,7 +448,7 @@ mod repo_impl {
             Ok(())
         }
 
-        fn get_next_lease_update_uid(&self) -> Result<i64> {
+        fn get_next_lease_update_uid(&mut self) -> Result<i64> {
             timer!("get_next_lease_update_uid()", verbose);
 
             Ok(leasing_balances_uid_seq
