@@ -112,6 +112,10 @@ impl<R: ProviderRepo + Sync> LastValue<R> for Transaction {
             }
         })
     }
+
+    async fn init_last_value(&self, _repo: &R) -> Result<bool> {
+        Ok(false)
+    }
 }
 
 #[allow(clippy::unused_unit)]

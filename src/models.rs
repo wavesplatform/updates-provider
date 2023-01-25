@@ -1,12 +1,23 @@
 #![allow(clippy::unused_unit)]
 
 use wx_topic::{
-    BlockchainHeight, ConfigFile, LeasingBalance, State, TestResource, Topic,
+    BlockchainHeight, ConfigFile, ExchangePair, LeasingBalance, State, TestResource, Topic,
     Transaction, TransactionByAddress, TransactionExchange, TransactionType as Type,
 };
 
 use crate::providers::watchlist::{KeyPattern, MaybeFromTopic, WatchListItem};
 use crate::waves::transactions::TransactionType;
+
+impl MaybeFromTopic for ExchangePair {
+    fn maybe_item(topic: &Topic) -> Option<Self> {
+        if let Some(pair) = topic.data().as_pair() {
+            return Some(pair.to_owned());
+        }
+        None
+    }
+}
+
+impl WatchListItem for ExchangePair {}
 
 impl MaybeFromTopic for ConfigFile {
     fn maybe_item(topic: &Topic) -> Option<Self> {
@@ -122,6 +133,15 @@ impl MaybeFromTopic for LeasingBalance {
 }
 
 impl WatchListItem for LeasingBalance {}
+
+impl KeyPattern for ExchangePair {
+    const PATTERNS_SUPPORTED: bool = false;
+    type PatternMatcher = ();
+
+    fn new_matcher(&self) -> Self::PatternMatcher {
+        ()
+    }
+}
 
 impl KeyPattern for ConfigFile {
     const PATTERNS_SUPPORTED: bool = false;

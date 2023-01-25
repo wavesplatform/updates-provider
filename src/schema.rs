@@ -2,6 +2,7 @@ table! {
     blocks_microblocks (id) {
         uid -> BigInt,
         id -> Varchar,
+        ref_id -> Nullable<Varchar>,
         height -> Int4,
         time_stamp -> Nullable<BigInt>,
     }

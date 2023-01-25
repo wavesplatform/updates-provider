@@ -6,6 +6,7 @@ use crate::metrics::REGISTRY;
 
 pub struct Config {
     pub port: u16,
+    pub assets_service_url: String,
 }
 
 pub async fn start(port: u16) {

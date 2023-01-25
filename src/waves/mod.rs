@@ -19,6 +19,7 @@ pub struct Address(pub String);
 #[derive(Clone, Debug)]
 pub struct BlockMicroblockAppend {
     pub id: String,
+    pub ref_id: String,
     pub time_stamp: Option<i64>,
     pub height: i32,
     pub transactions: Vec<TransactionUpdate>,
@@ -75,7 +76,7 @@ pub struct LeasingBalance {
     pub balance_out: i64,
 }
 
-fn encode_asset(asset: &[u8]) -> String {
+pub(crate) fn encode_asset(asset: &[u8]) -> String {
     if !asset.is_empty() {
         bs58::encode(asset).into_string()
     } else {

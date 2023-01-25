@@ -22,6 +22,8 @@ pub const FRAGMENT_SEPARATOR: &str = "__";
 pub const STRING_DESCRIPTOR: &str = "s";
 pub const INTEGER_DESCRIPTOR: &str = "d";
 
+pub const MAX_UID: i64 = i64::MAX - 1;
+
 pub mod pool;
 pub mod repo_consumer;
 pub mod repo_provider;
@@ -37,6 +39,7 @@ pub struct Config {
 #[diesel(table_name = blocks_microblocks)]
 pub struct BlockMicroblock {
     pub id: String,
+    pub ref_id: Option<String>,
     pub time_stamp: Option<i64>,
     pub height: i32,
 }
@@ -221,6 +224,10 @@ impl TryFrom<std::sync::Arc<BlockchainUpdated>> for BlockchainUpdate {
                 match body {
                     Some(Body::Block(BlockAppend { block, .. })) => {
                         let block_uid = bs58::encode(&value.id).into_string();
+                        let ref_block_uid = bs58::encode(
+                            &block.as_ref().unwrap().header.as_ref().unwrap().reference,
+                        )
+                        .into_string();
                         let raw_transactions = &block.as_ref().unwrap().transactions;
                         let transactions = parse_transactions(
                             block_uid.clone(),
@@ -230,6 +237,7 @@ impl TryFrom<std::sync::Arc<BlockchainUpdated>> for BlockchainUpdate {
                         );
                         Ok(BlockchainUpdate::Block(BlockMicroblockAppend {
                             id: block_uid,
+                            ref_id: ref_block_uid,
                             time_stamp: block
                                 .as_ref()
                                 .map(|b| {
@@ -258,8 +266,21 @@ impl TryFrom<std::sync::Arc<BlockchainUpdated>> for BlockchainUpdate {
                             transactions_metadata,
                             transaction_ids,
                         );
+
+                        let ref_id = bs58::encode(
+                            &micro_block
+                                .as_ref()
+                                .unwrap()
+                                .micro_block
+                                .as_ref()
+                                .unwrap()
+                                .reference,
+                        )
+                        .into_string();
+
                         Ok(BlockchainUpdate::Microblock(BlockMicroblockAppend {
                             id: block_uid,
+                            ref_id: ref_id,
                             time_stamp: None,
                             height,
                             transactions,
@@ -492,6 +513,7 @@ impl From<&BlockMicroblockAppend> for BlockMicroblock {
     fn from(value: &BlockMicroblockAppend) -> Self {
         Self {
             id: value.id.clone(),
+            ref_id: None,
             height: value.height,
             time_stamp: value.time_stamp,
         }

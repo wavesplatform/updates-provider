@@ -11,9 +11,13 @@ use std::{sync::Arc, time::Duration};
 use wx_topic::Topic;
 
 mod repo {
-    use crate::db::{repo_provider::ProviderRepo, DataEntry, LeasingBalance};
+    use crate::db::BlockMicroblock;
     pub use crate::providers::watchlist::tests::item::TestItem;
     use crate::waves::transactions::{Transaction, TransactionType};
+    use crate::{
+        db::{repo_provider::ProviderRepo, DataEntry, LeasingBalance},
+        providers::blockchain::provider::exchange_pair::ExchangePairsData,
+    };
     use async_trait::async_trait;
     use itertools::Itertools;
     use std::{
@@ -76,6 +80,18 @@ mod repo {
             _addresses: Vec<String>,
             _key_patterns: Vec<String>,
         ) -> crate::error::Result<Vec<StateSingle>> {
+            unimplemented!()
+        }
+
+        async fn last_exchange_pairs_transactions(
+            &self,
+            amount_asset: String,
+            price_asset: String,
+        ) -> crate::error::Result<Vec<ExchangePairsData>> {
+            unimplemented!()
+        }
+
+        async fn last_blocks_microblocks(&self) -> crate::error::Result<Vec<BlockMicroblock>> {
             unimplemented!()
         }
     }
@@ -163,6 +179,9 @@ mod item {
                 Ok(repo.get_value(&self))
             }
         }
+        async fn init_last_value(&self, _repo: &TestProviderRepo) -> crate::error::Result<bool> {
+            Ok(false)
+        }
     }
 
     // Check that mocks itself are working properly
@@ -185,6 +204,7 @@ mod item {
         };
         let block = BlockMicroblockAppend {
             id: "0".to_string(),
+            ref_id: "_0".to_string(),
             time_stamp: None,
             height: 0,
             transactions: vec![],
@@ -273,6 +293,7 @@ async fn test_updates_provider() -> anyhow::Result<()> {
         };
         let update = BlockchainUpdate::Block(BlockMicroblockAppend {
             id: "0".to_string(),
+            ref_id: "_0".to_string(),
             time_stamp: None,
             height: 0,
             transactions: vec![],

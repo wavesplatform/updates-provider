@@ -63,6 +63,10 @@ impl<R: ProviderRepo + Sync> LastValue<R> for State {
             }
         })
     }
+
+    async fn init_last_value(&self, _repo: &R) -> Result<bool> {
+        Ok(false)
+    }
 }
 
 impl<R: ProviderRepo + Sync> Item<R> for State {}

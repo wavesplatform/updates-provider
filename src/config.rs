@@ -112,6 +112,7 @@ struct FlatBlockchainUpdaterConfig {
 struct FlatServerConfig {
     #[serde(default = "default_port")]
     pub port: u16,
+    pub assets_service_url: String,
 }
 
 pub fn load_redis() -> Result<RedisConfig, Error> {
@@ -180,5 +181,6 @@ pub fn load_api() -> Result<crate::api::Config, Error> {
 
     Ok(crate::api::Config {
         port: flat_config.port,
+        assets_service_url: flat_config.assets_service_url,
     })
 }

@@ -1,3 +1,4 @@
+pub mod exchange_pair;
 pub mod leasing_balance;
 pub mod state;
 pub mod transaction;
@@ -10,6 +11,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, RwLock};
 use wavesexchange_log::{debug, error, info, warn};
+use wavesexchange_topic::TopicKind;
 use wx_topic::Topic;
 
 use super::super::watchlist::{WatchList, WatchListItem, WatchListUpdate};
@@ -235,8 +237,18 @@ async fn check_and_maybe_insert<T: Item<P>, R: ResourcesRepo + Sync, P: Provider
     value: T,
 ) -> Result<Option<HashSet<String>>> {
     let topic = value.clone().into().as_topic();
-    let existing_value = resources_repo.get(&topic).await?;
-    let need_to_publish = existing_value.is_none();
+    let mut existing_value = resources_repo.get(&topic).await?;
+    let mut need_to_publish = existing_value.is_none();
+
+    if topic.kind() == TopicKind::ExchangePair {
+        let loaded = value.init_last_value(repo.clone()).await?;
+        if loaded {
+            //if pairs is loaded into EXCHANGE_PAIRS_STORAGE then make redis value invalid and need to replaced by last_value call
+            need_to_publish = true;
+            existing_value = None;
+        }
+    }
+
     let topic_value = if let Some(existing_value) = existing_value {
         existing_value
     } else {
@@ -343,6 +355,12 @@ impl<T> BlockData<T> {
 #[async_trait]
 pub trait LastValue<R: ProviderRepo> {
     async fn last_value(self, repo: &R) -> Result<String>;
+
+    // function init_last_value called before last_value
+    // it need to load exchange_pairs::ExchangePairsStorage exchange pairs data
+    // from database only once per amount_asset/price_asset
+    // after restart updates provider
+    async fn init_last_value(&self, _repo: &R) -> Result<bool>;
 }
 
 #[cfg(test)]

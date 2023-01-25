@@ -33,6 +33,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "983cd8b9d4b02a6dc6ffa557262eb5858a27a0038ffffe21a0f133eaa819a164"
 
 [[package]]
+name = "async-recursion"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2cda8f4bcc10624c4e85bc66b3f452cca98cfa5ca002dc83a16aad2367641bea"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "async-stream"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -140,6 +151,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0ea22880d78093b0cbe17c89f64a7d457941e65759157ec6cb31a31d652b05e5"
 
 [[package]]
+name = "base64"
+version = "0.21.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a4a4ddaa51a5bc52a6948f74c06d20aaaddb71924eab79b8c97a8c556e942d6a"
+
+[[package]]
 name = "bigdecimal"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -148,6 +165,7 @@ dependencies = [
  "num-bigint",
  "num-integer",
  "num-traits",
+ "serde",
 ]
 
 [[package]]
@@ -229,6 +247,7 @@ dependencies = [
  "iana-time-zone",
  "num-integer",
  "num-traits",
+ "serde",
  "winapi",
 ]
 
@@ -1690,6 +1709,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_repr"
+version = "0.1.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9a5ec9fa74a20ebbe5d9ac23dac1fc96ba0ecfe9f50f2843b52e537b10fbcb4e"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "serde_urlencoded"
 version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2282,6 +2312,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "base64 0.20.0",
+ "bigdecimal",
  "blake2",
  "bs58",
  "deadpool",
@@ -2306,6 +2337,7 @@ dependencies = [
  "url",
  "warp",
  "waves-protobuf-schemas",
+ "wavesexchange_apis",
  "wavesexchange_log",
  "wavesexchange_topic",
  "wavesexchange_warp",
@@ -2464,6 +2496,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "wavesexchange_apis"
+version = "0.1.21"
+source = "git+https://github.com/waves-exchange/wavesexchange-rs?tag=wavesexchange_apis/0.1.21#4202877848451da4db08444e04a1d870c6760ece"
+dependencies = [
+ "async-recursion",
+ "base64 0.21.0",
+ "bigdecimal",
+ "bs58",
+ "chrono",
+ "futures",
+ "itertools",
+ "once_cell",
+ "percent-encoding",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "serde_qs",
+ "serde_repr",
+ "thiserror",
+ "tokio",
+ "waves-protobuf-schemas",
+ "wavesexchange_log",
+ "wavesexchange_warp",
+]
+
+[[package]]
 name = "wavesexchange_log"
 version = "0.5.1"
 source = "git+https://github.com/waves-exchange/wavesexchange-rs?tag=wavesexchange_log/0.5.1#8ccb6c3ef6b07c324203ed23109a2a5d80813c83"
@@ -2479,8 +2537,8 @@ dependencies = [
 
 [[package]]
 name = "wavesexchange_topic"
-version = "0.4.1"
-source = "git+https://github.com/waves-exchange/wavesexchange-rs?tag=wavesexchange_topic/0.4.1#8a7cab6335bacc344987ea3c9899374bc624055d"
+version = "0.4.2"
+source = "git+https://github.com/waves-exchange/wavesexchange-rs?tag=wavesexchange_topic/0.4.2#919217a6c0b0479cbbc1315566b320d86838aa28"
 dependencies = [
  "percent-encoding",
  "serde",

@@ -24,8 +24,22 @@ use crate::metrics::{
 };
 use crate::providers::{blockchain, UpdatesProvider};
 use crate::resources::repo::ResourcesRepoRedis;
-use std::sync::Arc;
+use lazy_static::lazy_static;
+
+use blockchain::provider::exchange_pair::{
+    ExchangePairsStorage, ExchangePairsStorageProviderRepoTrait,
+};
+use std::sync::{Arc, RwLock};
+use std::time::Duration;
 use wavesexchange_log::{error, info};
+
+lazy_static! {
+    static ref EXCHANGE_PAIRS_STORAGE: ExchangePairsStorage = ExchangePairsStorage::new();
+}
+
+lazy_static! {
+    pub static ref ASSETS_SERVICE_URL: RwLock<String> = RwLock::new(String::new());
+}
 
 fn main() -> Result<(), Error> {
     let rt = tokio::runtime::Runtime::new().unwrap();
@@ -42,6 +56,11 @@ async fn tokio_main() -> Result<(), Error> {
     let test_resources_config = config::load_test_resources_updater()?;
     let blockchain_config = config::load_blockchain()?;
     let server_config = config::load_api()?;
+
+    {
+        let mut asset_service_url = ASSETS_SERVICE_URL.write().unwrap();
+        asset_service_url.push_str(&server_config.assets_service_url);
+    }
 
     let redis_connection_url = format!(
         "redis://{}:{}@{}:{}/",
@@ -64,6 +83,10 @@ async fn tokio_main() -> Result<(), Error> {
 
     let consumer_repo = PostgresConsumerRepo::new(consumer_db_pool);
     let provider_repo = PostgresProviderRepo::new(provider_db_pool);
+
+    EXCHANGE_PAIRS_STORAGE
+        .load_blocks_rowlog(&provider_repo)
+        .await?;
 
     // Configs
     let configs_requester = Box::new(providers::polling::configs::ConfigRequester::new(
@@ -157,15 +180,28 @@ async fn tokio_main() -> Result<(), Error> {
 
     let (tx, rx) = tokio::sync::mpsc::channel(20);
     let provider = blockchain::provider::Provider::<wx_topic::LeasingBalance, _, _>::new(
-        resources_repo,
+        resources_repo.clone(),
         blockchain_config.leasing_balance_delete_timeout,
-        provider_repo,
+        provider_repo.clone(),
         rx,
     );
 
     updater.add_provider(tx);
 
     let leasing_balances_subscriptions_updates_sender = provider.fetch_updates().await?;
+
+    // random channel buffer size
+    let (tx, rx) = tokio::sync::mpsc::channel(20);
+    let provider = blockchain::provider::Provider::<wx_topic::ExchangePair, _, _>::new(
+        resources_repo.clone(),
+        Duration::from_secs(600),
+        provider_repo.clone(),
+        rx,
+    );
+
+    updater.add_provider(tx);
+
+    let exchange_pair_updates_sender = provider.fetch_updates().await?;
 
     let blockchain_updater_handle = tokio::spawn(async move {
         if let Err(error) = updater.run().await {
@@ -194,6 +230,7 @@ async fn tokio_main() -> Result<(), Error> {
     subscriptions_updates_pusher.add_observer(transactions_subscriptions_updates_sender);
     subscriptions_updates_pusher.add_observer(states_subscriptions_updates_sender);
     subscriptions_updates_pusher.add_observer(leasing_balances_subscriptions_updates_sender);
+    subscriptions_updates_pusher.add_observer(exchange_pair_updates_sender);
 
     let subscriptions_updates_pusher_handle = tokio::spawn(async move {
         info!("starting subscriptions updates pusher");
