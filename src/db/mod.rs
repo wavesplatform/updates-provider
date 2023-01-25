@@ -122,6 +122,14 @@ pub struct DataEntry {
     pub value_bool: Option<bool>,
     pub value_integer: Option<i64>,
     pub value_string: Option<String>,
+    pub key_frag_0: Option<String>,
+    pub key_frag_1: Option<String>,
+    pub key_frag_2: Option<String>,
+    pub key_frag_3: Option<String>,
+    pub key_frag_4: Option<String>,
+    pub key_frag_5: Option<String>,
+    pub key_frag_6: Option<String>,
+    pub key_frag_7: Option<String>,
 }
 
 impl PartialEq for DataEntry {
@@ -457,6 +465,9 @@ impl From<(&DataEntryDTO, i64, i64)> for DataEntry {
         } else {
             None
         };
+        let key_frags = extract_key_fragments(value.0.key.as_str());
+        let [key_frag_0, key_frag_1, key_frag_2, key_frag_3, key_frag_4, key_frag_5, key_frag_6, key_frag_7] =
+            key_frags;
         Self {
             block_uid: value.2,
             uid: value.1,
@@ -468,8 +479,40 @@ impl From<(&DataEntryDTO, i64, i64)> for DataEntry {
             value_bool,
             value_integer,
             value_string,
+            key_frag_0,
+            key_frag_1,
+            key_frag_2,
+            key_frag_3,
+            key_frag_4,
+            key_frag_5,
+            key_frag_6,
+            key_frag_7,
         }
     }
+}
+
+fn extract_key_fragments(key: &str) -> [Option<String>; 8] {
+    let mut res: [Option<String>; 8] = Default::default();
+    let frags = key.split("__").collect::<Vec<_>>();
+    if frags.len() < 2 {
+        return res;
+    }
+    let frags_descr = frags[0];
+    let frags = &frags[1..];
+    let valid_descr = {
+        use itertools::Itertools;
+        let valid_descr = frags_descr
+            .chars()
+            .tuples::<(char, char)>()
+            .all(|(ch1, ch2)| ch1 == '%' && (ch2 == 's' || ch2 == 'd'));
+        valid_descr && frags_descr.len() % 2 == 0 && frags_descr.len() / 2 == frags.len()
+    };
+    if valid_descr && frags.len() <= 8 {
+        for i in 0..frags.len() {
+            res[i] = Some(frags[i].to_owned());
+        }
+    }
+    res
 }
 
 impl From<&waves::events::state_update::LeasingUpdate> for LeasingBalanceDTO {

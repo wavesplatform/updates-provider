@@ -56,6 +56,8 @@ mod repo_impl {
     use crate::schema::{associated_addresses, data_entries, leasing_balances, transactions};
     use crate::waves::transactions::{Transaction, TransactionType};
     use async_trait::async_trait;
+    use diesel::dsl::sql;
+    use itertools::Itertools;
     use wavesexchange_log::{debug, timer};
     use wx_topic::StateSingle;
 
@@ -266,18 +268,58 @@ mod repo_impl {
                 let (n_addr, n_patt) = (addresses.len(), key_patterns.len());
                 let has_patterns = key_patterns.iter().any(|s| pattern_utils::has_patterns(s));
                 let res: Vec<(String, String)> = if has_patterns {
-                    let key_likes = key_patterns
+                    let key_patterns_fragmented = key_patterns
                         .iter()
-                        .map(String::as_str)
-                        .map(pattern_utils::pattern_to_sql_like)
-                        .collect::<Vec<_>>();
-                    data_entries::table
-                        .filter(data_entries::address.eq(any(addresses)))
-                        .filter(data_entries::key.like(any(key_likes)))
-                        .filter(data_entries::superseded_by.eq(MAX_UID))
-                        .select((data_entries::address, data_entries::key))
-                        .order((data_entries::address, data_entries::key))
-                        .load(conn)?
+                        .map(|s| pattern_utils::key_frag::try_split_key(s))
+                        .collect::<Option<Vec<_>>>();
+                    if let Some(keys_frags) = key_patterns_fragmented {
+                        // Key is a proper fragmented string - use optimized search
+                        #[allow(unstable_name_collisions)] // for `intersperse` from Itertools
+                        let condition = keys_frags
+                            .iter()
+                            .map(|key_frags| {
+                                key_frags
+                                    .iter()
+                                    .enumerate()
+                                    .filter_map(|(i, frag)| frag.map(|s| (i, s)))
+                                    .map(|(i, v)| {
+                                        let v = v.replace('\'', r"\'"); // escape quotes
+                                        format!("key_frag_{} = '{}'", i, v)
+                                    })
+                                    .intersperse(" AND ".to_string())
+                                    .collect::<String>()
+                            })
+                            .map(|mut s| {
+                                if !s.is_empty() {
+                                    s.insert_str(0, "(");
+                                    s.push_str(")")
+                                }
+                                s
+                            })
+                            .intersperse(" OR ".to_string())
+                            .collect::<String>();
+                        data_entries::table
+                            .filter(data_entries::address.eq(any(addresses)))
+                            .filter(sql::<diesel::sql_types::Bool>(&condition))
+                            .filter(data_entries::superseded_by.eq(MAX_UID))
+                            .select((data_entries::address, data_entries::key))
+                            .order((data_entries::address, data_entries::key))
+                            .load(conn)?
+                    } else {
+                        // Fallback to the 'LIKE' approach
+                        let key_likes = key_patterns
+                            .iter()
+                            .map(String::as_str)
+                            .map(pattern_utils::pattern_to_sql_like)
+                            .collect::<Vec<_>>();
+                        data_entries::table
+                            .filter(data_entries::address.eq(any(addresses)))
+                            .filter(data_entries::key.like(any(key_likes)))
+                            .filter(data_entries::superseded_by.eq(MAX_UID))
+                            .select((data_entries::address, data_entries::key))
+                            .order((data_entries::address, data_entries::key))
+                            .load(conn)?
+                    }
                 } else {
                     data_entries::table
                         .filter(data_entries::address.eq(any(addresses)))
@@ -425,6 +467,9 @@ mod repo_impl {
             assert!(!has_patterns("%"));
             assert!(!has_patterns("_"));
             assert!(has_patterns("%s%d_foo*"));
+            assert!(has_patterns("%s%d__foo*"));
+            assert!(has_patterns("%s%d__foo__*"));
+            assert!(has_patterns("%d%s__*__foo"));
         }
 
         #[test]
@@ -445,6 +490,95 @@ mod repo_impl {
             check("%", "\\%");
             check("_", "\\_");
             check("%s%d_foo*", "\\%s\\%d\\_foo%");
+        }
+
+        pub(super) mod key_frag {
+            use super::WILDCARD_CHAR;
+            use itertools::Itertools;
+
+            /// This constant's value must correspond to the number of "key_frag_#" columns
+            /// int the `data-entries` table.
+            const MAX_FRAGMENTS: usize = 8;
+
+            /// Split the key pattern into fragments so that each pattern is either a literal string or a wildcard.
+            pub fn try_split_key(key_pattern: &str) -> Option<Vec<Option<&str>>> {
+                let mut frags = key_pattern
+                    .split("__")
+                    .map(|s| {
+                        if s.contains(WILDCARD_CHAR) {
+                            if s.len() == 1 {
+                                Ok(None)
+                            } else {
+                                Err(())
+                            }
+                        } else {
+                            Ok(Some(s))
+                        }
+                    })
+                    .collect::<Result<Vec<_>, _>>()
+                    .ok()?;
+                if frags.len() < 2 {
+                    return None;
+                }
+                let frags_descr = frags[0]?;
+                let valid_descr = frags_descr
+                    .chars()
+                    .tuples::<(char, char)>()
+                    .all(|(ch1, ch2)| ch1 == '%' && (ch2 == 's' || ch2 == 'd'));
+                let valid_descr = valid_descr
+                    && frags_descr.len() % 2 == 0
+                    && frags_descr.len() / 2 + 1 == frags.len();
+                if !valid_descr {
+                    return None;
+                }
+                frags.remove(0);
+                if frags.len() <= MAX_FRAGMENTS {
+                    Some(frags)
+                } else {
+                    None
+                }
+            }
+
+            #[rustfmt::skip]
+            #[test]
+            fn test_try_split_key() {
+                // Negative cases
+                assert!(try_split_key("").is_none()); // Empty
+                assert!(try_split_key("123").is_none()); // Not fragmented
+                assert!(try_split_key("abc_123").is_none()); // Single underscore - not fragmented
+                assert!(try_split_key("abc__123").is_none()); // No schema
+                assert!(try_split_key("%s%__123").is_none()); // Bad schema
+                assert!(try_split_key("%s%d__abc").is_none()); // Schema is 2 frags, but value is 1 frag only
+
+                // Positive cases
+                assert!(try_split_key("%s__abc").is_some());
+                assert!(try_split_key("%s%d__abc__123").is_some());
+
+                // Patterns
+                assert!(try_split_key("%s__*").is_some()); // Ok, pattern is valid
+                assert!(try_split_key("%s%d__*__*").is_some()); // Ok, pattern is valid
+                assert!(try_split_key("%s%d__a__*").is_some()); // Ok, pattern is valid
+                assert!(try_split_key("%s__x*").is_none()); // Bad - pattern doesn't cover whole fragment
+
+                assert_eq!(try_split_key("%s__abc").unwrap(), vec![Some("abc")]);
+                assert_eq!(try_split_key("%s__*").unwrap(), vec![None]);
+                assert_eq!(try_split_key("%d__123").unwrap(), vec![Some("123")]);
+                assert_eq!(try_split_key("%d__*").unwrap(), vec![None]);
+                assert_eq!(try_split_key("%d%s__123__abc").unwrap(), vec![Some("123"), Some("abc")]);
+                assert_eq!(try_split_key("%d%s__*__abc").unwrap(), vec![None, Some("abc")]);
+                assert_eq!(try_split_key("%d%s__123__*").unwrap(), vec![Some("123"), None]);
+
+                // Number of columns
+                assert!(try_split_key("%d__*").is_some());
+                assert!(try_split_key("%d%d__*__*").is_some());
+                assert!(try_split_key("%d%d%d__*__*__*").is_some());
+                assert!(try_split_key("%d%d%d%d__*__*__*__*").is_some());
+                assert!(try_split_key("%d%d%d%d%d__*__*__*__*__*").is_some());
+                assert!(try_split_key("%d%d%d%d%d%d__*__*__*__*__*__*").is_some());
+                assert!(try_split_key("%d%d%d%d%d%d%d__*__*__*__*__*__*__*").is_some());
+                assert!(try_split_key("%d%d%d%d%d%d%d%d__*__*__*__*__*__*__*__*").is_some());
+                assert!(try_split_key("%d%d%d%d%d%d%d%d%d__*__*__*__*__*__*__*__*__*").is_none()); // Too many
+            }
         }
     }
 }
