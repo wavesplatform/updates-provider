@@ -91,51 +91,43 @@ impl ExchangePairsStorage {
     }
 
     pub fn add(&self, pair: ExchangePairsData) {
-        // // TESTING
-        // if pair.amount_asset != "WAVES"
-        //     || pair.price_asset != "DG2xFkPdDwKUoBkzGAhQtLpSGzfXLiCYPEzeKH2Ad24p"
-        // {
-        //     // for testing parse only this assets pair
-        //     return;
-        // }
-
         let mut strorage_guard = (*self.pairs_data).write().unwrap();
         strorage_guard.push(pair);
     }
 
-    pub fn pair_is_loaded(&self, amount_asset: &String, price_asset: &String) -> bool {
+    pub fn pair_is_loaded(&self, amount_asset: &str, price_asset: &str) -> bool {
         let loaded_guard = (*self.loaded_pairs).read().unwrap();
         loaded_guard.contains(&(amount_asset.into(), price_asset.into()))
     }
 
-    pub fn push_pairs_data(&self, pairs: &mut Vec<ExchangePairsData>) {
-        if let Some(pair) = pairs.first() {
-            debug!(
-                "loaded exchange pairs data for amount_asset: {}; price_asset: {}; records: {}",
-                &pair.amount_asset,
-                &pair.price_asset,
-                pairs.len()
-            );
+    pub fn push_pairs_data(&self, pairs: Vec<ExchangePairsData>) {
+        let Some(pair) = pairs.first() else { return };
 
-            let key = (pair.amount_asset.clone(), pair.price_asset.clone());
+        debug!(
+            "loaded exchange pairs data for amount_asset: {}; price_asset: {}; records: {}",
+            &pair.amount_asset,
+            &pair.price_asset,
+            pairs.len()
+        );
 
-            let mut strorage_guard = (*self.pairs_data).write().unwrap();
-            strorage_guard.append(pairs);
+        let key = (pair.amount_asset.clone(), pair.price_asset.clone());
 
-            let mut loaded_guard = (*self.loaded_pairs).write().unwrap();
-            loaded_guard.insert(key);
-        }
+        let mut strorage_guard = (*self.pairs_data).write().unwrap();
+        strorage_guard.extend(pairs.into_iter());
+
+        let mut loaded_guard = (*self.loaded_pairs).write().unwrap();
+        loaded_guard.insert(key);
     }
 
-    pub fn calc_stat(&self, amount_asset: &String, price_asset: &String) -> ExchangePairsDailyStat {
+    pub fn calc_stat(&self, amount_asset: &str, price_asset: &str) -> ExchangePairsDailyStat {
         debug!(
             "calculating stat for amount_asset: {}; price_asset:{} ",
-            amount_asset, price_asset
+            &amount_asset, &price_asset
         );
 
         let mut stat = ExchangePairsDailyStat {
-            amount_assset: amount_asset.clone(),
-            price_asset: price_asset.clone(),
+            amount_assset: amount_asset.into(),
+            price_asset: price_asset.into(),
             txs_count: 0,
             first_price: None,
             last_price: None,
@@ -157,10 +149,6 @@ impl ExchangePairsStorage {
             .as_str(),
         );
 
-        let price_dec = asset_decimals
-            .get(price_asset)
-            .expect(format!("price asset decimals not found. asset_id: {}", &price_asset).as_str());
-
         let mut low: i64 = i64::MAX;
         let mut high: i64 = 0;
         let mut volume: i64 = 0;
@@ -174,34 +162,34 @@ impl ExchangePairsStorage {
                 stat.txs_count += 1;
 
                 if stat.first_price.is_none() {
-                    stat.first_price = Some(apply_decimals(&i.price_asset_volume, price_dec));
+                    stat.first_price = Some(apply_decimals(&i.price_asset_volume, amount_dec));
                 }
 
-                stat.last_price = Some(apply_decimals(&i.price_asset_volume, price_dec));
+                stat.last_price = Some(apply_decimals(&i.price_asset_volume, amount_dec));
 
                 if low > i.price_asset_volume {
-                    stat.low = Some(apply_decimals(&i.price_asset_volume, price_dec));
+                    stat.low = Some(apply_decimals(&i.price_asset_volume, amount_dec));
                     low = i.price_asset_volume;
                 }
 
                 if high < i.price_asset_volume {
-                    stat.high = Some(apply_decimals(&i.price_asset_volume, price_dec));
+                    stat.high = Some(apply_decimals(&i.price_asset_volume, amount_dec));
                     high = i.price_asset_volume;
                 }
 
                 volume += i.amount_asset_volume;
 
                 quote_volume += apply_decimals(&i.amount_asset_volume, amount_dec)
-                    * apply_decimals(&i.price_asset_volume, price_dec);
+                    * apply_decimals(&i.price_asset_volume, amount_dec);
             });
 
         stat.volume = Some(apply_decimals(&volume, amount_dec));
-        stat.quote_volume = Some(quote_volume.with_scale(*price_dec as i64));
+        stat.quote_volume = Some(quote_volume.with_scale(*amount_dec as i64)); // or in price_dec ???
 
         stat
     }
 
-    fn solidify_microblocks(&self, ref_block_id: &String) {
+    fn solidify_microblocks(&self, ref_block_id: &str) {
         let mut rowlog_guard = (*self.blocks_rowlog).write().unwrap();
         let mut solid_timestamp = None;
 
@@ -224,42 +212,37 @@ impl ExchangePairsStorage {
         rowlog_guard.drain(len - solidify_ids.len() - 1..);
 
         rowlog_guard.push((
-            ref_block_id.clone(),
+            ref_block_id.into(),
             solid_timestamp.expect("solidify error timestamp not found in blocks_microblocks"),
         ));
 
         self.update_pairs_block_ids(ref_block_id, &solidify_ids);
     }
 
-    fn update_pairs_block_ids(&self, ref_block_id: &String, solidify_ids: &Vec<String>) {
+    fn update_pairs_block_ids(&self, ref_block_id: &str, solidify_ids: &Vec<String>) {
         let mut storage_guard = (*self.pairs_data).write().unwrap();
 
         storage_guard.iter_mut().for_each(|b| {
             if solidify_ids.iter().find(|id| **id == b.block_id).is_some() {
-                b.block_id = ref_block_id.clone();
+                b.block_id = ref_block_id.into();
             }
         });
     }
 
-    pub fn push_block_rowlog(
-        &self,
-        block_id: &String,
-        ref_block_id: &String,
-        block_timestamp: &i64,
-    ) {
+    pub fn push_block_rowlog(&self, block_id: &str, ref_block_id: &str, block_timestamp: &i64) {
         let mut timestamp_guard = (*self.last_block_timestamp).write().unwrap();
 
         if *timestamp_guard == 0 && *block_timestamp != 0 {
-            self.solidify_microblocks(ref_block_id);
+            self.solidify_microblocks(&ref_block_id);
         }
 
         let mut rowlog_guard = (*self.blocks_rowlog).write().unwrap();
 
-        rowlog_guard.push((block_id.clone(), *block_timestamp));
+        rowlog_guard.push((block_id.into(), *block_timestamp));
         *timestamp_guard = *block_timestamp;
     }
 
-    pub fn rollback(&self, block_id: &String) -> Vec<ExchangePair> {
+    pub fn rollback(&self, block_id: &str) -> Vec<ExchangePair> {
         let mut rowlog_guard = (*self.blocks_rowlog).write().unwrap();
         let mut del_idx: usize = 0;
 
@@ -324,34 +307,36 @@ impl ExchangePairsStorage {
     }
 
     pub fn cleanup(&self) -> Vec<ExchangePair> {
-        let mut rowlog_guard = (*self.blocks_rowlog).write().unwrap();
+        let rowlog_guard = (*self.blocks_rowlog).read().unwrap();
+
         let timestamp_guard = (*self.last_block_timestamp).read().unwrap();
         let trunc_stamp = *timestamp_guard - 86400000; // 1 day ago
 
-        let blocks_to_del: Vec<String> = {
+        let blocks_to_del: Vec<&String> = {
             rowlog_guard
                 .iter()
                 .take_while(|rb| trunc_stamp > rb.1)
-                .map(|i| i.0.clone())
+                .map(|i| &i.0)
                 .collect()
         };
+
+        let mut rowlog_guard = (*self.blocks_rowlog).write().unwrap();
 
         rowlog_guard.drain(..blocks_to_del.len());
         rowlog_guard.shrink_to_fit();
 
-        let blocks_to_del: Vec<&String> = blocks_to_del.iter().collect();
         self.delete_pairs_by_block_ids(&blocks_to_del)
     }
 }
 
 #[async_trait]
 pub trait ExchangePairsStorageAsyncTrait {
-    async fn push_asset_decimals(&self, amount_asset: &String, price_asset: &String) -> Result<()>;
+    async fn push_asset_decimals(&self, amount_asset: &str, price_asset: &str) -> Result<()>;
 }
 
 #[async_trait]
 impl ExchangePairsStorageAsyncTrait for ExchangePairsStorage {
-    async fn push_asset_decimals(&self, amount_asset: &String, price_asset: &String) -> Result<()> {
+    async fn push_asset_decimals(&self, amount_asset: &str, price_asset: &str) -> Result<()> {
         {
             let r = self.asset_decimals.read().unwrap();
             if r.contains_key(amount_asset) && r.contains_key(price_asset) {
@@ -473,14 +458,10 @@ fn extract_exchange_pairs(block: &waves::BlockMicroblockAppend) -> Vec<ExchangeP
         block.time_stamp.as_ref().unwrap_or(&0),
     );
 
-    if pairs_in_block.is_empty() {
-        return vec![];
-    }
-
-    let pairs_in_block: Vec<(String, String)> = pairs_in_block.into_iter().unique().collect();
-
     pairs_in_block
-        .iter()
+        .into_iter()
+        .unique()
+        .into_iter()
         .map(|p| ExchangePair {
             amount_asset: p.0.clone(),
             price_asset: p.1.clone(),
@@ -497,25 +478,14 @@ fn extract_pairs_data(
             let asset_pair = &exchange_data
                 .orders
                 .get(0)
-                .expect("exchange data order")
+                .expect("invalid exchange data order")
                 .asset_pair
                 .as_ref()
-                .expect("exchange order[0] asset pair");
-
-            let amount_asset = encode_asset(&asset_pair.amount_asset_id);
-            let price_asset = encode_asset(&asset_pair.price_asset_id);
-
-            // // TESTING
-            // if amount_asset != "WAVES"
-            //     || price_asset != "DG2xFkPdDwKUoBkzGAhQtLpSGzfXLiCYPEzeKH2Ad24p"
-            // {
-            //     // for testing parse only this assets pair
-            //     return None;
-            // }
+                .expect("invalid ExchangeTransactionData::order[0]::AssetPair");
 
             Some(ExchangePairsData {
-                amount_asset: amount_asset,
-                price_asset: price_asset,
+                amount_asset: encode_asset(&asset_pair.amount_asset_id),
+                price_asset: encode_asset(&asset_pair.price_asset_id),
                 amount_asset_volume: exchange_data.amount,
                 price_asset_volume: exchange_data.price,
                 height: block.height,
@@ -553,7 +523,7 @@ impl<R: ProviderRepo + Sync> LastValue<R> for ExchangePair {
             &self.amount_asset, &self.price_asset
         );
 
-        let mut pairs = repo
+        let pairs = repo
             .last_exchange_pairs_transactions(self.amount_asset.clone(), self.price_asset.clone())
             .await?;
 
@@ -564,7 +534,7 @@ impl<R: ProviderRepo + Sync> LastValue<R> for ExchangePair {
             pairs.len()
         );
 
-        crate::EXCHANGE_PAIRS_STORAGE.push_pairs_data(&mut pairs);
+        crate::EXCHANGE_PAIRS_STORAGE.push_pairs_data(pairs);
         Ok(true)
     }
 }
@@ -578,13 +548,13 @@ pub fn apply_decimals(num: &i64, dec: &i32) -> BigDecimal {
 #[test]
 fn rollback_test() {
     let st = ExchangePairsStorage::new();
-    st.push_block_rowlog(&"id_0".into(), &"".into(), &1);
-    st.push_block_rowlog(&"id_1".into(), &"".into(), &2);
-    st.push_block_rowlog(&"id_2".into(), &"".into(), &3);
-    st.push_block_rowlog(&"id_3".into(), &"".into(), &0);
-    st.push_block_rowlog(&"id_4".into(), &"".into(), &0);
+    st.push_block_rowlog(&"id_0", &"", &1);
+    st.push_block_rowlog(&"id_1", &"", &2);
+    st.push_block_rowlog(&"id_2", &"", &3);
+    st.push_block_rowlog(&"id_3", &"", &0);
+    st.push_block_rowlog(&"id_4", &"", &0);
 
-    st.rollback(&"id_1".into());
+    st.rollback(&"id_1");
     assert_eq!(
         st.rowlog(),
         &[("id_0".to_string(), 1), ("id_1".to_string(), 2)]
@@ -600,7 +570,7 @@ fn delete_by_ids_test() {
 
     let st = ExchangePairsStorage::new();
     st.add(ExchangePairsData {
-        block_id: "id_1".to_string(),
+        block_id: "id_1".into(),
         block_time_stamp: 0,
         amount_asset: "WAVES".into(),
         price_asset: "DG2xFkPdDwKUoBkzGAhQtLpSGzfXLiCYPEzeKH2Ad24p".into(),
@@ -609,7 +579,7 @@ fn delete_by_ids_test() {
         height: 0,
     });
     st.add(ExchangePairsData {
-        block_id: "id_1".to_string(),
+        block_id: "id_1".into(),
         block_time_stamp: 0,
         amount_asset: "WAVES".into(),
         price_asset: "DG2xFkPdDwKUoBkzGAhQtLpSGzfXLiCYPEzeKH2Ad24p".into(),
@@ -618,7 +588,7 @@ fn delete_by_ids_test() {
         height: 0,
     });
     st.add(ExchangePairsData {
-        block_id: "id_3".to_string(),
+        block_id: "id_3".into(),
         block_time_stamp: 0,
         amount_asset: "WAVES".into(),
         price_asset: "DG2xFkPdDwKUoBkzGAhQtLpSGzfXLiCYPEzeKH2Ad24p".into(),
@@ -627,7 +597,7 @@ fn delete_by_ids_test() {
         height: 0,
     });
     st.add(ExchangePairsData {
-        block_id: "id_4".to_string(),
+        block_id: "id_4".into(),
         block_time_stamp: 0,
         amount_asset: "WAVES".into(),
         price_asset: "DG2xFkPdDwKUoBkzGAhQtLpSGzfXLiCYPEzeKH2Ad24p".into(),
@@ -636,7 +606,7 @@ fn delete_by_ids_test() {
         height: 0,
     });
     st.add(ExchangePairsData {
-        block_id: "id_1".to_string(),
+        block_id: "id_1".into(),
         block_time_stamp: 0,
         amount_asset: "WAVES".into(),
         price_asset: "DG2xFkPdDwKUoBkzGAhQtLpSGzfXLiCYPEzeKH2Ad24p".into(),
@@ -645,8 +615,8 @@ fn delete_by_ids_test() {
         height: 0,
     });
 
-    let id_1 = "id_1".to_string();
-    let id_4 = "id_4".to_string();
+    let id_1 = "id_1".into();
+    let id_4 = "id_4".into();
 
     let to_del = vec![&id_1, &id_4];
 
@@ -671,7 +641,7 @@ fn update_pairs_block_ids_test() {
     let st = ExchangePairsStorage::new();
 
     st.add(ExchangePairsData {
-        block_id: "id_1".to_string(),
+        block_id: "id_1".into(),
         block_time_stamp: 0,
         amount_asset: "WAVES".into(),
         price_asset: "DG2xFkPdDwKUoBkzGAhQtLpSGzfXLiCYPEzeKH2Ad24p".into(),
@@ -680,7 +650,7 @@ fn update_pairs_block_ids_test() {
         height: 0,
     });
     st.add(ExchangePairsData {
-        block_id: "id_1".to_string(),
+        block_id: "id_1".into(),
         block_time_stamp: 0,
         amount_asset: "WAVES".into(),
         price_asset: "DG2xFkPdDwKUoBkzGAhQtLpSGzfXLiCYPEzeKH2Ad24p".into(),
@@ -689,7 +659,7 @@ fn update_pairs_block_ids_test() {
         height: 0,
     });
     st.add(ExchangePairsData {
-        block_id: "id_3".to_string(),
+        block_id: "id_3".into(),
         block_time_stamp: 0,
         amount_asset: "WAVES".into(),
         price_asset: "DG2xFkPdDwKUoBkzGAhQtLpSGzfXLiCYPEzeKH2Ad24p".into(),
@@ -698,7 +668,7 @@ fn update_pairs_block_ids_test() {
         height: 0,
     });
     st.add(ExchangePairsData {
-        block_id: "id_4".to_string(),
+        block_id: "id_4".into(),
         block_time_stamp: 0,
         amount_asset: "WAVES".into(),
         price_asset: "DG2xFkPdDwKUoBkzGAhQtLpSGzfXLiCYPEzeKH2Ad24p".into(),
@@ -707,7 +677,7 @@ fn update_pairs_block_ids_test() {
         height: 0,
     });
     st.add(ExchangePairsData {
-        block_id: "id_1".to_string(),
+        block_id: "id_1".into(),
         block_time_stamp: 0,
         amount_asset: "WAVES".into(),
         price_asset: "DG2xFkPdDwKUoBkzGAhQtLpSGzfXLiCYPEzeKH2Ad24p".into(),
@@ -716,7 +686,7 @@ fn update_pairs_block_ids_test() {
         height: 0,
     });
     st.add(ExchangePairsData {
-        block_id: "id_2".to_string(),
+        block_id: "id_2".into(),
         block_time_stamp: 0,
         amount_asset: "WAVES".into(),
         price_asset: "DG2xFkPdDwKUoBkzGAhQtLpSGzfXLiCYPEzeKH2Ad24p".into(),
@@ -725,8 +695,8 @@ fn update_pairs_block_ids_test() {
         height: 0,
     });
 
-    let to_upd = vec!["id_4".to_string(), "id_3".to_string()];
-    st.update_pairs_block_ids(&"new_id".to_string(), &to_upd);
+    let to_upd = vec!["id_4".into(), "id_3".into()];
+    st.update_pairs_block_ids(&"new_id", &to_upd);
 
     let pairs_data = st.pairs_data();
 
@@ -744,12 +714,12 @@ fn update_pairs_block_ids_test() {
 fn cleanup_test() {
     let mut st = ExchangePairsStorage::new();
 
-    st.push_block_rowlog(&"id_0".into(), &"".into(), &80000000); // to del
-    st.push_block_rowlog(&"id_1".into(), &"".into(), &80000000); // to del
-    st.push_block_rowlog(&"id_2".into(), &"".into(), &86500000);
-    st.push_block_rowlog(&"id_3".into(), &"".into(), &86500000);
-    st.push_block_rowlog(&"id_4".into(), &"".into(), &86500000);
-    st.push_block_rowlog(&"id_5".into(), &"".into(), &80000000); //not del
+    st.push_block_rowlog(&"id_0", &"", &80000000); // to del
+    st.push_block_rowlog(&"id_1", &"", &80000000); // to del
+    st.push_block_rowlog(&"id_2", &"", &86500000);
+    st.push_block_rowlog(&"id_3", &"", &86500000);
+    st.push_block_rowlog(&"id_4", &"", &86500000);
+    st.push_block_rowlog(&"id_5", &"", &80000000); //not del
 
     st.last_block_timestamp = Arc::new(RwLock::new(86400000 * 2));
 

@@ -233,7 +233,13 @@ impl TryFrom<std::sync::Arc<BlockchainUpdated>> for BlockchainUpdate {
                     Some(Body::Block(BlockAppend { block, .. })) => {
                         let block_uid = bs58::encode(&value.id).into_string();
                         let ref_block_uid = bs58::encode(
-                            &block.as_ref().unwrap().header.as_ref().unwrap().reference,
+                            &block
+                                .as_ref()
+                                .expect("BlockAppend::Block is None")
+                                .header
+                                .as_ref()
+                                .expect("BlockAppend::Block::Header is None")
+                                .reference,
                         )
                         .into_string();
                         let raw_transactions = &block.as_ref().unwrap().transactions;
