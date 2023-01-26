@@ -113,9 +113,9 @@ impl ExchangePairsStorage {
         let key = (pair.amount_asset.clone(), pair.price_asset.clone());
 
         let mut strorage_guard = (*self.pairs_data).write().unwrap();
-        strorage_guard.extend(pairs.into_iter());
-
         let mut loaded_guard = (*self.loaded_pairs).write().unwrap();
+
+        strorage_guard.extend(pairs.into_iter());
         loaded_guard.insert(key);
     }
 
