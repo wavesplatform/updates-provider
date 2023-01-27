@@ -19,6 +19,7 @@ use get_size::GetSize;
 use get_size_derive::*;
 use itertools::Itertools;
 use serde::Serialize;
+use tokio::sync::{Mutex as TokioMutex, MutexGuard as TokioMutexGuard};
 use waves_protobuf_schemas::waves::transaction::Data;
 use wavesexchange_apis::{
     assets::dto::{AssetInfo, OutputFormat},
@@ -60,6 +61,8 @@ pub struct ExchangePairsStorage {
     asset_service_client: HttpClient<AssetsService>,
     last_block_timestamp: Arc<RwLock<i64>>,
     loaded_pairs: Arc<RwLock<HashSet<(String, String)>>>,
+    #[get_size(ignore)]
+    load_mutex: TokioMutex<bool>,
 }
 
 #[derive(Debug, Serialize)]
@@ -90,6 +93,7 @@ impl ExchangePairsStorage {
             last_block_timestamp: Arc::new(RwLock::new(-1)),
             loaded_pairs: Arc::new(RwLock::new(HashSet::new())),
             asset_service_client: assets_srv,
+            load_mutex: TokioMutex::new(true),
         }
     }
 
@@ -309,25 +313,21 @@ impl ExchangePairsStorage {
     }
 
     pub fn cleanup(&self) -> Vec<ExchangePair> {
-        let rowlog_read_guard = (*self.blocks_rowlog).read().unwrap();
+        let mut rowlog_guard = (*self.blocks_rowlog).write().unwrap();
 
         let timestamp_guard = (*self.last_block_timestamp).read().unwrap();
         let trunc_stamp = *timestamp_guard - 86400000; // 1 day ago
 
         let blocks_to_del: Vec<String> = {
-            rowlog_read_guard
+            rowlog_guard
                 .iter()
                 .take_while(|rb| trunc_stamp > rb.1)
                 .map(|i| i.0.clone())
                 .collect()
         };
 
-        drop(rowlog_read_guard);
-
-        let mut rowlog_write_guard = (*self.blocks_rowlog).write().unwrap();
-
-        rowlog_write_guard.drain(..blocks_to_del.len());
-        rowlog_write_guard.shrink_to_fit();
+        rowlog_guard.drain(..blocks_to_del.len());
+        rowlog_guard.shrink_to_fit();
 
         self.delete_pairs_by_block_ids(&blocks_to_del)
     }
@@ -341,8 +341,9 @@ impl ExchangePairsStorage {
 }
 
 #[async_trait]
-pub trait ExchangePairsStorageAsyncTrait {
+trait ExchangePairsStorageAsyncTrait {
     async fn push_asset_decimals(&self, amount_asset: &str, price_asset: &str) -> Result<()>;
+    async fn lock_for_init_last_value(&self) -> TokioMutexGuard<bool>;
 }
 
 #[async_trait]
@@ -375,6 +376,10 @@ impl ExchangePairsStorageAsyncTrait for ExchangePairsStorage {
         }
 
         Ok(())
+    }
+
+    async fn lock_for_init_last_value(&self) -> TokioMutexGuard<bool> {
+        self.load_mutex.lock().await
     }
 }
 
@@ -527,6 +532,10 @@ impl<R: ProviderRepo + Sync> LastValue<R> for ExchangePair {
             return Ok(false);
         }
 
+        let lock = crate::EXCHANGE_PAIRS_STORAGE
+            .lock_for_init_last_value()
+            .await;
+
         crate::EXCHANGE_PAIRS_STORAGE
             .push_asset_decimals(&self.amount_asset, &self.price_asset)
             .await?;
@@ -548,6 +557,9 @@ impl<R: ProviderRepo + Sync> LastValue<R> for ExchangePair {
         );
 
         crate::EXCHANGE_PAIRS_STORAGE.push_pairs_data(pairs);
+
+        drop(lock);
+
         Ok(true)
     }
 }
