@@ -15,6 +15,8 @@ use crate::{
 use async_trait::async_trait;
 use bigdecimal::BigDecimal;
 use diesel::sql_types::{Bigint, Integer, VarChar};
+use get_size::GetSize;
+use get_size_derive::*;
 use itertools::Itertools;
 use serde::Serialize;
 use waves_protobuf_schemas::waves::transaction::Data;
@@ -22,10 +24,10 @@ use wavesexchange_apis::{
     assets::dto::{AssetInfo, OutputFormat},
     AssetsService, HttpClient,
 };
-use wavesexchange_log::{debug, warn};
+use wavesexchange_log::{debug, info, warn};
 use wavesexchange_topic::ExchangePair;
 
-#[derive(Debug, Clone, QueryableByName)]
+#[derive(Debug, Clone, QueryableByName, GetSize)]
 pub struct ExchangePairsData {
     #[diesel(sql_type = VarChar)]
     pub amount_asset: String,
@@ -49,11 +51,12 @@ pub struct ExchangePairsData {
     pub block_time_stamp: i64,
 }
 
-#[derive(Debug)]
+#[derive(Debug, GetSize)]
 pub struct ExchangePairsStorage {
     pairs_data: Arc<RwLock<Vec<ExchangePairsData>>>,
     blocks_rowlog: Arc<RwLock<Vec<(String, i64)>>>,
     asset_decimals: Arc<RwLock<HashMap<String, i32>>>,
+    #[get_size(ignore)]
     asset_service_client: HttpClient<AssetsService>,
     last_block_timestamp: Arc<RwLock<i64>>,
     loaded_pairs: Arc<RwLock<HashSet<(String, String)>>>,
@@ -248,7 +251,7 @@ impl ExchangePairsStorage {
 
         let len = rowlog_guard.len();
 
-        let blocks_to_del: Vec<&String> = rowlog_guard
+        let blocks_to_del: Vec<String> = rowlog_guard
             .iter()
             .rev()
             .enumerate()
@@ -259,7 +262,7 @@ impl ExchangePairsStorage {
                 }
                 true
             })
-            .map(|i| &(i.1).0)
+            .map(|i| (i.1).0.clone())
             .collect();
 
         if del_idx < 1 {
@@ -276,12 +279,12 @@ impl ExchangePairsStorage {
         changed_pairs
     }
 
-    fn delete_pairs_by_block_ids(&self, ids: &[&String]) -> Vec<ExchangePair> {
+    fn delete_pairs_by_block_ids(&self, ids: &[String]) -> Vec<ExchangePair> {
         let mut storage_guard = (*self.pairs_data).write().unwrap();
         let mut changed_pairs = vec![];
 
         storage_guard.retain(|b| {
-            if ids.iter().find(|id| **id == &b.block_id).is_some() {
+            if ids.iter().find(|id| *id == &b.block_id).is_some() {
                 changed_pairs.push(ExchangePair {
                     amount_asset: b.amount_asset.clone(),
                     price_asset: b.price_asset.clone(),
@@ -292,7 +295,6 @@ impl ExchangePairsStorage {
         });
 
         storage_guard.shrink_to_fit();
-
         changed_pairs.into_iter().unique().collect()
     }
 
@@ -307,25 +309,34 @@ impl ExchangePairsStorage {
     }
 
     pub fn cleanup(&self) -> Vec<ExchangePair> {
-        let rowlog_guard = (*self.blocks_rowlog).read().unwrap();
+        let rowlog_read_guard = (*self.blocks_rowlog).read().unwrap();
 
         let timestamp_guard = (*self.last_block_timestamp).read().unwrap();
         let trunc_stamp = *timestamp_guard - 86400000; // 1 day ago
 
-        let blocks_to_del: Vec<&String> = {
-            rowlog_guard
+        let blocks_to_del: Vec<String> = {
+            rowlog_read_guard
                 .iter()
                 .take_while(|rb| trunc_stamp > rb.1)
-                .map(|i| &i.0)
+                .map(|i| i.0.clone())
                 .collect()
         };
 
-        let mut rowlog_guard = (*self.blocks_rowlog).write().unwrap();
+        drop(rowlog_read_guard);
 
-        rowlog_guard.drain(..blocks_to_del.len());
-        rowlog_guard.shrink_to_fit();
+        let mut rowlog_write_guard = (*self.blocks_rowlog).write().unwrap();
+
+        rowlog_write_guard.drain(..blocks_to_del.len());
+        rowlog_write_guard.shrink_to_fit();
 
         self.delete_pairs_by_block_ids(&blocks_to_del)
+    }
+
+    pub fn debug_heap_size(&self) {
+        info!(
+            "ExchangePairsStorage heap size: {}",
+            mem_pretty(self.get_heap_size())
+        );
     }
 }
 
@@ -393,6 +404,8 @@ impl DataFromBlock for ExchangePair {
         let mut pairs_in_block = extract_exchange_pairs(&block);
 
         pairs_in_block.append(&mut crate::EXCHANGE_PAIRS_STORAGE.cleanup());
+
+        crate::EXCHANGE_PAIRS_STORAGE.debug_heap_size();
 
         let pairs_in_block: Vec<ExchangePair> = pairs_in_block.into_iter().unique().collect();
 
@@ -615,10 +628,10 @@ fn delete_by_ids_test() {
         height: 0,
     });
 
-    let id_1 = "id_1".into();
-    let id_4 = "id_4".into();
+    let id_1 = "id_1".to_string();
+    let id_4 = "id_4".to_string();
 
-    let to_del = vec![&id_1, &id_4];
+    let to_del = vec![id_1.clone(), id_4.clone()];
 
     st.delete_pairs_by_block_ids(&to_del);
     let pairs = st.pairs_data();
@@ -730,4 +743,28 @@ fn cleanup_test() {
 
     assert_eq!(rowlog, vec!["id_2", "id_3", "id_4", "id_5"]);
     assert_eq!(st.rowlog().len(), 4);
+}
+
+//copy from https://github.com/banyan/rust-pretty-bytes/blob/master/src/converter.rs
+pub fn mem_pretty(num: usize) -> String {
+    use std::cmp;
+    let num = num as f64;
+
+    let negative = if num.is_sign_positive() { "" } else { "-" };
+    let num = num.abs();
+    let units = ["B", "kB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"];
+    if num < 1_f64 {
+        return format!("{}{} {}", negative, num, "B");
+    }
+    let delimiter = 1000_f64;
+    let exponent = cmp::min(
+        (num.ln() / delimiter.ln()).floor() as i32,
+        (units.len() - 1) as i32,
+    );
+    let pretty_bytes = format!("{:.2}", num / delimiter.powi(exponent))
+        .parse::<f64>()
+        .unwrap()
+        * 1_f64;
+    let unit = units[exponent as usize];
+    format!("{}{} {}", negative, pretty_bytes, unit)
 }

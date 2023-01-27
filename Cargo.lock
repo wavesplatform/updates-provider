@@ -678,6 +678,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "get-size"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f26b72209bdcd38f3fdf606f37658229b55acc3780d9c5456613a7fed149bc1b"
+
+[[package]]
+name = "get-size-derive"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2cef24d44f3b8d0c1e16dc10c2d7272085c1643c907b5e2db43d689f2b4eb08b"
+dependencies = [
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "getrandom"
 version = "0.2.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2321,6 +2337,8 @@ dependencies = [
  "diesel",
  "envy",
  "futures",
+ "get-size",
+ "get-size-derive",
  "hex",
  "itertools",
  "lazy_static",
