@@ -536,6 +536,12 @@ impl<R: ProviderRepo + Sync> LastValue<R> for ExchangePair {
             .lock_for_init_last_value()
             .await;
 
+        if crate::EXCHANGE_PAIRS_STORAGE.pair_is_loaded(&self.amount_asset, &self.price_asset) {
+            // check second time after locking to be sure that some other thread do not load same data
+            drop(lock);
+            return Ok(false);
+        }
+
         crate::EXCHANGE_PAIRS_STORAGE
             .push_asset_decimals(&self.amount_asset, &self.price_asset)
             .await?;
