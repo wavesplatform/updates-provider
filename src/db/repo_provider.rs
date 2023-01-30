@@ -354,7 +354,19 @@ mod repo_impl {
         ) -> Result<Vec<ExchangePairsData>> {
             self.interact(|conn| {
                 let first_uid = block_uid_1day_ago(conn)?;
-
+/*
+                println!(r#"
+                    select t.uid, b.height, b.id block_id, b.time_stamp::BIGINT as block_time_stamp, exchange_amount_asset as amount_asset, exchange_price_asset as price_asset,
+                        (body::json->'amount')::TEXT::BIGINT as amount_asset_volume, (body::json->'price')::TEXT::BIGINT as price_asset_volume 
+                    from blocks_microblocks b  
+                        inner join transactions t on t.block_uid = b.uid 
+                    where t.block_uid > {} 
+                        and t.tx_type = 7
+                        and t.exchange_amount_asset = '{}'
+                        and t.exchange_price_asset = '{}'
+                        and b.time_stamp > 0
+                    "#, &first_uid, &amount_asset, &price_asset);
+*/
                 Ok(diesel::sql_query(r#"
                     select t.uid, b.height, b.id block_id, b.time_stamp::BIGINT as block_time_stamp, exchange_amount_asset as amount_asset, exchange_price_asset as price_asset,
                         (body::json->'amount')::TEXT::BIGINT as amount_asset_volume, (body::json->'price')::TEXT::BIGINT as price_asset_volume 

@@ -28,6 +28,8 @@ use wavesexchange_apis::{
 use wavesexchange_log::{debug, info, warn};
 use wavesexchange_topic::ExchangePair;
 
+const PRICE_ASSET_DECIMALS: i32 = 8;
+
 #[derive(Debug, Clone, QueryableByName, GetSize)]
 pub struct ExchangePairsData {
     #[diesel(sql_type = VarChar)]
@@ -169,29 +171,31 @@ impl ExchangePairsStorage {
                 stat.txs_count += 1;
 
                 if stat.first_price.is_none() {
-                    stat.first_price = Some(apply_decimals(&i.price_asset_volume, amount_dec));
+                    stat.first_price =
+                        Some(apply_decimals(&i.price_asset_volume, &PRICE_ASSET_DECIMALS));
                 }
 
-                stat.last_price = Some(apply_decimals(&i.price_asset_volume, amount_dec));
+                stat.last_price =
+                    Some(apply_decimals(&i.price_asset_volume, &PRICE_ASSET_DECIMALS));
 
                 if low > i.price_asset_volume {
-                    stat.low = Some(apply_decimals(&i.price_asset_volume, amount_dec));
+                    stat.low = Some(apply_decimals(&i.price_asset_volume, &PRICE_ASSET_DECIMALS));
                     low = i.price_asset_volume;
                 }
 
                 if high < i.price_asset_volume {
-                    stat.high = Some(apply_decimals(&i.price_asset_volume, amount_dec));
+                    stat.high = Some(apply_decimals(&i.price_asset_volume, &PRICE_ASSET_DECIMALS));
                     high = i.price_asset_volume;
                 }
 
                 volume += i.amount_asset_volume;
 
                 quote_volume += apply_decimals(&i.amount_asset_volume, amount_dec)
-                    * apply_decimals(&i.price_asset_volume, amount_dec);
+                    * apply_decimals(&i.price_asset_volume, &PRICE_ASSET_DECIMALS);
             });
 
         stat.volume = Some(apply_decimals(&volume, amount_dec));
-        stat.quote_volume = Some(quote_volume.with_scale(*amount_dec as i64)); // or in price_dec ???
+        stat.quote_volume = Some(quote_volume.with_scale(*&PRICE_ASSET_DECIMALS as i64));
 
         stat
     }
