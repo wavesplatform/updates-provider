@@ -1,0 +1,8 @@
+DROP INDEX data_entries_key_frag_7_idx;
+DROP INDEX data_entries_key_frag_6_idx;
+DROP INDEX data_entries_key_frag_5_idx;
+DROP INDEX data_entries_key_frag_4_idx;
+DROP INDEX data_entries_key_frag_3_idx;
+DROP INDEX data_entries_key_frag_2_idx;
+DROP INDEX data_entries_key_frag_1_idx;
+DROP INDEX data_entries_key_frag_0_idx;
