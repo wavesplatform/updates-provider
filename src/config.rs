@@ -27,10 +27,6 @@ fn default_start_height() -> i32 {
     0
 }
 
-fn default_port() -> u16 {
-    8080
-}
-
 fn default_waiting_blocks_timeout() -> u64 {
     15
 }
@@ -46,6 +42,10 @@ pub struct RedisConfig {
 
 fn default_pgport() -> u16 {
     5432
+}
+
+fn default_metrics_port() -> u16 {
+    9090
 }
 
 fn default_pg_pool_size() -> u8 {
@@ -110,8 +110,8 @@ struct FlatBlockchainUpdaterConfig {
 
 #[derive(Deserialize)]
 struct FlatServerConfig {
-    #[serde(default = "default_port")]
-    pub port: u16,
+    #[serde(default = "default_metrics_port")]
+    metrics_port: u16,
     pub assets_service_url: String,
 }
 
@@ -176,11 +176,16 @@ pub fn load_blockchain() -> Result<providers::blockchain::Config, Error> {
     })
 }
 
-pub fn load_api() -> Result<crate::api::Config, Error> {
+pub struct ServerConfig {
+    pub metrics_port: u16,
+    pub assets_service_url: String,
+}
+
+pub fn load_api() -> Result<ServerConfig, Error> {
     let flat_config = envy::prefixed("SERVER__").from_env::<FlatServerConfig>()?;
 
-    Ok(crate::api::Config {
-        port: flat_config.port,
+    Ok(ServerConfig {
+        metrics_port: flat_config.metrics_port,
         assets_service_url: flat_config.assets_service_url,
     })
 }

@@ -167,44 +167,6 @@ async fn tokio_main() -> Result<(), Error> {
 
     updater.add_provider(tx);
 
-    let transactions_subscriptions_updates_sender = provider.fetch_updates().await?;
-
-    // random channel buffer size
-    let (tx, rx) = tokio::sync::mpsc::channel(20);
-    let provider = blockchain::provider::Provider::<wx_topic::State, _, _>::new(
-        resources_repo.clone(),
-        blockchain_config.state_delete_timeout,
-        provider_repo.clone(),
-        rx,
-    );
-
-    updater.add_provider(tx);
-
-    let states_subscriptions_updates_sender = provider.fetch_updates().await?;
-
-    let (tx, rx) = tokio::sync::mpsc::channel(20);
-    let provider = blockchain::provider::Provider::<wx_topic::LeasingBalance, _, _>::new(
-        resources_repo.clone(),
-        blockchain_config.leasing_balance_delete_timeout,
-        provider_repo.clone(),
-        rx,
-    );
-
-    updater.add_provider(tx);
-
-    let leasing_balances_subscriptions_updates_sender = provider.fetch_updates().await?;
-
-    // random channel buffer size
-    let (tx, rx) = tokio::sync::mpsc::channel(20);
-    let provider = blockchain::provider::Provider::<wx_topic::ExchangePair, _, _>::new(
-        resources_repo.clone(),
-        Duration::from_secs(600),
-        provider_repo.clone(),
-        rx,
-    );
-
-    updater.add_provider(tx);
-
     let exchange_pair_updates_sender = provider.fetch_updates().await?;
 
     let blockchain_updater_handle = tokio::spawn(async move {
@@ -229,11 +191,6 @@ async fn tokio_main() -> Result<(), Error> {
     let mut subscriptions_updates_pusher =
         subscriptions::pusher::PusherImpl::new(subscriptions_updates_receiver);
 
-    subscriptions_updates_pusher.add_observer(configs_subscriptions_updates_sender);
-    subscriptions_updates_pusher.add_observer(test_resources_subscriptions_updates_sender);
-    subscriptions_updates_pusher.add_observer(transactions_subscriptions_updates_sender);
-    subscriptions_updates_pusher.add_observer(states_subscriptions_updates_sender);
-    subscriptions_updates_pusher.add_observer(leasing_balances_subscriptions_updates_sender);
     subscriptions_updates_pusher.add_observer(exchange_pair_updates_sender);
 
     let subscriptions_updates_pusher_handle = tokio::spawn(async move {

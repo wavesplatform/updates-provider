@@ -15,14 +15,16 @@ use crate::{
 use async_trait::async_trait;
 use bigdecimal::BigDecimal;
 use diesel::sql_types::{Bigint, Integer, VarChar};
+use fmtsize::{Conventional, FmtSize};
 use get_size::GetSize;
 use get_size_derive::*;
 use itertools::Itertools;
 use serde::Serialize;
-use tokio::sync::{Mutex as TokioMutex, MutexGuard as TokioMutexGuard};
+use tokio::sync::{Mutex as TokioMutex, MutexGuard as TokioMutexGuard, RwLock as TokioRwLock};
 use waves_protobuf_schemas::waves::transaction::Data;
 use wavesexchange_apis::{
     assets::dto::{AssetInfo, OutputFormat},
+    chrono::{DateTime, NaiveDateTime, Utc},
     AssetsService, HttpClient,
 };
 use wavesexchange_log::{debug, info, warn};
@@ -60,7 +62,7 @@ pub struct ExchangePairsStorage {
     blocks_rowlog: Arc<RwLock<Vec<(String, i64)>>>,
     asset_decimals: Arc<RwLock<HashMap<String, i32>>>,
     #[get_size(ignore)]
-    asset_service_client: HttpClient<AssetsService>,
+    asset_service_client: Arc<TokioRwLock<Option<HttpClient<AssetsService>>>>,
     last_block_timestamp: Arc<RwLock<i64>>,
     loaded_pairs: Arc<RwLock<HashSet<(String, String)>>>,
     #[get_size(ignore)]
@@ -82,21 +84,24 @@ pub struct ExchangePairsDailyStat {
 
 impl ExchangePairsStorage {
     pub fn new() -> Self {
-        let assets_url = crate::ASSETS_SERVICE_URL.read().unwrap();
-        assert!(!assets_url.is_empty());
-
-        let assets_srv: HttpClient<AssetsService> =
-            HttpClient::<AssetsService>::from_base_url(&*assets_url);
-
         Self {
             pairs_data: Arc::new(RwLock::new(vec![])),
             blocks_rowlog: Arc::new(RwLock::new(vec![])),
             asset_decimals: Arc::new(RwLock::new(HashMap::new())),
             last_block_timestamp: Arc::new(RwLock::new(-1)),
             loaded_pairs: Arc::new(RwLock::new(HashSet::new())),
-            asset_service_client: assets_srv,
+            asset_service_client: Arc::new(TokioRwLock::new(None)),
             load_mutex: TokioMutex::new(true),
         }
+    }
+
+    pub async fn setup_asset_service_client(&self, assets_url: &str) {
+        let assets_srv: HttpClient<AssetsService> =
+            HttpClient::<AssetsService>::from_base_url(&*assets_url);
+
+        let mut cl = self.asset_service_client.write().await.as_ref();
+
+        cl = Some(&assets_srv);
     }
 
     pub fn add(&self, pair: ExchangePairsData) {
@@ -163,9 +168,16 @@ impl ExchangePairsStorage {
         let mut volume: i64 = 0;
         let mut quote_volume = BigDecimal::from(0);
 
+        let last_day_stamp = Utc::now().timestamp_millis() - 86400000;
+
         ex_transactions
             .iter()
-            .filter(|t| t.amount_asset == *amount_asset && t.price_asset == *price_asset)
+            .filter(|t| {
+                t.amount_asset == *amount_asset
+                    && t.price_asset == *price_asset
+                    //all microblocks or last 24h blocks
+                    && (t.block_time_stamp < 1 || t.block_time_stamp > last_day_stamp)
+            })
             .sorted_by(|l, r| r.block_time_stamp.cmp(&l.block_time_stamp))
             .for_each(|i| {
                 stat.txs_count += 1;
@@ -339,7 +351,7 @@ impl ExchangePairsStorage {
     pub fn debug_heap_size(&self) {
         info!(
             "ExchangePairsStorage heap size: {}",
-            mem_pretty(self.get_heap_size())
+            (self.get_heap_size() as u64).fmt_size(Conventional)
         );
     }
 }
@@ -364,6 +376,10 @@ impl ExchangePairsStorageAsyncTrait for ExchangePairsStorage {
 
         let assets_info = self
             .asset_service_client
+            .read()
+            .await
+            .as_ref()
+            .expect("asset service client not configured")
             .get(assets, None, OutputFormat::Full, false)
             .await
             .map_err(|e| Error::AssetServiceClientError(e.to_string()))?;
@@ -598,11 +614,6 @@ fn rollback_test() {
 
 #[test]
 fn delete_by_ids_test() {
-    {
-        let mut asset_service_url = crate::ASSETS_SERVICE_URL.write().unwrap();
-        asset_service_url.push_str("not url");
-    }
-
     let st = ExchangePairsStorage::new();
     st.add(ExchangePairsData {
         block_id: "id_1".into(),
@@ -668,11 +679,6 @@ fn delete_by_ids_test() {
 
 #[test]
 fn update_pairs_block_ids_test() {
-    {
-        let mut asset_service_url = crate::ASSETS_SERVICE_URL.write().unwrap();
-        asset_service_url.push_str("not url");
-    }
-
     let st = ExchangePairsStorage::new();
 
     st.add(ExchangePairsData {
@@ -765,28 +771,4 @@ fn cleanup_test() {
 
     assert_eq!(rowlog, vec!["id_2", "id_3", "id_4", "id_5"]);
     assert_eq!(st.rowlog().len(), 4);
-}
-
-//copy from https://github.com/banyan/rust-pretty-bytes/blob/master/src/converter.rs
-pub fn mem_pretty(num: usize) -> String {
-    use std::cmp;
-    let num = num as f64;
-
-    let negative = if num.is_sign_positive() { "" } else { "-" };
-    let num = num.abs();
-    let units = ["B", "kB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"];
-    if num < 1_f64 {
-        return format!("{}{} {}", negative, num, "B");
-    }
-    let delimiter = 1000_f64;
-    let exponent = cmp::min(
-        (num.ln() / delimiter.ln()).floor() as i32,
-        (units.len() - 1) as i32,
-    );
-    let pretty_bytes = format!("{:.2}", num / delimiter.powi(exponent))
-        .parse::<f64>()
-        .unwrap()
-        * 1_f64;
-    let unit = units[exponent as usize];
-    format!("{}{} {}", negative, pretty_bytes, unit)
 }

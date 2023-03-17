@@ -1,8 +1,7 @@
 use lazy_static::lazy_static;
-use prometheus::{IntGauge, IntGaugeVec, Opts, Registry};
+use prometheus::{IntGauge, IntGaugeVec, Opts};
 
 lazy_static! {
-    pub static ref REGISTRY: Registry = Registry::new();
     pub static ref WATCHLISTS_TOPICS: IntGaugeVec = IntGaugeVec::new(
         Opts::new("WatchlistsTopics", "topics count per resource type"),
         &["resource_type"]
@@ -41,34 +40,4 @@ lazy_static! {
         "Time (in ms) of DB writes"
     )
     .expect("can't create db_write_time metrics");
-}
-
-pub fn register_metrics() {
-    REGISTRY
-        .register(Box::new(WATCHLISTS_TOPICS.clone()))
-        .expect("can't register watchlists_topics metrics");
-
-    REGISTRY
-        .register(Box::new(WATCHLISTS_SUBSCRIPTIONS.clone()))
-        .expect("can't register watchlists_subscriptions metrics");
-
-    REGISTRY
-        .register(Box::new(REDIS_INPUT_QUEUE_SIZE.clone()))
-        .expect("can't register watchlists_queue_size metrics");
-
-    REGISTRY
-        .register(Box::new(REDIS_CONNECTIONS_AVAILABLE.clone()))
-        .expect("can't register redis_connections_available metrics");
-
-    REGISTRY
-        .register(Box::new(POSTGRES_READ_CONNECTIONS_AVAILABLE.clone()))
-        .expect("can't register postgres_read_connections_available metrics");
-
-    REGISTRY
-        .register(Box::new(POSTGRES_WRITE_CONNECTIONS_AVAILABLE.clone()))
-        .expect("can't register postgres_write_connections_available metrics");
-
-    REGISTRY
-        .register(Box::new(DB_WRITE_TIME.clone()))
-        .expect("can't register db_write_time metrics");
 }

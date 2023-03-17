@@ -275,7 +275,7 @@ mod repo_impl {
                     if let Some(keys_frags) = key_patterns_fragmented {
                         // Key is a proper fragmented string - use optimized search
                         #[allow(unstable_name_collisions)] // for `intersperse` from Itertools
-                        let condition = keys_frags
+                        let mut condition = keys_frags
                             .iter()
                             .map(|key_frags| {
                                 key_frags
@@ -298,6 +298,10 @@ mod repo_impl {
                             })
                             .intersperse(" OR ".to_string())
                             .collect::<String>();
+                        if condition != "" {
+                            condition.insert_str(0, "(");
+                            condition.push_str(")")
+                        }
                         data_entries::table
                             .filter(data_entries::address.eq(any(addresses)))
                             .filter(sql::<diesel::sql_types::Bool>(&condition))

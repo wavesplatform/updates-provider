@@ -1,4 +1,4 @@
-FROM rust:1.66 as builder
+FROM rust:1.67 as builder
 WORKDIR /usr/src/service
 
 RUN rustup component add rustfmt
@@ -24,6 +24,6 @@ RUN /usr/sbin/update-ca-certificates
 COPY --from=builder /usr/local/cargo/bin/service .
 
 COPY --from=builder /usr/local/cargo/bin/diesel .
-COPY --from=builder /usr/src/service/migrations ./migrations/ 
+COPY --from=builder /usr/src/service/migrations ./migrations/
 
 CMD ["./service"]

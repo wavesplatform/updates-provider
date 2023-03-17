@@ -725,6 +725,7 @@ fn test_order_id_v3() {
     );
 }
 
+#[allow(deprecated)] // Allow old-style base64
 #[test]
 fn test_order_id_v4_a() {
     let mut order = Order {
@@ -762,6 +763,7 @@ fn test_order_id_v4_a() {
     );
 }
 
+#[allow(deprecated)] // Allow old-style base64
 #[test]
 fn test_order_id_v4_b() {
     let mut order = Order {
