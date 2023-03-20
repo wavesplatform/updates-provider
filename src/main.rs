@@ -25,7 +25,7 @@ use lazy_static::lazy_static;
 use blockchain::provider::exchange_pair::{
     ExchangePairsStorage, ExchangePairsStorageProviderRepoTrait,
 };
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::time::Duration;
 use wavesexchange_log::{error, info};
 use wavesexchange_warp::MetricsWarpBuilder;
@@ -48,6 +48,10 @@ async fn tokio_main() -> Result<(), Error> {
     let test_resources_config = config::load_test_resources_updater()?;
     let blockchain_config = config::load_blockchain()?;
     let server_config = config::load_api()?;
+
+    EXCHANGE_PAIRS_STORAGE
+        .setup_asset_service_client(server_config.assets_service_url.as_str())
+        .await;
 
     let metrics = tokio::spawn(
         MetricsWarpBuilder::new()
@@ -83,14 +87,6 @@ async fn tokio_main() -> Result<(), Error> {
 
     let consumer_repo = PostgresConsumerRepo::new(consumer_db_pool);
     let provider_repo = PostgresProviderRepo::new(provider_db_pool);
-
-    EXCHANGE_PAIRS_STORAGE
-        .setup_asset_service_client(server_config.assets_service_url.as_str())
-        .await;
-
-    EXCHANGE_PAIRS_STORAGE
-        .load_blocks_rowlog(&provider_repo)
-        .await?;
 
     // Configs
     let configs_requester = Box::new(providers::polling::configs::ConfigRequester::new(
@@ -147,6 +143,11 @@ async fn tokio_main() -> Result<(), Error> {
         blockchain_config.waiting_blocks_timeout,
     )
     .await?;
+
+    // need to run after blockchain::updater::Updater::init to avoid loading last may be deleted blocks
+    EXCHANGE_PAIRS_STORAGE
+        .load_blocks_rowlog(&provider_repo)
+        .await?;
 
     blockchain_puller.subscribe(tx);
     let start_from = if last_height > blockchain_config.start_height {

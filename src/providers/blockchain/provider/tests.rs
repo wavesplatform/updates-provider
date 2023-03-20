@@ -85,8 +85,8 @@ mod repo {
 
         async fn last_exchange_pairs_transactions(
             &self,
-            amount_asset: String,
-            price_asset: String,
+            _amount_asset: String,
+            _price_asset: String,
         ) -> crate::error::Result<Vec<ExchangePairsData>> {
             unimplemented!()
         }

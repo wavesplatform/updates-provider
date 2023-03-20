@@ -60,7 +60,3 @@ base64 = "0.21"
 [[bin]]
 name = "service"
 path = "src/main.rs"
-
-[[bin]]
-name = "test_pairs"
-path = "src/test_pairs.rs"

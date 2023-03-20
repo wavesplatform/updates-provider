@@ -24,7 +24,7 @@ use tokio::sync::{Mutex as TokioMutex, MutexGuard as TokioMutexGuard, RwLock as 
 use waves_protobuf_schemas::waves::transaction::Data;
 use wavesexchange_apis::{
     assets::dto::{AssetInfo, OutputFormat},
-    chrono::{DateTime, NaiveDateTime, Utc},
+    chrono::Utc,
     AssetsService, HttpClient,
 };
 use wavesexchange_log::{debug, info, warn};
@@ -99,9 +99,9 @@ impl ExchangePairsStorage {
         let assets_srv: HttpClient<AssetsService> =
             HttpClient::<AssetsService>::from_base_url(&*assets_url);
 
-        let mut cl = self.asset_service_client.write().await.as_ref();
+        let mut cl = self.asset_service_client.write().await;
 
-        cl = Some(&assets_srv);
+        *cl = Some(assets_srv);
     }
 
     pub fn add(&self, pair: ExchangePairsData) {
@@ -258,11 +258,12 @@ impl ExchangePairsStorage {
         if *timestamp_guard == 0 && *block_timestamp != 0 {
             self.solidify_microblocks(&ref_block_id);
         }
-
         let mut rowlog_guard = (*self.blocks_rowlog).write().unwrap();
 
         rowlog_guard.push((block_id.into(), *block_timestamp));
         *timestamp_guard = *block_timestamp;
+
+        //debug_rowlog("push", &rowlog_guard);
     }
 
     pub fn rollback(&self, block_id: &str) -> Vec<ExchangePair> {
@@ -295,6 +296,8 @@ impl ExchangePairsStorage {
         rowlog_guard.drain(len - del_idx..);
         assert!(!rowlog_guard.is_empty());
         rowlog_guard.shrink_to_fit();
+
+        //debug_rowlog("rollback", &rowlog_guard);
 
         changed_pairs
     }
@@ -594,6 +597,52 @@ impl<R: ProviderRepo + Sync> Item<R> for ExchangePair {}
 
 pub fn apply_decimals(num: &i64, dec: &i32) -> BigDecimal {
     (BigDecimal::from(*num) / (10i64.pow(*dec as u32))).with_scale(*dec as i64)
+}
+
+/*
+pub fn debug_rowlog(caller: &str, items: &Vec<(String, i64)>) {
+    let mut cnt = 0;
+    println!("[{}]------------------------------", caller);
+    let mut log = vec![];
+
+    for i in items.iter().rev() {
+        log.push((i.0.clone(), i.1.clone()));
+
+        if i.1 > 0 {
+            cnt += 1;
+        }
+
+        if cnt > 4 {
+            break;
+        }
+    }
+
+    log.iter().rev().for_each(|i| println!("{} {}", i.0, i.1));
+    println!();
+    println!();
+    println!();
+}
+*/
+
+#[test]
+fn solidify_test() {
+    let st = ExchangePairsStorage::new();
+    st.push_block_rowlog(&"id_0", &"", &1);
+    st.push_block_rowlog(&"id_1", &"", &2);
+    st.push_block_rowlog(&"id_2", &"", &3);
+    st.push_block_rowlog(&"id_3", &"", &0);
+    st.push_block_rowlog(&"id_4", &"", &0);
+
+    st.solidify_microblocks(&"id_new");
+
+    assert_eq!(
+        st.rowlog(),
+        &[
+            ("id_0".to_string(), 1),
+            ("id_1".to_string(), 2),
+            ("id_new".to_string(), 3)
+        ]
+    );
 }
 
 #[test]
