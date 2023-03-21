@@ -32,8 +32,7 @@ deadpool-diesel = { version = "0.4", default-features = false, features = [
     "postgres",
     "rt_tokio_1",
 ] }
-get-size-derive = "0.1.2"
-get-size = "0.1.2"
+
 percent-encoding = "2.1"
 protofixer = { version = "0.1.0", git = "https://github.com/a-kordys/protofixer", tag = "v0.1.0" }
 prometheus = "0.13"
@@ -50,9 +49,7 @@ wavesexchange_apis = { git = "https://github.com/waves-exchange/wavesexchange-rs
 wavesexchange_log = { git = "https://github.com/waves-exchange/wavesexchange-rs", tag = "wavesexchange_log/0.5.1" }
 wavesexchange_warp = { git = "https://github.com/waves-exchange/wavesexchange-rs", tag = "wavesexchange_warp/0.14.4" }
 wavesexchange_topic = { git = "https://github.com/waves-exchange/wavesexchange-rs", tag = "wavesexchange_topic/0.4.2" }
-#wavesexchange_topic = { path = "../wavesexchange-rs/wavesexchange_topic" }
 waves-protobuf-schemas = { git = "https://github.com/wavesplatform/protobuf-schemas", tag = "rust_v1.4.3-1" }
-fmtsize = "0.1.1"
 
 [dev-dependencies]
 base64 = "0.21"

@@ -544,12 +544,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0ce7134b9999ecaf8bcd65542e436736ef32ddca1b3e06094cb6ec5755203b80"
 
 [[package]]
-name = "fmtsize"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7bf2eb8d8bf930fefc189573b27dc8b2b9cfbb7a83c50b2509bc388fe8f26662"
-
-[[package]]
 name = "fnv"
 version = "1.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -676,22 +670,6 @@ checksum = "bff49e947297f3312447abdca79f45f4738097cc82b06e72054d2223f601f1b9"
 dependencies = [
  "typenum",
  "version_check",
-]
-
-[[package]]
-name = "get-size"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f26b72209bdcd38f3fdf606f37658229b55acc3780d9c5456613a7fed149bc1b"
-
-[[package]]
-name = "get-size-derive"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2cef24d44f3b8d0c1e16dc10c2d7272085c1643c907b5e2db43d689f2b4eb08b"
-dependencies = [
- "quote",
- "syn",
 ]
 
 [[package]]
@@ -2326,10 +2304,7 @@ dependencies = [
  "deadpool-redis",
  "diesel",
  "envy",
- "fmtsize",
  "futures",
- "get-size",
- "get-size-derive",
  "hex",
  "itertools",
  "lazy_static",

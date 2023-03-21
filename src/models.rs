@@ -10,10 +10,7 @@ use crate::waves::transactions::TransactionType;
 
 impl MaybeFromTopic for ExchangePair {
     fn maybe_item(topic: &Topic) -> Option<Self> {
-        if let Some(pair) = topic.data().as_pair() {
-            return Some(pair.to_owned());
-        }
-        None
+        topic.data().as_pair().cloned()
     }
 }
 
@@ -32,10 +29,7 @@ impl WatchListItem for ConfigFile {}
 
 impl MaybeFromTopic for State {
     fn maybe_item(topic: &Topic) -> Option<Self> {
-        if let Some(state) = topic.data().as_state() {
-            return Some(state.to_owned());
-        }
-        None
+        topic.data().as_state().cloned()
     }
 }
 
@@ -43,10 +37,7 @@ impl WatchListItem for State {}
 
 impl MaybeFromTopic for TestResource {
     fn maybe_item(topic: &Topic) -> Option<Self> {
-        if let Some(test_resource) = topic.data().as_test_resource() {
-            return Some(test_resource.to_owned());
-        }
-        None
+        topic.data().as_test_resource().cloned()
     }
 }
 
@@ -54,10 +45,7 @@ impl WatchListItem for TestResource {}
 
 impl MaybeFromTopic for BlockchainHeight {
     fn maybe_item(topic: &Topic) -> Option<Self> {
-        if let Some(blockchain_height) = topic.data().as_blockchain_height() {
-            return Some(blockchain_height.to_owned());
-        }
-        None
+        topic.data().as_blockchain_height().cloned()
     }
 }
 

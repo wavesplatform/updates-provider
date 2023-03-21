@@ -15,9 +15,6 @@ use crate::{
 use async_trait::async_trait;
 use bigdecimal::BigDecimal;
 use diesel::sql_types::{Bigint, Integer, VarChar};
-use fmtsize::{Conventional, FmtSize};
-use get_size::GetSize;
-use get_size_derive::*;
 use itertools::Itertools;
 use serde::Serialize;
 use tokio::sync::{Mutex as TokioMutex, MutexGuard as TokioMutexGuard, RwLock as TokioRwLock};
@@ -32,7 +29,7 @@ use wavesexchange_topic::ExchangePair;
 
 const PRICE_ASSET_DECIMALS: i32 = 8;
 
-#[derive(Debug, Clone, QueryableByName, GetSize)]
+#[derive(Debug, Clone, QueryableByName)]
 pub struct ExchangePairsData {
     #[diesel(sql_type = VarChar)]
     pub amount_asset: String,
@@ -56,16 +53,13 @@ pub struct ExchangePairsData {
     pub block_time_stamp: i64,
 }
 
-#[derive(Debug, GetSize)]
 pub struct ExchangePairsStorage {
     pairs_data: Arc<RwLock<Vec<ExchangePairsData>>>,
     blocks_rowlog: Arc<RwLock<Vec<(String, i64)>>>,
     asset_decimals: Arc<RwLock<HashMap<String, i32>>>,
-    #[get_size(ignore)]
     asset_service_client: Arc<TokioRwLock<Option<HttpClient<AssetsService>>>>,
     last_block_timestamp: Arc<RwLock<i64>>,
     loaded_pairs: Arc<RwLock<HashSet<(String, String)>>>,
-    #[get_size(ignore)]
     load_mutex: TokioMutex<bool>,
 }
 
@@ -105,13 +99,17 @@ impl ExchangePairsStorage {
     }
 
     pub fn add(&self, pair: ExchangePairsData) {
-        let mut strorage_guard = (*self.pairs_data).write().unwrap();
+        let mut strorage_guard = (*self.pairs_data)
+            .write()
+            .expect("write lock pairs_data error");
         strorage_guard.push(pair);
     }
 
     pub fn pair_is_loaded(&self, amount_asset: &str, price_asset: &str) -> bool {
-        let loaded_guard = (*self.loaded_pairs).read().unwrap();
-        loaded_guard.contains(&(amount_asset.into(), price_asset.into()))
+        (*self.loaded_pairs)
+            .read()
+            .expect("read lock loaded_pairs error")
+            .contains(&(amount_asset.into(), price_asset.into()))
     }
 
     pub fn push_pairs_data(&self, pairs: Vec<ExchangePairsData>) {
@@ -126,8 +124,13 @@ impl ExchangePairsStorage {
 
         let key = (pair.amount_asset.clone(), pair.price_asset.clone());
 
-        let mut strorage_guard = (*self.pairs_data).write().unwrap();
-        let mut loaded_guard = (*self.loaded_pairs).write().unwrap();
+        let mut strorage_guard = (*self.pairs_data)
+            .write()
+            .expect("write lock pairs_data error");
+
+        let mut loaded_guard = (*self.loaded_pairs)
+            .write()
+            .expect("write lock loaded_pairs error");
 
         strorage_guard.extend(pairs.into_iter());
         loaded_guard.insert(key);
@@ -151,9 +154,12 @@ impl ExchangePairsStorage {
             quote_volume: None,
         };
 
-        let ex_transactions = self.pairs_data.read().unwrap();
+        let ex_transactions = self.pairs_data.read().expect("write lock pairs_data error");
 
-        let asset_decimals = self.asset_decimals.read().unwrap();
+        let asset_decimals = self
+            .asset_decimals
+            .read()
+            .expect("write lock asset_decimals error");
 
         let amount_dec = asset_decimals.get(amount_asset).expect(
             format!(
@@ -213,7 +219,10 @@ impl ExchangePairsStorage {
     }
 
     fn solidify_microblocks(&self, ref_block_id: &str) {
-        let mut rowlog_guard = (*self.blocks_rowlog).write().unwrap();
+        let mut rowlog_guard = (*self.blocks_rowlog)
+            .write()
+            .expect("write lock blocks_rowlog error");
+
         let mut solid_timestamp = None;
 
         let len = rowlog_guard.len();
@@ -239,11 +248,13 @@ impl ExchangePairsStorage {
             solid_timestamp.expect("solidify error timestamp not found in blocks_microblocks"),
         ));
 
-        self.update_pairs_block_ids(ref_block_id, &solidify_ids);
+        self.update_pairs_block_ids(ref_block_id, solidify_ids);
     }
 
-    fn update_pairs_block_ids(&self, ref_block_id: &str, solidify_ids: &Vec<String>) {
-        let mut storage_guard = (*self.pairs_data).write().unwrap();
+    fn update_pairs_block_ids(&self, ref_block_id: &str, solidify_ids: Vec<String>) {
+        let mut storage_guard = (*self.pairs_data)
+            .write()
+            .expect("write lock pairs_data error");
 
         storage_guard.iter_mut().for_each(|b| {
             if solidify_ids.iter().find(|id| **id == b.block_id).is_some() {
@@ -253,21 +264,27 @@ impl ExchangePairsStorage {
     }
 
     pub fn push_block_rowlog(&self, block_id: &str, ref_block_id: &str, block_timestamp: &i64) {
-        let mut timestamp_guard = (*self.last_block_timestamp).write().unwrap();
+        let mut timestamp_guard = (*self.last_block_timestamp)
+            .write()
+            .expect("write lock last_block_timestamp error");
 
         if *timestamp_guard == 0 && *block_timestamp != 0 {
             self.solidify_microblocks(&ref_block_id);
         }
-        let mut rowlog_guard = (*self.blocks_rowlog).write().unwrap();
+
+        let mut rowlog_guard = (*self.blocks_rowlog)
+            .write()
+            .expect("write lock blocks_rowlog error");
 
         rowlog_guard.push((block_id.into(), *block_timestamp));
         *timestamp_guard = *block_timestamp;
-
-        //debug_rowlog("push", &rowlog_guard);
     }
 
     pub fn rollback(&self, block_id: &str) -> Vec<ExchangePair> {
-        let mut rowlog_guard = (*self.blocks_rowlog).write().unwrap();
+        let mut rowlog_guard = (*self.blocks_rowlog)
+            .write()
+            .expect("write lock blocks_rowlog error");
+
         let mut del_idx: usize = 0;
 
         let len = rowlog_guard.len();
@@ -297,13 +314,14 @@ impl ExchangePairsStorage {
         assert!(!rowlog_guard.is_empty());
         rowlog_guard.shrink_to_fit();
 
-        //debug_rowlog("rollback", &rowlog_guard);
-
         changed_pairs
     }
 
     fn delete_pairs_by_block_ids(&self, ids: &[String]) -> Vec<ExchangePair> {
-        let mut storage_guard = (*self.pairs_data).write().unwrap();
+        let mut storage_guard = (*self.pairs_data)
+            .write()
+            .expect("write pairs_data lock error");
+
         let mut changed_pairs = vec![];
 
         storage_guard.retain(|b| {
@@ -321,20 +339,15 @@ impl ExchangePairsStorage {
         changed_pairs.into_iter().unique().collect()
     }
 
-    #[allow(unused)]
-    pub fn rowlog(&self) -> Vec<(String, i64)> {
-        (*self.blocks_rowlog.read().unwrap()).to_vec()
-    }
-
-    #[allow(unused)]
-    pub fn pairs_data(&self) -> Vec<ExchangePairsData> {
-        (*self.pairs_data.read().unwrap()).to_vec()
-    }
-
     pub fn cleanup(&self) -> Vec<ExchangePair> {
-        let mut rowlog_guard = (*self.blocks_rowlog).write().unwrap();
+        let mut rowlog_guard = (*self.blocks_rowlog)
+            .write()
+            .expect("write lock blocks_rowlog error");
 
-        let timestamp_guard = (*self.last_block_timestamp).read().unwrap();
+        let timestamp_guard = (*self.last_block_timestamp)
+            .read()
+            .expect("read lock last_block_timestamp error");
+
         let trunc_stamp = *timestamp_guard - 86400000; // 1 day ago
 
         let blocks_to_del: Vec<String> = {
@@ -352,10 +365,46 @@ impl ExchangePairsStorage {
     }
 
     pub fn debug_heap_size(&self) {
-        info!(
-            "ExchangePairsStorage heap size: {}",
-            (self.get_heap_size() as u64).fmt_size(Conventional)
-        );
+        //need to find a way to calc size of storage size get-size crate cause Poison Errors
+        info!("ExchangePairsStorage heap size: {}", "unknown");
+    }
+
+    #[cfg(test)]
+    pub(crate) fn rowlog(&self) -> Vec<(String, i64)> {
+        (*self
+            .blocks_rowlog
+            .read()
+            .expect("read blocks_rowlog lock error"))
+        .to_vec()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn pairs_data(&self) -> Vec<ExchangePairsData> {
+        (*self.pairs_data.read().unwrap()).to_vec()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn solidify_microblocks_test(&self, ref_block_id: &str) {
+        self.solidify_microblocks(ref_block_id)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn delete_pairs_by_block_ids_test(&self, ids: &[String]) -> Vec<ExchangePair> {
+        self.delete_pairs_by_block_ids(ids)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn update_pairs_block_ids_test(
+        &self,
+        ref_block_id: &str,
+        solidify_ids: Vec<String>,
+    ) {
+        self.update_pairs_block_ids(ref_block_id, solidify_ids)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_last_block_timestamp(&mut self, t: i64) {
+        self.last_block_timestamp = Arc::new(RwLock::new(t))
     }
 }
 
@@ -369,7 +418,11 @@ trait ExchangePairsStorageAsyncTrait {
 impl ExchangePairsStorageAsyncTrait for ExchangePairsStorage {
     async fn push_asset_decimals(&self, amount_asset: &str, price_asset: &str) -> Result<()> {
         {
-            let r = self.asset_decimals.read().unwrap();
+            let r = self
+                .asset_decimals
+                .read()
+                .expect("read lock asset_decimals error");
+
             if r.contains_key(amount_asset) && r.contains_key(price_asset) {
                 return Ok(());
             }
@@ -387,7 +440,10 @@ impl ExchangePairsStorageAsyncTrait for ExchangePairsStorage {
             .await
             .map_err(|e| Error::AssetServiceClientError(e.to_string()))?;
 
-        let mut asset_decimals = self.asset_decimals.write().unwrap();
+        let mut asset_decimals = self
+            .asset_decimals
+            .write()
+            .expect("write lock asset_decimals error");
 
         for a in assets_info.data {
             match a.data {
@@ -416,12 +472,18 @@ impl<R: ProviderRepo + Sync> ExchangePairsStorageProviderRepoTrait<R> for Exchan
     async fn load_blocks_rowlog(&self, repo: &R) -> Result<()> {
         let blocks = repo.last_blocks_microblocks().await?;
 
-        let mut rowlog_guard = (*self.blocks_rowlog).write().unwrap();
+        let mut rowlog_guard = (*self.blocks_rowlog)
+            .write()
+            .expect("write lock blocks_rowlog error");
+
         rowlog_guard.clear();
 
-        blocks
-            .iter()
-            .for_each(|b| rowlog_guard.push((b.id.clone(), b.time_stamp.unwrap())));
+        blocks.iter().for_each(|b| {
+            rowlog_guard.push((
+                b.id.clone(),
+                b.time_stamp.expect("block time_stamp is None"),
+            ))
+        });
 
         Ok(())
     }
@@ -597,227 +659,4 @@ impl<R: ProviderRepo + Sync> Item<R> for ExchangePair {}
 
 pub fn apply_decimals(num: &i64, dec: &i32) -> BigDecimal {
     (BigDecimal::from(*num) / (10i64.pow(*dec as u32))).with_scale(*dec as i64)
-}
-
-/*
-pub fn debug_rowlog(caller: &str, items: &Vec<(String, i64)>) {
-    let mut cnt = 0;
-    println!("[{}]------------------------------", caller);
-    let mut log = vec![];
-
-    for i in items.iter().rev() {
-        log.push((i.0.clone(), i.1.clone()));
-
-        if i.1 > 0 {
-            cnt += 1;
-        }
-
-        if cnt > 4 {
-            break;
-        }
-    }
-
-    log.iter().rev().for_each(|i| println!("{} {}", i.0, i.1));
-    println!();
-    println!();
-    println!();
-}
-*/
-
-#[test]
-fn solidify_test() {
-    let st = ExchangePairsStorage::new();
-    st.push_block_rowlog(&"id_0", &"", &1);
-    st.push_block_rowlog(&"id_1", &"", &2);
-    st.push_block_rowlog(&"id_2", &"", &3);
-    st.push_block_rowlog(&"id_3", &"", &0);
-    st.push_block_rowlog(&"id_4", &"", &0);
-
-    st.solidify_microblocks(&"id_new");
-
-    assert_eq!(
-        st.rowlog(),
-        &[
-            ("id_0".to_string(), 1),
-            ("id_1".to_string(), 2),
-            ("id_new".to_string(), 3)
-        ]
-    );
-}
-
-#[test]
-fn rollback_test() {
-    let st = ExchangePairsStorage::new();
-    st.push_block_rowlog(&"id_0", &"", &1);
-    st.push_block_rowlog(&"id_1", &"", &2);
-    st.push_block_rowlog(&"id_2", &"", &3);
-    st.push_block_rowlog(&"id_3", &"", &0);
-    st.push_block_rowlog(&"id_4", &"", &0);
-
-    st.rollback(&"id_1");
-    assert_eq!(
-        st.rowlog(),
-        &[("id_0".to_string(), 1), ("id_1".to_string(), 2)]
-    );
-}
-
-#[test]
-fn delete_by_ids_test() {
-    let st = ExchangePairsStorage::new();
-    st.add(ExchangePairsData {
-        block_id: "id_1".into(),
-        block_time_stamp: 0,
-        amount_asset: "WAVES".into(),
-        price_asset: "DG2xFkPdDwKUoBkzGAhQtLpSGzfXLiCYPEzeKH2Ad24p".into(),
-        amount_asset_volume: 0,
-        price_asset_volume: 0,
-        height: 0,
-    });
-    st.add(ExchangePairsData {
-        block_id: "id_1".into(),
-        block_time_stamp: 0,
-        amount_asset: "WAVES".into(),
-        price_asset: "DG2xFkPdDwKUoBkzGAhQtLpSGzfXLiCYPEzeKH2Ad24p".into(),
-        amount_asset_volume: 0,
-        price_asset_volume: 0,
-        height: 0,
-    });
-    st.add(ExchangePairsData {
-        block_id: "id_3".into(),
-        block_time_stamp: 0,
-        amount_asset: "WAVES".into(),
-        price_asset: "DG2xFkPdDwKUoBkzGAhQtLpSGzfXLiCYPEzeKH2Ad24p".into(),
-        amount_asset_volume: 0,
-        price_asset_volume: 0,
-        height: 0,
-    });
-    st.add(ExchangePairsData {
-        block_id: "id_4".into(),
-        block_time_stamp: 0,
-        amount_asset: "WAVES".into(),
-        price_asset: "DG2xFkPdDwKUoBkzGAhQtLpSGzfXLiCYPEzeKH2Ad24p".into(),
-        amount_asset_volume: 0,
-        price_asset_volume: 0,
-        height: 0,
-    });
-    st.add(ExchangePairsData {
-        block_id: "id_1".into(),
-        block_time_stamp: 0,
-        amount_asset: "WAVES".into(),
-        price_asset: "DG2xFkPdDwKUoBkzGAhQtLpSGzfXLiCYPEzeKH2Ad24p".into(),
-        amount_asset_volume: 0,
-        price_asset_volume: 0,
-        height: 0,
-    });
-
-    let id_1 = "id_1".to_string();
-    let id_4 = "id_4".to_string();
-
-    let to_del = vec![id_1.clone(), id_4.clone()];
-
-    st.delete_pairs_by_block_ids(&to_del);
-    let pairs = st.pairs_data();
-
-    pairs.iter().for_each(|i| {
-        assert_ne!(i.block_id, *id_1);
-        assert_ne!(i.block_id, *id_4);
-    });
-
-    assert_eq!(pairs.len(), 1);
-}
-
-#[test]
-fn update_pairs_block_ids_test() {
-    let st = ExchangePairsStorage::new();
-
-    st.add(ExchangePairsData {
-        block_id: "id_1".into(),
-        block_time_stamp: 0,
-        amount_asset: "WAVES".into(),
-        price_asset: "DG2xFkPdDwKUoBkzGAhQtLpSGzfXLiCYPEzeKH2Ad24p".into(),
-        amount_asset_volume: 0,
-        price_asset_volume: 0,
-        height: 0,
-    });
-    st.add(ExchangePairsData {
-        block_id: "id_1".into(),
-        block_time_stamp: 0,
-        amount_asset: "WAVES".into(),
-        price_asset: "DG2xFkPdDwKUoBkzGAhQtLpSGzfXLiCYPEzeKH2Ad24p".into(),
-        amount_asset_volume: 0,
-        price_asset_volume: 0,
-        height: 0,
-    });
-    st.add(ExchangePairsData {
-        block_id: "id_3".into(),
-        block_time_stamp: 0,
-        amount_asset: "WAVES".into(),
-        price_asset: "DG2xFkPdDwKUoBkzGAhQtLpSGzfXLiCYPEzeKH2Ad24p".into(),
-        amount_asset_volume: 0,
-        price_asset_volume: 0,
-        height: 0,
-    });
-    st.add(ExchangePairsData {
-        block_id: "id_4".into(),
-        block_time_stamp: 0,
-        amount_asset: "WAVES".into(),
-        price_asset: "DG2xFkPdDwKUoBkzGAhQtLpSGzfXLiCYPEzeKH2Ad24p".into(),
-        amount_asset_volume: 0,
-        price_asset_volume: 0,
-        height: 0,
-    });
-    st.add(ExchangePairsData {
-        block_id: "id_1".into(),
-        block_time_stamp: 0,
-        amount_asset: "WAVES".into(),
-        price_asset: "DG2xFkPdDwKUoBkzGAhQtLpSGzfXLiCYPEzeKH2Ad24p".into(),
-        amount_asset_volume: 0,
-        price_asset_volume: 0,
-        height: 0,
-    });
-    st.add(ExchangePairsData {
-        block_id: "id_2".into(),
-        block_time_stamp: 0,
-        amount_asset: "WAVES".into(),
-        price_asset: "DG2xFkPdDwKUoBkzGAhQtLpSGzfXLiCYPEzeKH2Ad24p".into(),
-        amount_asset_volume: 0,
-        price_asset_volume: 0,
-        height: 0,
-    });
-
-    let to_upd = vec!["id_4".into(), "id_3".into()];
-    st.update_pairs_block_ids(&"new_id", &to_upd);
-
-    let pairs_data = st.pairs_data();
-
-    pairs_data.iter().for_each(|i| {
-        assert!(i.block_id != "id_4");
-        assert!(i.block_id != "id_3");
-
-        assert!(i.block_id == "new_id" || i.block_id == "id_1" || i.block_id == "id_2");
-    });
-
-    assert_eq!(pairs_data.len(), 6);
-}
-
-#[test]
-fn cleanup_test() {
-    let mut st = ExchangePairsStorage::new();
-
-    st.push_block_rowlog(&"id_0", &"", &80000000); // to del
-    st.push_block_rowlog(&"id_1", &"", &80000000); // to del
-    st.push_block_rowlog(&"id_2", &"", &86500000);
-    st.push_block_rowlog(&"id_3", &"", &86500000);
-    st.push_block_rowlog(&"id_4", &"", &86500000);
-    st.push_block_rowlog(&"id_5", &"", &80000000); //not del
-
-    st.last_block_timestamp = Arc::new(RwLock::new(86400000 * 2));
-
-    st.cleanup();
-
-    let binding = st.rowlog();
-    let rowlog: Vec<&str> = binding.iter().map(|i| i.0.as_str()).collect();
-
-    assert_eq!(rowlog, vec!["id_2", "id_3", "id_4", "id_5"]);
-    assert_eq!(st.rowlog().len(), 4);
 }
