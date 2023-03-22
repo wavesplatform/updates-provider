@@ -1,6 +1,7 @@
 use std::{
     collections::{HashMap, HashSet},
     sync::{Arc, RwLock},
+    time::Duration,
 };
 
 use super::{BlockData, DataFromBlock, Item, LastValue};
@@ -17,7 +18,10 @@ use bigdecimal::BigDecimal;
 use diesel::sql_types::{Bigint, Integer, VarChar};
 use itertools::Itertools;
 use serde::Serialize;
-use tokio::sync::{Mutex as TokioMutex, MutexGuard as TokioMutexGuard, RwLock as TokioRwLock};
+use tokio::{
+    sync::{Mutex as TokioMutex, MutexGuard as TokioMutexGuard, RwLock as TokioRwLock},
+    time::sleep as tokio_sleep,
+};
 use waves_protobuf_schemas::waves::transaction::Data;
 use wavesexchange_apis::{
     assets::dto::{AssetInfo, OutputFormat},
@@ -136,7 +140,11 @@ impl ExchangePairsStorage {
         loaded_guard.insert(key);
     }
 
-    pub fn calc_stat(&self, amount_asset: &str, price_asset: &str) -> ExchangePairsDailyStat {
+    pub fn calc_stat(
+        &self,
+        amount_asset: &str,
+        price_asset: &str,
+    ) -> Option<ExchangePairsDailyStat> {
         debug!(
             "calculating stat for amount_asset: {}; price_asset:{} ",
             &amount_asset, &price_asset
@@ -161,13 +169,16 @@ impl ExchangePairsStorage {
             .read()
             .expect("write lock asset_decimals error");
 
-        let amount_dec = asset_decimals.get(amount_asset).expect(
-            format!(
-                "amount asset decimals not found. asset_id: {}",
-                &amount_asset
-            )
-            .as_str(),
-        );
+        let amount_dec = match asset_decimals.get(amount_asset) {
+            Some(a) => a,
+            None => {
+                debug!(format!(
+                    "amount asset decimals not found. asset_id: {}",
+                    &amount_asset
+                ));
+                return None;
+            }
+        };
 
         let mut low: i64 = i64::MAX;
         let mut high: i64 = 0;
@@ -215,7 +226,7 @@ impl ExchangePairsStorage {
         stat.volume = Some(apply_decimals(&volume, amount_dec));
         stat.quote_volume = Some(quote_volume.with_scale(*&PRICE_ASSET_DECIMALS as i64));
 
-        stat
+        Some(stat)
     }
 
     fn solidify_microblocks(&self, ref_block_id: &str) {
@@ -430,31 +441,50 @@ impl ExchangePairsStorageAsyncTrait for ExchangePairsStorage {
 
         let assets = [amount_asset, price_asset];
 
-        let assets_info = self
-            .asset_service_client
-            .read()
-            .await
-            .as_ref()
-            .expect("asset service client not configured")
-            .get(assets, None, OutputFormat::Full, false)
-            .await
-            .map_err(|e| Error::AssetServiceClientError(e.to_string()))?;
+        let mut sleep_dur = 30;
+        while sleep_dur < 600 {
+            let resp = self
+                .asset_service_client
+                .read()
+                .await
+                .as_ref()
+                .expect("asset service client not configured")
+                .get(assets, None, OutputFormat::Full, false)
+                .await;
 
-        let mut asset_decimals = self
-            .asset_decimals
-            .write()
-            .expect("write lock asset_decimals error");
+            match resp {
+                Ok(assets_info) => {
+                    let mut asset_decimals = self
+                        .asset_decimals
+                        .write()
+                        .expect("write lock asset_decimals error");
 
-        for a in assets_info.data {
-            match a.data {
-                Some(AssetInfo::Full(f)) => {
-                    asset_decimals.insert(f.id, f.precision);
+                    for a in assets_info.data {
+                        match a.data {
+                            Some(AssetInfo::Full(f)) => {
+                                asset_decimals.insert(f.id, f.precision);
+                            }
+                            _ => {
+                                debug!(format!("bad asset value from asset service: {:?}", a))
+                            }
+                        }
+                    }
+                    return Ok(());
                 }
-                _ => unreachable!(),
+                Err(e) => {
+                    debug!(format!(
+                        "asset-service return error (sleepeng {}s): {}",
+                        e, sleep_dur
+                    ));
+                    tokio_sleep(Duration::from_secs(sleep_dur)).await;
+                    sleep_dur *= 2;
+                }
             }
         }
 
-        Ok(())
+        Err(Error::AssetServiceClientError(
+            "can't request asset-service".into(),
+        ))
     }
 
     async fn lock_for_init_last_value(&self) -> TokioMutexGuard<bool> {
