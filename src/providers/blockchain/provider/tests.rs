@@ -590,7 +590,7 @@ mod asset_storage {
     #[test]
     fn delete_by_ids_test() {
         let st = ExchangePairsStorage::new();
-        st.add(ExchangePairsData {
+        st.add_transaction(ExchangePairsData {
             block_id: "id_1".into(),
             block_time_stamp: 0,
             amount_asset: "WAVES".into(),
@@ -599,7 +599,7 @@ mod asset_storage {
             price_asset_volume: 0,
             height: 0,
         });
-        st.add(ExchangePairsData {
+        st.add_transaction(ExchangePairsData {
             block_id: "id_1".into(),
             block_time_stamp: 0,
             amount_asset: "WAVES".into(),
@@ -608,7 +608,7 @@ mod asset_storage {
             price_asset_volume: 0,
             height: 0,
         });
-        st.add(ExchangePairsData {
+        st.add_transaction(ExchangePairsData {
             block_id: "id_3".into(),
             block_time_stamp: 0,
             amount_asset: "WAVES".into(),
@@ -617,7 +617,7 @@ mod asset_storage {
             price_asset_volume: 0,
             height: 0,
         });
-        st.add(ExchangePairsData {
+        st.add_transaction(ExchangePairsData {
             block_id: "id_4".into(),
             block_time_stamp: 0,
             amount_asset: "WAVES".into(),
@@ -626,7 +626,7 @@ mod asset_storage {
             price_asset_volume: 0,
             height: 0,
         });
-        st.add(ExchangePairsData {
+        st.add_transaction(ExchangePairsData {
             block_id: "id_1".into(),
             block_time_stamp: 0,
             amount_asset: "WAVES".into(),
@@ -656,7 +656,7 @@ mod asset_storage {
     fn update_pairs_block_ids_test() {
         let st = ExchangePairsStorage::new();
 
-        st.add(ExchangePairsData {
+        st.add_transaction(ExchangePairsData {
             block_id: "id_1".into(),
             block_time_stamp: 0,
             amount_asset: "WAVES".into(),
@@ -665,7 +665,7 @@ mod asset_storage {
             price_asset_volume: 0,
             height: 0,
         });
-        st.add(ExchangePairsData {
+        st.add_transaction(ExchangePairsData {
             block_id: "id_1".into(),
             block_time_stamp: 0,
             amount_asset: "WAVES".into(),
@@ -674,7 +674,7 @@ mod asset_storage {
             price_asset_volume: 0,
             height: 0,
         });
-        st.add(ExchangePairsData {
+        st.add_transaction(ExchangePairsData {
             block_id: "id_3".into(),
             block_time_stamp: 0,
             amount_asset: "WAVES".into(),
@@ -683,7 +683,7 @@ mod asset_storage {
             price_asset_volume: 0,
             height: 0,
         });
-        st.add(ExchangePairsData {
+        st.add_transaction(ExchangePairsData {
             block_id: "id_4".into(),
             block_time_stamp: 0,
             amount_asset: "WAVES".into(),
@@ -692,7 +692,7 @@ mod asset_storage {
             price_asset_volume: 0,
             height: 0,
         });
-        st.add(ExchangePairsData {
+        st.add_transaction(ExchangePairsData {
             block_id: "id_1".into(),
             block_time_stamp: 0,
             amount_asset: "WAVES".into(),
@@ -701,7 +701,7 @@ mod asset_storage {
             price_asset_volume: 0,
             height: 0,
         });
-        st.add(ExchangePairsData {
+        st.add_transaction(ExchangePairsData {
             block_id: "id_2".into(),
             block_time_stamp: 0,
             amount_asset: "WAVES".into(),

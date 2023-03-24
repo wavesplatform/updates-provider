@@ -69,7 +69,7 @@ pub struct ExchangePairsStorage {
 
 #[derive(Debug, Serialize)]
 pub struct ExchangePairsDailyStat {
-    amount_assset: String,
+    amount_asset: String,
     price_asset: String,
     first_price: Option<BigDecimal>,
     last_price: Option<BigDecimal>,
@@ -102,7 +102,7 @@ impl ExchangePairsStorage {
         *cl = Some(assets_srv);
     }
 
-    pub fn add(&self, pair: ExchangePairsData) {
+    pub fn add_transaction(&self, pair: ExchangePairsData) {
         let mut strorage_guard = (*self.pairs_data)
             .write()
             .expect("write lock pairs_data error");
@@ -118,7 +118,7 @@ impl ExchangePairsStorage {
 
     pub fn push_pairs_data(&self, pairs: Vec<ExchangePairsData>) {
         let Some(pair) = pairs.first() else { return };
-
+        dbg!(&pair);
         debug!(
             "loaded exchange pairs data for amount_asset: {}; price_asset: {}; records: {}",
             &pair.amount_asset,
@@ -151,7 +151,7 @@ impl ExchangePairsStorage {
         );
 
         let mut stat = ExchangePairsDailyStat {
-            amount_assset: amount_asset.into(),
+            amount_asset: amount_asset.into(),
             price_asset: price_asset.into(),
             txs_count: 0,
             first_price: None,
@@ -162,12 +162,17 @@ impl ExchangePairsStorage {
             quote_volume: None,
         };
 
-        let ex_transactions = self.pairs_data.read().expect("write lock pairs_data error");
+        //        let ex_transactions = self.pairs_data.read().expect("read lock pairs_data error");
+        // test for locking when calc
+        let ex_transactions = self
+            .pairs_data
+            .write()
+            .expect("write lock pairs_data error");
 
         let asset_decimals = self
             .asset_decimals
             .read()
-            .expect("write lock asset_decimals error");
+            .expect("read lock asset_decimals error");
 
         let amount_dec = match asset_decimals.get(amount_asset) {
             Some(a) => a,
@@ -292,6 +297,8 @@ impl ExchangePairsStorage {
     }
 
     pub fn rollback(&self, block_id: &str) -> Vec<ExchangePair> {
+        dbg!("rollback:", block_id);
+
         let mut rowlog_guard = (*self.blocks_rowlog)
             .write()
             .expect("write lock blocks_rowlog error");
@@ -315,7 +322,7 @@ impl ExchangePairsStorage {
             .collect();
 
         if del_idx < 1 {
-            warn!("rollback block id:{} not found; skipping", block_id);
+            dbg!("rollback block id:{} not found; skipping", block_id);
             return vec![];
         }
 
@@ -329,6 +336,11 @@ impl ExchangePairsStorage {
     }
 
     fn delete_pairs_by_block_ids(&self, ids: &[String]) -> Vec<ExchangePair> {
+        if ids.is_empty() {
+            return vec![];
+        }
+        dbg!(&ids);
+
         let mut storage_guard = (*self.pairs_data)
             .write()
             .expect("write pairs_data lock error");
@@ -537,6 +549,7 @@ impl DataFromBlock for ExchangePair {
             .map(|p| {
                 let current_value =
                     crate::EXCHANGE_PAIRS_STORAGE.calc_stat(&p.amount_asset, &p.price_asset);
+
                 BlockData::new(
                     serde_json::to_string(&current_value).unwrap(),
                     ExchangePair {
@@ -576,7 +589,7 @@ fn extract_exchange_pairs(block: &waves::BlockMicroblockAppend) -> Vec<ExchangeP
         .map(|t| match extract_pairs_data(&block, &t) {
             Some(ed) => {
                 let out = (ed.amount_asset.clone(), ed.price_asset.clone());
-                crate::EXCHANGE_PAIRS_STORAGE.add(ed);
+                crate::EXCHANGE_PAIRS_STORAGE.add_transaction(ed);
                 Some(out)
             }
             _ => None,
