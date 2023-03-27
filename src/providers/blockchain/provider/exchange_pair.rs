@@ -93,6 +93,14 @@ impl ExchangePairsStorage {
         }
     }
 
+    pub fn is_rowlog_loaded(&self) -> bool {
+        let rowlog_guard = (*self.blocks_rowlog)
+            .read()
+            .expect("read lock blocks_rowlog error");
+
+        rowlog_guard.len() > 0
+    }
+
     pub async fn setup_asset_service_client(&self, assets_url: &str) {
         let assets_srv: HttpClient<AssetsService> =
             HttpClient::<AssetsService>::from_base_url(&*assets_url);
@@ -118,9 +126,8 @@ impl ExchangePairsStorage {
 
     pub fn push_pairs_data(&self, pairs: Vec<ExchangePairsData>) {
         let Some(pair) = pairs.first() else { return };
-        dbg!(&pair);
-        debug!(
-            "loaded exchange pairs data for amount_asset: {}; price_asset: {}; records: {}",
+        dbg!(
+            "loading exchange pairs data for amount_asset: {}; price_asset: {}; records: {}",
             &pair.amount_asset,
             &pair.price_asset,
             pairs.len()
@@ -145,9 +152,10 @@ impl ExchangePairsStorage {
         amount_asset: &str,
         price_asset: &str,
     ) -> Option<ExchangePairsDailyStat> {
-        debug!(
+        dbg!(
             "calculating stat for amount_asset: {}; price_asset:{} ",
-            &amount_asset, &price_asset
+            &amount_asset,
+            &price_asset
         );
 
         let mut stat = ExchangePairsDailyStat {
@@ -162,12 +170,7 @@ impl ExchangePairsStorage {
             quote_volume: None,
         };
 
-        //        let ex_transactions = self.pairs_data.read().expect("read lock pairs_data error");
-        // test for locking when calc
-        let ex_transactions = self
-            .pairs_data
-            .write()
-            .expect("write lock pairs_data error");
+        let ex_transactions = self.pairs_data.read().expect("read lock pairs_data error");
 
         let asset_decimals = self
             .asset_decimals
@@ -389,7 +392,7 @@ impl ExchangePairsStorage {
 
     pub fn debug_heap_size(&self) {
         //need to find a way to calc size of storage size get-size crate cause Poison Errors
-        info!("ExchangePairsStorage heap size: {}", "unknown");
+        // info!("ExchangePairsStorage heap size: {}", "unknown");
     }
 
     #[cfg(test)]
@@ -434,7 +437,7 @@ impl ExchangePairsStorage {
 #[async_trait]
 trait ExchangePairsStorageAsyncTrait {
     async fn push_asset_decimals(&self, amount_asset: &str, price_asset: &str) -> Result<()>;
-    async fn lock_for_init_last_value(&self) -> TokioMutexGuard<bool>;
+    async fn lock_load_mutex(&self) -> TokioMutexGuard<bool>;
 }
 
 #[async_trait]
@@ -499,7 +502,7 @@ impl ExchangePairsStorageAsyncTrait for ExchangePairsStorage {
         ))
     }
 
-    async fn lock_for_init_last_value(&self) -> TokioMutexGuard<bool> {
+    async fn lock_load_mutex(&self) -> TokioMutexGuard<bool> {
         self.load_mutex.lock().await
     }
 }
@@ -512,6 +515,16 @@ pub trait ExchangePairsStorageProviderRepoTrait<R: ProviderRepo + Sync> {
 #[async_trait]
 impl<R: ProviderRepo + Sync> ExchangePairsStorageProviderRepoTrait<R> for ExchangePairsStorage {
     async fn load_blocks_rowlog(&self, repo: &R) -> Result<()> {
+        if self.is_rowlog_loaded() {
+            return Ok(());
+        }
+
+        let lock = self.lock_load_mutex().await;
+
+        if self.is_rowlog_loaded() {
+            return Ok(());
+        }
+
         let blocks = repo.last_blocks_microblocks().await?;
 
         let mut rowlog_guard = (*self.blocks_rowlog)
@@ -520,12 +533,16 @@ impl<R: ProviderRepo + Sync> ExchangePairsStorageProviderRepoTrait<R> for Exchan
 
         rowlog_guard.clear();
 
+        dbg!("loading rowlog", std::thread::current().id());
+
         blocks.iter().for_each(|b| {
             rowlog_guard.push((
                 b.id.clone(),
                 b.time_stamp.expect("block time_stamp is None"),
             ))
         });
+
+        drop(lock);
 
         Ok(())
     }
@@ -660,13 +677,10 @@ impl<R: ProviderRepo + Sync> LastValue<R> for ExchangePair {
             return Ok(false);
         }
 
-        let lock = crate::EXCHANGE_PAIRS_STORAGE
-            .lock_for_init_last_value()
-            .await;
+        let lock = crate::EXCHANGE_PAIRS_STORAGE.lock_load_mutex().await;
 
+        // check second time after locking to be sure that some other thread do not load same data
         if crate::EXCHANGE_PAIRS_STORAGE.pair_is_loaded(&self.amount_asset, &self.price_asset) {
-            // check second time after locking to be sure that some other thread do not load same data
-            drop(lock);
             return Ok(false);
         }
 
@@ -674,21 +688,9 @@ impl<R: ProviderRepo + Sync> LastValue<R> for ExchangePair {
             .push_asset_decimals(&self.amount_asset, &self.price_asset)
             .await?;
 
-        debug!(
-            "ExchangePair loading last transactions for pair: {}/{}",
-            &self.amount_asset, &self.price_asset
-        );
-
         let pairs = repo
             .last_exchange_pairs_transactions(self.amount_asset.clone(), self.price_asset.clone())
             .await?;
-
-        debug!(
-            "ExchangePair::last_value:{}/{} cnt:{}",
-            &self.amount_asset,
-            &self.price_asset,
-            pairs.len()
-        );
 
         crate::EXCHANGE_PAIRS_STORAGE.push_pairs_data(pairs);
 

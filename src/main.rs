@@ -22,9 +22,7 @@ use crate::providers::{blockchain, UpdatesProvider};
 use crate::resources::repo::ResourcesRepoRedis;
 use lazy_static::lazy_static;
 
-use blockchain::provider::exchange_pair::{
-    ExchangePairsStorage, ExchangePairsStorageProviderRepoTrait,
-};
+use blockchain::provider::exchange_pair::ExchangePairsStorage;
 use std::sync::Arc;
 use std::time::Duration;
 use wavesexchange_log::{error, info};
@@ -143,11 +141,6 @@ async fn tokio_main() -> Result<(), Error> {
         blockchain_config.waiting_blocks_timeout,
     )
     .await?;
-
-    // need to run after blockchain::updater::Updater::init to avoid loading last may be deleted blocks
-    EXCHANGE_PAIRS_STORAGE
-        .load_blocks_rowlog(&provider_repo)
-        .await?;
 
     blockchain_puller.subscribe(tx);
     let start_from = if last_height > blockchain_config.start_height {

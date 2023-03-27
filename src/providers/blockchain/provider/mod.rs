@@ -14,6 +14,8 @@ use wavesexchange_log::{debug, error, info, warn};
 use wavesexchange_topic::TopicKind;
 use wx_topic::Topic;
 
+use self::exchange_pair::ExchangePairsStorageProviderRepoTrait;
+
 use super::super::watchlist::{WatchList, WatchListItem, WatchListUpdate};
 use super::super::UpdatesProvider;
 use crate::db::{repo_provider::ProviderRepo, BlockchainUpdate};
@@ -94,7 +96,12 @@ where
     ) -> Result<()> {
         for blockchain_update in blockchain_updates.iter() {
             match blockchain_update {
-                BlockchainUpdate::Block(block) | BlockchainUpdate::Microblock(block) => {
+                BlockchainUpdate::Block(block) => self.process_block(block).await?,
+                BlockchainUpdate::Microblock(block) => {
+                    crate::EXCHANGE_PAIRS_STORAGE
+                        .load_blocks_rowlog(&self.repo)
+                        .await?;
+
                     self.process_block(block).await?
                 }
                 BlockchainUpdate::Rollback(rollback) => self.process_rollback(rollback).await?,
