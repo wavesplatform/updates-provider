@@ -747,4 +747,31 @@ mod asset_storage {
         assert_eq!(rowlog, vec!["id_2", "id_3", "id_4", "id_5"]);
         assert_eq!(st.rowlog().len(), 4);
     }
+
+    #[test]
+    fn wrong_rollback_test() {
+        let st = ExchangePairsStorage::new();
+
+        st.push_block_rowlog(&"id_0", &"", &80000000);
+        st.push_block_rowlog(&"id_1", &"", &80000000);
+        st.push_block_rowlog(&"id_2", &"", &86500000);
+        st.push_block_rowlog(&"id_3", &"", &86500000);
+        st.push_block_rowlog(&"id_4", &"", &86500000);
+        st.push_block_rowlog(&"id_5", &"", &80000000);
+        st.push_block_rowlog(&"id_6", &"", &80000000);
+        st.push_block_rowlog(&"id_7", &"", &0);
+        st.push_block_rowlog(&"id_8", &"", &0);
+        st.push_block_rowlog(&"id_9", &"", &0);
+
+        st.rollback("invalid_id");
+
+        let binding = st.rowlog();
+        let rowlog: Vec<&str> = binding.iter().map(|i| i.0.as_str()).collect();
+
+        assert_eq!(
+            rowlog,
+            vec!["id_0", "id_1", "id_2", "id_3", "id_4", "id_5", "id_6", "id_7", "id_8", "id_9"]
+        );
+        assert_eq!(st.rowlog().len(), 10);
+    }
 }

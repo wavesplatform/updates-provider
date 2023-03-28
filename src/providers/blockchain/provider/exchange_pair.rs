@@ -325,7 +325,22 @@ impl ExchangePairsStorage {
             .collect();
 
         if del_idx < 1 {
-            dbg!("rollback block id:{} not found; skipping", block_id);
+            println!("rollback block id:{} not found; skipping", block_id);
+            println!("current rowlog:");
+
+            let mut b_cnt = 0;
+            for b in rowlog_guard.iter().rev() {
+                println!("{} {}", b.0, b.1);
+
+                if b.1 > 0 {
+                    b_cnt += 1;
+                }
+
+                if b_cnt > 2 {
+                    break;
+                }
+            }
+
             return vec![];
         }
 
