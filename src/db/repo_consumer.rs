@@ -29,7 +29,7 @@ pub trait ConsumerRepo {
 }
 
 pub trait ConsumerRepoOperations {
-    fn get_prev_handled_height(&mut self) -> Result<Option<PrevHandledHeight>>;
+    fn get_prev_handled_height(&mut self, depth: u32) -> Result<Option<PrevHandledHeight>>;
 
     fn get_block_uid(&mut self, block_id: &str) -> Result<i64>;
 
@@ -151,14 +151,14 @@ mod repo_impl {
     }
 
     impl ConsumerRepoOperations for PgConnection {
-        fn get_prev_handled_height(&mut self) -> Result<Option<PrevHandledHeight>> {
+        fn get_prev_handled_height(&mut self, depth: u32) -> Result<Option<PrevHandledHeight>> {
             timer!("get_prev_handled_height()", verbose);
+
+            let sql_height = format!("(select max(height) - {} from blocks_microblocks)", depth);
 
             Ok(blocks_microblocks
                 .select((blocks_microblocks::uid, blocks_microblocks::height))
-                .filter(blocks_microblocks::height.eq(diesel::dsl::sql::<Integer>(
-                    "(select max(height) - 1 from blocks_microblocks)",
-                )))
+                .filter(blocks_microblocks::height.eq(diesel::dsl::sql::<Integer>(&sql_height)))
                 .order(blocks_microblocks::uid.asc())
                 .first(self)
                 .optional()?)
