@@ -39,7 +39,6 @@ pub struct Config {
 #[diesel(table_name = blocks_microblocks)]
 pub struct BlockMicroblock {
     pub id: String,
-    pub ref_id: Option<String>,
     pub time_stamp: Option<i64>,
     pub height: i32,
 }
@@ -294,7 +293,7 @@ impl TryFrom<std::sync::Arc<BlockchainUpdated>> for BlockchainUpdate {
 
                         Ok(BlockchainUpdate::Microblock(BlockMicroblockAppend {
                             id: block_uid,
-                            ref_id: ref_id,
+                            ref_id,
                             time_stamp: None,
                             height,
                             transactions,
@@ -562,7 +561,6 @@ impl From<&BlockMicroblockAppend> for BlockMicroblock {
     fn from(value: &BlockMicroblockAppend) -> Self {
         Self {
             id: value.id.clone(),
-            ref_id: None,
             height: value.height,
             time_stamp: value.time_stamp,
         }

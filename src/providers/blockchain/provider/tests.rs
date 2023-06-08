@@ -11,12 +11,11 @@ use std::{sync::Arc, time::Duration};
 use wx_topic::Topic;
 
 mod repo {
-    use crate::db::BlockMicroblock;
     pub use crate::providers::watchlist::tests::item::TestItem;
     use crate::waves::transactions::{Transaction, TransactionType};
     use crate::{
-        db::{repo_provider::ProviderRepo, DataEntry, LeasingBalance},
-        providers::blockchain::provider::exchange_pair::ExchangePairsData,
+        db::{repo_provider::ProviderRepo, BlockMicroblock, DataEntry, LeasingBalance},
+        providers::blockchain::provider::exchange_pair::ExchangePairData,
     };
     use async_trait::async_trait;
     use itertools::Itertools;
@@ -24,7 +23,7 @@ mod repo {
         collections::HashMap,
         sync::{Arc, Mutex},
     };
-    use wx_topic::StateSingle;
+    use wx_topic::{ExchangePair, StateSingle};
 
     #[derive(Clone)]
     pub struct TestProviderRepo(Arc<Mutex<HashMap<TestItem, String>>>);
@@ -75,23 +74,22 @@ mod repo {
             unimplemented!()
         }
 
+        async fn last_exchange_pairs_transactions(
+            &self,
+            _pair: ExchangePair,
+        ) -> crate::error::Result<Vec<ExchangePairData>> {
+            unimplemented!()
+        }
+
+        async fn last_blocks_microblocks(&self) -> crate::error::Result<Vec<BlockMicroblock>> {
+            unimplemented!()
+        }
+
         async fn find_matching_data_keys(
             &self,
             _addresses: Vec<String>,
             _key_patterns: Vec<String>,
         ) -> crate::error::Result<Vec<StateSingle>> {
-            unimplemented!()
-        }
-
-        async fn last_exchange_pairs_transactions(
-            &self,
-            _amount_asset: String,
-            _price_asset: String,
-        ) -> crate::error::Result<Vec<ExchangePairsData>> {
-            unimplemented!()
-        }
-
-        async fn last_blocks_microblocks(&self) -> crate::error::Result<Vec<BlockMicroblock>> {
             unimplemented!()
         }
     }
@@ -542,236 +540,4 @@ async fn test_updates_provider() -> anyhow::Result<()> {
     );
 
     Ok(())
-}
-
-#[cfg(test)]
-mod asset_storage {
-
-    use crate::providers::blockchain::provider::exchange_pair::{
-        ExchangePairsData, ExchangePairsStorage,
-    };
-    #[test]
-    fn solidify_test() {
-        let st = ExchangePairsStorage::new();
-        st.push_block_rowlog(&"id_0", &"", &1);
-        st.push_block_rowlog(&"id_1", &"", &2);
-        st.push_block_rowlog(&"id_2", &"", &3);
-        st.push_block_rowlog(&"id_3", &"", &0);
-        st.push_block_rowlog(&"id_4", &"", &0);
-
-        st.solidify_microblocks_test(&"id_new");
-
-        assert_eq!(
-            st.rowlog(),
-            &[
-                ("id_0".to_string(), 1),
-                ("id_1".to_string(), 2),
-                ("id_new".to_string(), 3)
-            ]
-        );
-    }
-
-    #[test]
-    fn rollback_test() {
-        let st = ExchangePairsStorage::new();
-        st.push_block_rowlog(&"id_0", &"", &1);
-        st.push_block_rowlog(&"id_1", &"", &2);
-        st.push_block_rowlog(&"id_2", &"", &3);
-        st.push_block_rowlog(&"id_3", &"", &0);
-        st.push_block_rowlog(&"id_4", &"", &0);
-
-        st.rollback(&"id_1");
-        assert_eq!(
-            st.rowlog(),
-            &[("id_0".to_string(), 1), ("id_1".to_string(), 2)]
-        );
-    }
-
-    #[test]
-    fn delete_by_ids_test() {
-        let st = ExchangePairsStorage::new();
-        st.add_transaction(ExchangePairsData {
-            block_id: "id_1".into(),
-            block_time_stamp: 0,
-            amount_asset: "WAVES".into(),
-            price_asset: "DG2xFkPdDwKUoBkzGAhQtLpSGzfXLiCYPEzeKH2Ad24p".into(),
-            amount_asset_volume: 0,
-            price_asset_volume: 0,
-            height: 0,
-        });
-        st.add_transaction(ExchangePairsData {
-            block_id: "id_1".into(),
-            block_time_stamp: 0,
-            amount_asset: "WAVES".into(),
-            price_asset: "DG2xFkPdDwKUoBkzGAhQtLpSGzfXLiCYPEzeKH2Ad24p".into(),
-            amount_asset_volume: 0,
-            price_asset_volume: 0,
-            height: 0,
-        });
-        st.add_transaction(ExchangePairsData {
-            block_id: "id_3".into(),
-            block_time_stamp: 0,
-            amount_asset: "WAVES".into(),
-            price_asset: "DG2xFkPdDwKUoBkzGAhQtLpSGzfXLiCYPEzeKH2Ad24p".into(),
-            amount_asset_volume: 0,
-            price_asset_volume: 0,
-            height: 0,
-        });
-        st.add_transaction(ExchangePairsData {
-            block_id: "id_4".into(),
-            block_time_stamp: 0,
-            amount_asset: "WAVES".into(),
-            price_asset: "DG2xFkPdDwKUoBkzGAhQtLpSGzfXLiCYPEzeKH2Ad24p".into(),
-            amount_asset_volume: 0,
-            price_asset_volume: 0,
-            height: 0,
-        });
-        st.add_transaction(ExchangePairsData {
-            block_id: "id_1".into(),
-            block_time_stamp: 0,
-            amount_asset: "WAVES".into(),
-            price_asset: "DG2xFkPdDwKUoBkzGAhQtLpSGzfXLiCYPEzeKH2Ad24p".into(),
-            amount_asset_volume: 0,
-            price_asset_volume: 0,
-            height: 0,
-        });
-
-        let id_1 = "id_1".to_string();
-        let id_4 = "id_4".to_string();
-
-        let to_del = vec![id_1.clone(), id_4.clone()];
-
-        st.delete_pairs_by_block_ids_test(&to_del);
-        let pairs = st.pairs_data();
-
-        pairs.iter().for_each(|i| {
-            assert_ne!(i.block_id, *id_1);
-            assert_ne!(i.block_id, *id_4);
-        });
-
-        assert_eq!(pairs.len(), 1);
-    }
-
-    #[test]
-    fn update_pairs_block_ids_test() {
-        let st = ExchangePairsStorage::new();
-
-        st.add_transaction(ExchangePairsData {
-            block_id: "id_1".into(),
-            block_time_stamp: 0,
-            amount_asset: "WAVES".into(),
-            price_asset: "DG2xFkPdDwKUoBkzGAhQtLpSGzfXLiCYPEzeKH2Ad24p".into(),
-            amount_asset_volume: 0,
-            price_asset_volume: 0,
-            height: 0,
-        });
-        st.add_transaction(ExchangePairsData {
-            block_id: "id_1".into(),
-            block_time_stamp: 0,
-            amount_asset: "WAVES".into(),
-            price_asset: "DG2xFkPdDwKUoBkzGAhQtLpSGzfXLiCYPEzeKH2Ad24p".into(),
-            amount_asset_volume: 0,
-            price_asset_volume: 0,
-            height: 0,
-        });
-        st.add_transaction(ExchangePairsData {
-            block_id: "id_3".into(),
-            block_time_stamp: 0,
-            amount_asset: "WAVES".into(),
-            price_asset: "DG2xFkPdDwKUoBkzGAhQtLpSGzfXLiCYPEzeKH2Ad24p".into(),
-            amount_asset_volume: 0,
-            price_asset_volume: 0,
-            height: 0,
-        });
-        st.add_transaction(ExchangePairsData {
-            block_id: "id_4".into(),
-            block_time_stamp: 0,
-            amount_asset: "WAVES".into(),
-            price_asset: "DG2xFkPdDwKUoBkzGAhQtLpSGzfXLiCYPEzeKH2Ad24p".into(),
-            amount_asset_volume: 0,
-            price_asset_volume: 0,
-            height: 0,
-        });
-        st.add_transaction(ExchangePairsData {
-            block_id: "id_1".into(),
-            block_time_stamp: 0,
-            amount_asset: "WAVES".into(),
-            price_asset: "DG2xFkPdDwKUoBkzGAhQtLpSGzfXLiCYPEzeKH2Ad24p".into(),
-            amount_asset_volume: 0,
-            price_asset_volume: 0,
-            height: 0,
-        });
-        st.add_transaction(ExchangePairsData {
-            block_id: "id_2".into(),
-            block_time_stamp: 0,
-            amount_asset: "WAVES".into(),
-            price_asset: "DG2xFkPdDwKUoBkzGAhQtLpSGzfXLiCYPEzeKH2Ad24p".into(),
-            amount_asset_volume: 0,
-            price_asset_volume: 0,
-            height: 0,
-        });
-
-        let to_upd = vec!["id_4".into(), "id_3".into()];
-        st.update_pairs_block_ids_test(&"new_id", to_upd);
-
-        let pairs_data = st.pairs_data();
-
-        pairs_data.iter().for_each(|i| {
-            assert!(i.block_id != "id_4");
-            assert!(i.block_id != "id_3");
-
-            assert!(i.block_id == "new_id" || i.block_id == "id_1" || i.block_id == "id_2");
-        });
-
-        assert_eq!(pairs_data.len(), 6);
-    }
-
-    #[test]
-    fn cleanup_test() {
-        let mut st = ExchangePairsStorage::new();
-
-        st.push_block_rowlog(&"id_0", &"", &80000000); // to del
-        st.push_block_rowlog(&"id_1", &"", &80000000); // to del
-        st.push_block_rowlog(&"id_2", &"", &86500000);
-        st.push_block_rowlog(&"id_3", &"", &86500000);
-        st.push_block_rowlog(&"id_4", &"", &86500000);
-        st.push_block_rowlog(&"id_5", &"", &80000000); //not del
-
-        st.set_last_block_timestamp(86400000 * 2);
-
-        st.cleanup();
-
-        let binding = st.rowlog();
-        let rowlog: Vec<&str> = binding.iter().map(|i| i.0.as_str()).collect();
-
-        assert_eq!(rowlog, vec!["id_2", "id_3", "id_4", "id_5"]);
-        assert_eq!(st.rowlog().len(), 4);
-    }
-
-    #[test]
-    fn wrong_rollback_test() {
-        let st = ExchangePairsStorage::new();
-
-        st.push_block_rowlog(&"id_0", &"", &80000000);
-        st.push_block_rowlog(&"id_1", &"", &80000000);
-        st.push_block_rowlog(&"id_2", &"", &86500000);
-        st.push_block_rowlog(&"id_3", &"", &86500000);
-        st.push_block_rowlog(&"id_4", &"", &86500000);
-        st.push_block_rowlog(&"id_5", &"", &80000000);
-        st.push_block_rowlog(&"id_6", &"", &80000000);
-        st.push_block_rowlog(&"id_7", &"", &0);
-        st.push_block_rowlog(&"id_8", &"", &0);
-        st.push_block_rowlog(&"id_9", &"", &0);
-
-        st.rollback("invalid_id");
-
-        let binding = st.rowlog();
-        let rowlog: Vec<&str> = binding.iter().map(|i| i.0.as_str()).collect();
-
-        assert_eq!(
-            rowlog,
-            vec!["id_0", "id_1", "id_2", "id_3", "id_4", "id_5", "id_6", "id_7", "id_8", "id_9"]
-        );
-        assert_eq!(st.rowlog().len(), 10);
-    }
 }

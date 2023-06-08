@@ -11,10 +11,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, RwLock};
 use wavesexchange_log::{debug, error, info, warn};
-use wavesexchange_topic::TopicKind;
-use wx_topic::Topic;
-
-use self::exchange_pair::ExchangePairsStorageProviderRepoTrait;
+use wx_topic::{TopicKind, Topic};
 
 use super::super::watchlist::{WatchList, WatchListItem, WatchListUpdate};
 use super::super::UpdatesProvider;

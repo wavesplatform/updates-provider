@@ -2,10 +2,10 @@
 
 use super::{BlockMicroblock, DataEntry, LeasingBalance};
 use crate::error::Result;
-use crate::providers::blockchain::provider::exchange_pair::ExchangePairsData;
+use crate::providers::blockchain::provider::exchange_pair::ExchangePairData;
 use crate::waves::transactions::{Transaction, TransactionType};
 use async_trait::async_trait;
-use wx_topic::StateSingle;
+use wx_topic::{ExchangePair, StateSingle};
 
 pub use self::repo_impl::PostgresProviderRepo;
 
@@ -31,9 +31,8 @@ pub trait ProviderRepo {
 
     async fn last_exchange_pairs_transactions(
         &self,
-        amount_asset: String,
-        price_asset: String,
-    ) -> Result<Vec<ExchangePairsData>>;
+        pair: ExchangePair,
+    ) -> Result<Vec<ExchangePairData>>;
 
     async fn last_blocks_microblocks(&self) -> Result<Vec<BlockMicroblock>>;
 
@@ -52,14 +51,14 @@ mod repo_impl {
     use crate::db::pool::{PgPoolWithStats, PooledPgConnection};
     use crate::db::{BlockMicroblock, DataEntry, LeasingBalance};
     use crate::error::Result;
-    use crate::providers::blockchain::provider::exchange_pair::ExchangePairsData;
+    use crate::providers::blockchain::provider::exchange_pair::ExchangePairData;
     use crate::schema::{associated_addresses, data_entries, leasing_balances, transactions};
     use crate::waves::transactions::{Transaction, TransactionType};
     use async_trait::async_trait;
     use diesel::dsl::sql;
     use itertools::Itertools;
     use wavesexchange_log::{debug, timer};
-    use wx_topic::StateSingle;
+    use wx_topic::{ExchangePair, StateSingle};
 
     const MAX_UID: i64 = i64::MAX - 1;
 
@@ -124,6 +123,20 @@ mod repo_impl {
             self.get_conn().await?.last_data_entry(address, key).await
         }
 
+        async fn last_exchange_pairs_transactions(
+            &self,
+            pair: ExchangePair,
+        ) -> Result<Vec<ExchangePairData>> {
+            self.get_conn()
+                .await?
+                .last_exchange_pairs_transactions(pair)
+                .await
+        }
+
+        async fn last_blocks_microblocks(&self) -> Result<Vec<BlockMicroblock>> {
+            self.get_conn().await?.last_blocks_microblocks().await
+        }
+
         async fn find_matching_data_keys(
             &self,
             addresses: Vec<String>,
@@ -133,21 +146,6 @@ mod repo_impl {
                 .await?
                 .find_matching_data_keys(addresses, key_patterns)
                 .await
-        }
-
-        async fn last_exchange_pairs_transactions(
-            &self,
-            amount_asset: String,
-            price_asset: String,
-        ) -> Result<Vec<ExchangePairsData>> {
-            self.get_conn()
-                .await?
-                .last_exchange_pairs_transactions(amount_asset, price_asset)
-                .await
-        }
-
-        async fn last_blocks_microblocks(&self) -> Result<Vec<BlockMicroblock>> {
-            self.get_conn().await?.last_blocks_microblocks().await
         }
     }
 
@@ -251,6 +249,42 @@ mod repo_impl {
             .await?
         }
 
+        async fn last_exchange_pairs_transactions(
+            &self,
+            pair: ExchangePair,
+        ) -> Result<Vec<ExchangePairData>> {
+            self.interact(|conn| {
+                let first_uid = block_uid_1day_ago(conn)?;
+
+                Ok(diesel::sql_query(r#"
+                    select t.uid, b.height, b.id block_id, b.time_stamp::BIGINT as block_time_stamp, exchange_amount_asset as amount_asset, exchange_price_asset as price_asset,
+                        (body::json->'amount')::TEXT::BIGINT as amount_asset_volume, (body::json->'price')::TEXT::BIGINT as price_asset_volume
+                    from blocks_microblocks b
+                        inner join transactions t on t.block_uid = b.uid
+                    where t.block_uid > $1
+                        and t.tx_type = 7
+                        and t.exchange_amount_asset = $2
+                        and t.exchange_price_asset = $3
+                        and b.time_stamp > 0
+                    "#)
+                    .bind::<BigInt, _>(first_uid)
+                    .bind::<VarChar, _>(pair.amount_asset)
+                    .bind::<VarChar, _>(pair.price_asset)
+                    .load::<ExchangePairData>(conn)?
+                )
+            }).await?
+        }
+
+        async fn last_blocks_microblocks(&self) -> Result<Vec<BlockMicroblock>> {
+            self.interact(|conn| {
+                let first_uid = block_uid_1day_ago(conn)?;
+                Ok(diesel::sql_query("select id, time_stamp, height from blocks_microblocks where uid > $1 and time_stamp > 0 order by uid")
+                    .bind::<BigInt, _>(first_uid)
+                    .load::<BlockMicroblock>(conn)?
+                )
+            }).await?
+        }
+
         async fn find_matching_data_keys(
             &self,
             addresses: Vec<String>,
@@ -349,55 +383,6 @@ mod repo_impl {
                 Ok(res)
             })
             .await?
-        }
-
-        async fn last_exchange_pairs_transactions(
-            &self,
-            amount_asset: String,
-            price_asset: String,
-        ) -> Result<Vec<ExchangePairsData>> {
-            self.interact(|conn| {
-                let first_uid = block_uid_1day_ago(conn)?;
-
-                Ok(diesel::sql_query(r#"
-                    select t.uid, b.height, b.id block_id, b.time_stamp::BIGINT as block_time_stamp, exchange_amount_asset as amount_asset, exchange_price_asset as price_asset,
-                        (body::json->'amount')::TEXT::BIGINT as amount_asset_volume, (body::json->'price')::TEXT::BIGINT as price_asset_volume
-                    from blocks_microblocks b
-                        inner join transactions t on t.block_uid = b.uid
-                    where t.block_uid > $1
-                        and t.tx_type = 7
-                        and t.exchange_amount_asset = $2
-                        and t.exchange_price_asset = $3
-                        and b.time_stamp > 0
-                    "#)
-                    .bind::<BigInt, _>(first_uid)
-                    .bind::<VarChar, _>(amount_asset)
-                    .bind::<VarChar, _>(price_asset)
-                    .load::<ExchangePairsData>(conn)?
-                    .iter()
-                    .map(|r|{
-                        ExchangePairsData {
-                            amount_asset: r.amount_asset.clone(),
-                            price_asset: r.price_asset.clone(),
-                            amount_asset_volume: r.amount_asset_volume,
-                            price_asset_volume: r.price_asset_volume,
-                            height: r.height,
-                            block_id: r.block_id.clone(),
-                            block_time_stamp: r.block_time_stamp
-                        }
-                    })
-                    .collect::<Vec<_>>())
-            }).await?
-        }
-
-        async fn last_blocks_microblocks(&self) -> Result<Vec<BlockMicroblock>> {
-            self.interact(|conn| {
-                let first_uid = block_uid_1day_ago(conn)?;
-                Ok(diesel::sql_query("select id, ref_id, time_stamp, height from blocks_microblocks where uid > $1 and time_stamp > 0 order by uid")
-                    .bind::<BigInt, _>(first_uid)
-                    .load::<BlockMicroblock>(conn)?
-                )
-            }).await?
         }
     }
 
