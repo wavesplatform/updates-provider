@@ -114,7 +114,7 @@ where
     DB: diesel::backend::Backend,
     i16: FromSql<SmallInt, DB>,
 {
-    fn from_sql(bytes: diesel::backend::RawValue<DB>) -> diesel::deserialize::Result<Self> {
+    fn from_sql(bytes: DB::RawValue<'_>) -> diesel::deserialize::Result<Self> {
         Ok(i16::from_sql(bytes)?.try_into()?)
     }
 }
