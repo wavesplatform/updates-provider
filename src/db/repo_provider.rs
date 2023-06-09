@@ -257,7 +257,7 @@ mod repo_impl {
                 let first_uid = block_uid_1day_ago(conn)?;
 
                 Ok(diesel::sql_query(r#"
-                    select t.uid, b.height, b.id block_id, b.time_stamp::BIGINT as block_time_stamp, exchange_amount_asset as amount_asset, exchange_price_asset as price_asset,
+                    select t.uid, t.id tx_id, b.height, b.id block_id, b.time_stamp::BIGINT as block_time_stamp, exchange_amount_asset as amount_asset, exchange_price_asset as price_asset,
                         (body::json->'amount')::TEXT::BIGINT as amount_asset_volume, (body::json->'price')::TEXT::BIGINT as price_asset_volume
                     from blocks_microblocks b
                         inner join transactions t on t.block_uid = b.uid

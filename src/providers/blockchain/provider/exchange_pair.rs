@@ -47,6 +47,9 @@ pub struct ExchangePairData {
     #[diesel(sql_type = Bigint)]
     pub price_asset_volume: i64,
 
+    #[diesel(sql_type = VarChar)]
+    pub tx_id: String,
+
     #[diesel(sql_type = Integer)]
     pub height: i32,
 
@@ -110,7 +113,10 @@ impl ExchangePairsStorage {
 
     pub fn add_transaction(&self, pair: ExchangePairData) {
         let mut storage_guard = self.pairs_data.write().unwrap();
-        storage_guard.push(pair);
+        // This needs to be optimized: collection scan
+        if storage_guard.iter().all(|p| p.tx_id != pair.tx_id) {
+            storage_guard.push(pair);
+        }
     }
 
     fn pair_is_loaded(&self, pair: &ExchangePair) -> bool {
@@ -128,6 +134,13 @@ impl ExchangePairsStorage {
         let mut storage_guard = self.pairs_data.write().unwrap();
 
         let mut loaded_guard = self.loaded_pairs.write().unwrap();
+
+        // This needs to be optimized: collection scan
+        let pairs = {
+            let mut pairs = pairs;
+            pairs.retain(|p| storage_guard.iter().all(|pp| p.tx_id != pp.tx_id));
+            pairs
+        };
 
         storage_guard.extend(pairs.into_iter());
         loaded_guard.insert(pair);
@@ -557,6 +570,7 @@ fn extract_pairs_data(
                 price_asset: encode_asset(&asset_pair.price_asset_id),
                 amount_asset_volume: exchange_data.amount,
                 price_asset_volume: exchange_data.price,
+                tx_id: update.id.clone(),
                 height: block.height,
                 block_id: block.id.clone(),
                 block_time_stamp: update.timestamp,
@@ -659,6 +673,7 @@ mod tests {
             price_asset: "DG2xFkPdDwKUoBkzGAhQtLpSGzfXLiCYPEzeKH2Ad24p".into(),
             amount_asset_volume: 0,
             price_asset_volume: 0,
+            tx_id: "tx_1".into(),
             height: 0,
         });
         st.add_transaction(ExchangePairData {
@@ -668,6 +683,7 @@ mod tests {
             price_asset: "DG2xFkPdDwKUoBkzGAhQtLpSGzfXLiCYPEzeKH2Ad24p".into(),
             amount_asset_volume: 0,
             price_asset_volume: 0,
+            tx_id: "tx_2".into(),
             height: 0,
         });
         st.add_transaction(ExchangePairData {
@@ -677,6 +693,7 @@ mod tests {
             price_asset: "DG2xFkPdDwKUoBkzGAhQtLpSGzfXLiCYPEzeKH2Ad24p".into(),
             amount_asset_volume: 0,
             price_asset_volume: 0,
+            tx_id: "tx_3".into(),
             height: 0,
         });
         st.add_transaction(ExchangePairData {
@@ -686,6 +703,7 @@ mod tests {
             price_asset: "DG2xFkPdDwKUoBkzGAhQtLpSGzfXLiCYPEzeKH2Ad24p".into(),
             amount_asset_volume: 0,
             price_asset_volume: 0,
+            tx_id: "tx_4".into(),
             height: 0,
         });
         st.add_transaction(ExchangePairData {
@@ -695,6 +713,7 @@ mod tests {
             price_asset: "DG2xFkPdDwKUoBkzGAhQtLpSGzfXLiCYPEzeKH2Ad24p".into(),
             amount_asset_volume: 0,
             price_asset_volume: 0,
+            tx_id: "tx_5".into(),
             height: 0,
         });
 
@@ -725,6 +744,7 @@ mod tests {
             price_asset: "DG2xFkPdDwKUoBkzGAhQtLpSGzfXLiCYPEzeKH2Ad24p".into(),
             amount_asset_volume: 0,
             price_asset_volume: 0,
+            tx_id: "tx_1".into(),
             height: 0,
         });
         st.add_transaction(ExchangePairData {
@@ -734,6 +754,7 @@ mod tests {
             price_asset: "DG2xFkPdDwKUoBkzGAhQtLpSGzfXLiCYPEzeKH2Ad24p".into(),
             amount_asset_volume: 0,
             price_asset_volume: 0,
+            tx_id: "tx_2".into(),
             height: 0,
         });
         st.add_transaction(ExchangePairData {
@@ -743,6 +764,7 @@ mod tests {
             price_asset: "DG2xFkPdDwKUoBkzGAhQtLpSGzfXLiCYPEzeKH2Ad24p".into(),
             amount_asset_volume: 0,
             price_asset_volume: 0,
+            tx_id: "tx_3".into(),
             height: 0,
         });
         st.add_transaction(ExchangePairData {
@@ -752,6 +774,7 @@ mod tests {
             price_asset: "DG2xFkPdDwKUoBkzGAhQtLpSGzfXLiCYPEzeKH2Ad24p".into(),
             amount_asset_volume: 0,
             price_asset_volume: 0,
+            tx_id: "tx_4".into(),
             height: 0,
         });
         st.add_transaction(ExchangePairData {
@@ -761,6 +784,7 @@ mod tests {
             price_asset: "DG2xFkPdDwKUoBkzGAhQtLpSGzfXLiCYPEzeKH2Ad24p".into(),
             amount_asset_volume: 0,
             price_asset_volume: 0,
+            tx_id: "tx_5".into(),
             height: 0,
         });
         st.add_transaction(ExchangePairData {
@@ -770,6 +794,7 @@ mod tests {
             price_asset: "DG2xFkPdDwKUoBkzGAhQtLpSGzfXLiCYPEzeKH2Ad24p".into(),
             amount_asset_volume: 0,
             price_asset_volume: 0,
+            tx_id: "tx_6".into(),
             height: 0,
         });
 
