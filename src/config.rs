@@ -31,6 +31,10 @@ fn default_waiting_blocks_timeout() -> u64 {
     15
 }
 
+fn default_start_rollback_depth() -> u32 {
+    1
+}
+
 #[derive(Deserialize)]
 pub struct RedisConfig {
     pub host: String,
@@ -106,6 +110,8 @@ struct FlatBlockchainUpdaterConfig {
     pub start_height: i32,
     #[serde(default = "default_waiting_blocks_timeout")]
     pub waiting_blocks_timeout: u64,
+    #[serde(default = "default_start_rollback_depth")]
+    start_rollback_depth: u32,
 }
 
 #[derive(Deserialize)]
@@ -173,6 +179,7 @@ pub fn load_blockchain() -> Result<providers::blockchain::Config, Error> {
         associated_addresses_count_threshold: flat_config.associated_addresses_count_threshold,
         start_height: flat_config.start_height,
         waiting_blocks_timeout: Duration::from_secs(flat_config.waiting_blocks_timeout),
+        start_rollback_depth: flat_config.start_rollback_depth,
     })
 }
 

@@ -139,6 +139,7 @@ async fn tokio_main() -> Result<(), Error> {
         blockchain_config.transactions_count_threshold,
         blockchain_config.associated_addresses_count_threshold,
         blockchain_config.waiting_blocks_timeout,
+        blockchain_config.start_rollback_depth,
     )
     .await?;
 
