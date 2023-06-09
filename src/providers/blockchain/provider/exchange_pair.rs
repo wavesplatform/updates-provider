@@ -180,12 +180,14 @@ impl ExchangePairsStorage {
             .for_each(|i| {
                 stat.txs_count += 1;
 
-                if stat.first_price.is_none() {
-                    stat.first_price =
+                // Because transactions are sorted in reverse order, we need to switch first_price/last_price here
+                if stat.last_price.is_none() {
+                    stat.last_price =
                         Some(apply_decimals(i.price_asset_volume, PRICE_ASSET_DECIMALS));
                 }
 
-                stat.last_price = Some(apply_decimals(i.price_asset_volume, PRICE_ASSET_DECIMALS));
+                // Because transactions are sorted in reverse order, we need to switch first_price/last_price here
+                stat.first_price = Some(apply_decimals(i.price_asset_volume, PRICE_ASSET_DECIMALS));
 
                 if low > i.price_asset_volume {
                     stat.low = Some(apply_decimals(i.price_asset_volume, PRICE_ASSET_DECIMALS));
