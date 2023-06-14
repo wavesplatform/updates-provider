@@ -491,18 +491,12 @@ impl DataFromBlock for ExchangePair {
         let pairs_in_block = pairs_in_block.into_iter().unique().collect_vec();
 
         pairs_in_block
-            .iter()
-            .filter(|&pair| crate::EXCHANGE_PAIRS_STORAGE.pair_is_loaded(pair))
+            .into_iter()
+            .filter(|pair| crate::EXCHANGE_PAIRS_STORAGE.pair_is_loaded(pair))
             .map(|pair| {
-                let current_value = crate::EXCHANGE_PAIRS_STORAGE.calc_stat(pair);
-
-                BlockData::new(
-                    serde_json::to_string(&current_value).unwrap(),
-                    ExchangePair {
-                        amount_asset: pair.amount_asset.clone(),
-                        price_asset: pair.price_asset.clone(),
-                    },
-                )
+                let current_value = crate::EXCHANGE_PAIRS_STORAGE.calc_stat(&pair);
+                let current_value = serde_json::to_string(&current_value).unwrap();
+                BlockData::new(current_value, pair)
             })
             .collect()
     }
@@ -514,9 +508,8 @@ impl DataFromBlock for ExchangePair {
             .into_iter()
             .filter(|pair| crate::EXCHANGE_PAIRS_STORAGE.pair_is_loaded(pair))
             .map(|pair| {
-                let current_value =
-                    serde_json::to_string(&crate::EXCHANGE_PAIRS_STORAGE.calc_stat(&pair)).unwrap();
-
+                let current_value = crate::EXCHANGE_PAIRS_STORAGE.calc_stat(&pair);
+                let current_value = serde_json::to_string(&current_value).unwrap();
                 BlockData::new(current_value, pair)
             })
             .collect()
