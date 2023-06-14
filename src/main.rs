@@ -73,7 +73,6 @@ async fn tokio_main() -> Result<(), Error> {
         redis::new_redis_pool(redis_connection_url, REDIS_CONNECTIONS_AVAILABLE.clone()).await?;
 
     let resources_repo = ResourcesRepoRedis::new(redis_pool.clone());
-    let resources_repo = Arc::new(resources_repo);
 
     let consumer_db_pool = db::pool::new(
         &postgres_config.postgres_rw,

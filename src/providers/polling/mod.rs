@@ -14,17 +14,17 @@ use wavesexchange_log::{debug, error, info};
 
 pub struct PollProvider<T: WatchListItem, R: ResourcesRepo> {
     requester: Box<dyn Requester<T>>,
-    resources_repo: Arc<R>,
+    resources_repo: R,
     polling_delay: Duration,
     watchlist: Arc<RwLock<WatchList<T, R>>>,
 }
 
-impl<T: WatchListItem, R: ResourcesRepo> PollProvider<T, R> {
+impl<T: WatchListItem, R: ResourcesRepo + Clone> PollProvider<T, R> {
     pub fn new(
         requester: Box<(dyn Requester<T>)>,
         polling_delay: Duration,
         delete_timeout: Duration,
-        resources_repo: Arc<R>,
+        resources_repo: R,
     ) -> Self {
         let watchlist = Arc::new(RwLock::new(WatchList::new(
             resources_repo.clone(),

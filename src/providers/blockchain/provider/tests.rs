@@ -246,7 +246,7 @@ async fn test_updates_provider() -> anyhow::Result<()> {
     let sync = || async { tokio::time::sleep(Duration::from_millis(10)).await };
 
     // Setup
-    let res_repo = Arc::new(TestResourcesRepo::default());
+    let res_repo = TestResourcesRepo::default();
     let db_repo = TestProviderRepo::default();
     let keep_alive = Duration::from_nanos(1);
     let (tx, rx) = tokio::sync::mpsc::channel(8);

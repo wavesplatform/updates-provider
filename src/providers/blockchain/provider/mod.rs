@@ -40,9 +40,9 @@ pub trait Item<R: ProviderRepo>:
 /// * `T` defines the value type returned by this provider: State, Transaction, LeasingBalance etc.
 /// * `P` is the corresponding repo to load/save values from/to Postgres database
 /// * `R` is the repo to publish values in Redis
-pub struct Provider<T: Item<P>, R: ResourcesRepo, P: ProviderRepo> {
+pub struct Provider<T: Item<P>, R: ResourcesRepo + Clone, P: ProviderRepo> {
     watchlist: Arc<RwLock<WatchList<T, R>>>,
-    resources_repo: Arc<R>,
+    resources_repo: R,
     rx: mpsc::Receiver<Arc<Vec<BlockchainUpdate>>>,
     repo: P,
     clean_timeout: Duration,
@@ -51,11 +51,11 @@ pub struct Provider<T: Item<P>, R: ResourcesRepo, P: ProviderRepo> {
 impl<T, R, P> Provider<T, R, P>
 where
     T: Item<P> + 'static,
-    R: ResourcesRepo + Send + Sync + 'static,
+    R: ResourcesRepo + Clone + Send + Sync + 'static,
     P: ProviderRepo + Clone + Send + Sync + 'static,
 {
     pub fn new(
-        resources_repo: Arc<R>,
+        resources_repo: R,
         delete_timeout: Duration,
         repo: P,
         rx: mpsc::Receiver<Arc<Vec<BlockchainUpdate>>>,
@@ -210,7 +210,7 @@ where
 impl<T, R, P> UpdatesProvider<T> for Provider<T, R, P>
 where
     T: Item<P> + 'static,
-    R: ResourcesRepo + Send + Sync + 'static,
+    R: ResourcesRepo + Clone + Send + Sync + 'static,
     P: ProviderRepo + Clone + Send + Sync + 'static,
 {
     /// Run 2 async tasks: handler of subscribe/unsubscribe events & handler of blockchain updates
@@ -257,7 +257,7 @@ where
 }
 
 async fn check_and_maybe_insert<T: Item<P>, R: ResourcesRepo + Sync, P: ProviderRepo>(
-    resources_repo: &Arc<R>,
+    resources_repo: &R,
     repo: &P,
     value: T,
 ) -> Result<Option<HashSet<String>>> {
@@ -313,7 +313,7 @@ async fn check_and_maybe_insert<T: Item<P>, R: ResourcesRepo + Sync, P: Provider
 }
 
 async fn append_subtopic_to_multitopic<T: Item<P>, R: ResourcesRepo + Sync, P: ProviderRepo>(
-    resources_repo: &Arc<R>,
+    resources_repo: &R,
     multitopic_item: T,
     subtopic_item: T,
     watchlist: &Arc<RwLock<WatchList<T, R>>>,
