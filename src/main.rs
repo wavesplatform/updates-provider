@@ -4,6 +4,7 @@ extern crate wavesexchange_topic as wx_topic;
 
 mod config;
 mod db;
+mod decimal;
 mod error;
 mod metrics;
 mod models;

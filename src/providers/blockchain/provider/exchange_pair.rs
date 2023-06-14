@@ -7,6 +7,7 @@ use std::{
 use super::{BlockData, DataFromBlock, Item, LastValue};
 use crate::{
     db::repo_provider::ProviderRepo,
+    decimal::{Decimal, UnknownScale},
     error::{Error, Result},
     waves::{
         self, encode_asset,
@@ -15,7 +16,6 @@ use crate::{
 };
 use async_trait::async_trait;
 use bigdecimal::BigDecimal;
-use diesel::sql_types::{Bigint, Integer, VarChar};
 use itertools::Itertools;
 use serde::Serialize;
 use tokio::{
@@ -28,42 +28,27 @@ use wavesexchange_apis::{
     chrono::Utc,
     AssetsService, HttpClient,
 };
-use wavesexchange_log::debug;
+use wavesexchange_log::{debug, error};
 use wx_topic::ExchangePair;
 
-const PRICE_ASSET_DECIMALS: i32 = 8;
+const PRICE_ASSET_DECIMALS: u8 = 8;
 
-#[derive(Debug, Clone, QueryableByName)]
+#[derive(Debug, Clone)]
 pub struct ExchangePairData {
-    #[diesel(sql_type = VarChar)]
     pub amount_asset: String,
-
-    #[diesel(sql_type = VarChar)]
     pub price_asset: String,
-
-    #[diesel(sql_type = Bigint)]
-    pub amount_asset_volume: i64,
-
-    #[diesel(sql_type = Bigint)]
-    pub price_asset_volume: i64,
-
-    #[diesel(sql_type = VarChar)]
+    pub amount_asset_volume: Decimal<UnknownScale>,
+    pub price_asset_volume: Decimal<UnknownScale>,
     pub tx_id: String,
-
-    #[diesel(sql_type = Integer)]
     pub height: i32,
-
-    #[diesel(sql_type = VarChar)]
     pub block_id: String,
-
-    #[diesel(sql_type = Bigint)]
     pub block_time_stamp: i64,
 }
 
 pub struct ExchangePairsStorage {
     pairs_data: Arc<RwLock<Vec<ExchangePairData>>>,
     blocks_rowlog: Arc<RwLock<Vec<(String, i64)>>>,
-    asset_decimals: Arc<RwLock<HashMap<String, i32>>>,
+    asset_decimals: Arc<RwLock<HashMap<String, u8>>>,
     asset_service_client: Arc<TokioRwLock<Option<HttpClient<AssetsService>>>>,
     last_block_timestamp: Arc<RwLock<i64>>,
     loaded_pairs: Arc<RwLock<HashSet<ExchangePair>>>,
@@ -174,9 +159,9 @@ impl ExchangePairsStorage {
             }
         };
 
-        let mut low: i64 = i64::MAX;
-        let mut high: i64 = 0;
-        let mut volume: i64 = 0;
+        let mut low = i64::MAX;
+        let mut high = 0_i64;
+        let mut volume = BigDecimal::from(0);
         let mut quote_volume = BigDecimal::from(0);
 
         let last_day_stamp = Utc::now().timestamp_millis() - 86400000;
@@ -190,35 +175,41 @@ impl ExchangePairsStorage {
                     && (t.block_time_stamp < 1 || t.block_time_stamp > last_day_stamp)
             })
             .sorted_by(|l, r| r.block_time_stamp.cmp(&l.block_time_stamp))
-            .for_each(|i| {
+            .for_each(|pair_data| {
                 stat.txs_count += 1;
+
+                let price_asset_volume = pair_data
+                    .price_asset_volume
+                    .with_scale(PRICE_ASSET_DECIMALS)
+                    .to_big();
+                let amount_asset_volume = pair_data
+                    .amount_asset_volume
+                    .with_scale(amount_dec)
+                    .to_big();
 
                 // Because transactions are sorted in reverse order, we need to switch first_price/last_price here
                 if stat.last_price.is_none() {
-                    stat.last_price =
-                        Some(apply_decimals(i.price_asset_volume, PRICE_ASSET_DECIMALS));
+                    stat.last_price = Some(price_asset_volume.clone());
                 }
 
                 // Because transactions are sorted in reverse order, we need to switch first_price/last_price here
-                stat.first_price = Some(apply_decimals(i.price_asset_volume, PRICE_ASSET_DECIMALS));
+                stat.first_price = Some(price_asset_volume.clone());
 
-                if low > i.price_asset_volume {
-                    stat.low = Some(apply_decimals(i.price_asset_volume, PRICE_ASSET_DECIMALS));
-                    low = i.price_asset_volume;
+                if low > pair_data.price_asset_volume.raw_value() {
+                    stat.low = Some(price_asset_volume.clone());
+                    low = pair_data.price_asset_volume.raw_value();
                 }
 
-                if high < i.price_asset_volume {
-                    stat.high = Some(apply_decimals(i.price_asset_volume, PRICE_ASSET_DECIMALS));
-                    high = i.price_asset_volume;
+                if high < pair_data.price_asset_volume.raw_value() {
+                    stat.high = Some(price_asset_volume.clone());
+                    high = pair_data.price_asset_volume.raw_value();
                 }
 
-                volume += i.amount_asset_volume;
-
-                quote_volume += apply_decimals(i.amount_asset_volume, amount_dec)
-                    * apply_decimals(i.price_asset_volume, PRICE_ASSET_DECIMALS);
+                volume += &amount_asset_volume;
+                quote_volume += &amount_asset_volume * &price_asset_volume;
             });
 
-        stat.volume = Some(apply_decimals(volume, amount_dec));
+        stat.volume = Some(volume.with_scale(amount_dec as i64));
         stat.quote_volume = Some(quote_volume.with_scale(PRICE_ASSET_DECIMALS as i64));
 
         Some(stat)
@@ -425,29 +416,36 @@ impl ExchangePairsStorage {
                     for a in assets_info.data {
                         match a.data {
                             Some(AssetInfo::Full(f)) => {
-                                asset_decimals.insert(f.id, f.precision);
+                                assert!(
+                                    f.precision >= 0 && f.precision <= 30,
+                                    "probably bad precision value {} for asset {}",
+                                    f.precision,
+                                    f.id
+                                );
+                                asset_decimals.insert(f.id, f.precision as u8);
                             }
                             _ => {
-                                debug!(format!("bad asset value from asset service: {:?}", a))
+                                error!("bad AssetInfo from asset-service: {:?}", a);
                             }
                         }
                     }
                     return Ok(());
                 }
                 Err(e) => {
-                    debug!(format!(
-                        "asset-service return error (sleeping {}s): {}",
-                        e, sleep_dur
-                    ));
+                    debug!(
+                        "asset-service returned error, sleeping {}s: {}",
+                        sleep_dur, e
+                    );
                     tokio_sleep(Duration::from_secs(sleep_dur)).await;
                     sleep_dur *= 2;
                 }
             }
         }
 
-        Err(Error::AssetServiceClientError(
-            "can't request asset-service".into(),
-        ))
+        Err(Error::AssetServiceClientError(format!(
+            "failed to query decimals from asset-service for assets {} and {}",
+            pair.amount_asset, pair.price_asset
+        )))
     }
 
     async fn lock_load_mutex(&self) -> TokioMutexGuard<bool> {
@@ -568,8 +566,8 @@ fn extract_pairs_data(
             Some(ExchangePairData {
                 amount_asset: encode_asset(&asset_pair.amount_asset_id),
                 price_asset: encode_asset(&asset_pair.price_asset_id),
-                amount_asset_volume: exchange_data.amount,
-                price_asset_volume: exchange_data.price,
+                amount_asset_volume: Decimal::new_raw(exchange_data.amount),
+                price_asset_volume: Decimal::new_raw(exchange_data.price),
                 tx_id: update.id.clone(),
                 height: block.height,
                 block_id: block.id.clone(),
@@ -617,13 +615,10 @@ impl<R: ProviderRepo + Sync> LastValue<R> for ExchangePair {
 
 impl<R: ProviderRepo + Sync> Item<R> for ExchangePair {}
 
-pub fn apply_decimals(num: i64, dec: i32) -> BigDecimal {
-    (BigDecimal::from(num) / (10_i64.pow(dec as u32))).with_scale(dec as i64)
-}
-
 #[cfg(test)]
 mod tests {
     use super::{ExchangePairData, ExchangePairsStorage};
+    use crate::decimal::Decimal;
     use itertools::Itertools;
 
     #[test]
@@ -671,8 +666,8 @@ mod tests {
             block_time_stamp: 0,
             amount_asset: "WAVES".into(),
             price_asset: "DG2xFkPdDwKUoBkzGAhQtLpSGzfXLiCYPEzeKH2Ad24p".into(),
-            amount_asset_volume: 0,
-            price_asset_volume: 0,
+            amount_asset_volume: Decimal::new_raw(0),
+            price_asset_volume: Decimal::new_raw(0),
             tx_id: "tx_1".into(),
             height: 0,
         });
@@ -681,8 +676,8 @@ mod tests {
             block_time_stamp: 0,
             amount_asset: "WAVES".into(),
             price_asset: "DG2xFkPdDwKUoBkzGAhQtLpSGzfXLiCYPEzeKH2Ad24p".into(),
-            amount_asset_volume: 0,
-            price_asset_volume: 0,
+            amount_asset_volume: Decimal::new_raw(0),
+            price_asset_volume: Decimal::new_raw(0),
             tx_id: "tx_2".into(),
             height: 0,
         });
@@ -691,8 +686,8 @@ mod tests {
             block_time_stamp: 0,
             amount_asset: "WAVES".into(),
             price_asset: "DG2xFkPdDwKUoBkzGAhQtLpSGzfXLiCYPEzeKH2Ad24p".into(),
-            amount_asset_volume: 0,
-            price_asset_volume: 0,
+            amount_asset_volume: Decimal::new_raw(0),
+            price_asset_volume: Decimal::new_raw(0),
             tx_id: "tx_3".into(),
             height: 0,
         });
@@ -701,8 +696,8 @@ mod tests {
             block_time_stamp: 0,
             amount_asset: "WAVES".into(),
             price_asset: "DG2xFkPdDwKUoBkzGAhQtLpSGzfXLiCYPEzeKH2Ad24p".into(),
-            amount_asset_volume: 0,
-            price_asset_volume: 0,
+            amount_asset_volume: Decimal::new_raw(0),
+            price_asset_volume: Decimal::new_raw(0),
             tx_id: "tx_4".into(),
             height: 0,
         });
@@ -711,8 +706,8 @@ mod tests {
             block_time_stamp: 0,
             amount_asset: "WAVES".into(),
             price_asset: "DG2xFkPdDwKUoBkzGAhQtLpSGzfXLiCYPEzeKH2Ad24p".into(),
-            amount_asset_volume: 0,
-            price_asset_volume: 0,
+            amount_asset_volume: Decimal::new_raw(0),
+            price_asset_volume: Decimal::new_raw(0),
             tx_id: "tx_5".into(),
             height: 0,
         });
@@ -742,8 +737,8 @@ mod tests {
             block_time_stamp: 0,
             amount_asset: "WAVES".into(),
             price_asset: "DG2xFkPdDwKUoBkzGAhQtLpSGzfXLiCYPEzeKH2Ad24p".into(),
-            amount_asset_volume: 0,
-            price_asset_volume: 0,
+            amount_asset_volume: Decimal::new_raw(0),
+            price_asset_volume: Decimal::new_raw(0),
             tx_id: "tx_1".into(),
             height: 0,
         });
@@ -752,8 +747,8 @@ mod tests {
             block_time_stamp: 0,
             amount_asset: "WAVES".into(),
             price_asset: "DG2xFkPdDwKUoBkzGAhQtLpSGzfXLiCYPEzeKH2Ad24p".into(),
-            amount_asset_volume: 0,
-            price_asset_volume: 0,
+            amount_asset_volume: Decimal::new_raw(0),
+            price_asset_volume: Decimal::new_raw(0),
             tx_id: "tx_2".into(),
             height: 0,
         });
@@ -762,8 +757,8 @@ mod tests {
             block_time_stamp: 0,
             amount_asset: "WAVES".into(),
             price_asset: "DG2xFkPdDwKUoBkzGAhQtLpSGzfXLiCYPEzeKH2Ad24p".into(),
-            amount_asset_volume: 0,
-            price_asset_volume: 0,
+            amount_asset_volume: Decimal::new_raw(0),
+            price_asset_volume: Decimal::new_raw(0),
             tx_id: "tx_3".into(),
             height: 0,
         });
@@ -772,8 +767,8 @@ mod tests {
             block_time_stamp: 0,
             amount_asset: "WAVES".into(),
             price_asset: "DG2xFkPdDwKUoBkzGAhQtLpSGzfXLiCYPEzeKH2Ad24p".into(),
-            amount_asset_volume: 0,
-            price_asset_volume: 0,
+            amount_asset_volume: Decimal::new_raw(0),
+            price_asset_volume: Decimal::new_raw(0),
             tx_id: "tx_4".into(),
             height: 0,
         });
@@ -782,8 +777,8 @@ mod tests {
             block_time_stamp: 0,
             amount_asset: "WAVES".into(),
             price_asset: "DG2xFkPdDwKUoBkzGAhQtLpSGzfXLiCYPEzeKH2Ad24p".into(),
-            amount_asset_volume: 0,
-            price_asset_volume: 0,
+            amount_asset_volume: Decimal::new_raw(0),
+            price_asset_volume: Decimal::new_raw(0),
             tx_id: "tx_5".into(),
             height: 0,
         });
@@ -792,8 +787,8 @@ mod tests {
             block_time_stamp: 0,
             amount_asset: "WAVES".into(),
             price_asset: "DG2xFkPdDwKUoBkzGAhQtLpSGzfXLiCYPEzeKH2Ad24p".into(),
-            amount_asset_volume: 0,
-            price_asset_volume: 0,
+            amount_asset_volume: Decimal::new_raw(0),
+            price_asset_volume: Decimal::new_raw(0),
             tx_id: "tx_6".into(),
             height: 0,
         });

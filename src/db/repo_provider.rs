@@ -44,18 +44,19 @@ pub trait ProviderRepo {
 }
 
 mod repo_impl {
-    use diesel::prelude::*;
-    use diesel::sql_types::{BigInt, VarChar};
-
     use super::ProviderRepo;
     use crate::db::pool::{PgPoolWithStats, PooledPgConnection};
     use crate::db::{BlockMicroblock, DataEntry, LeasingBalance};
+    use crate::decimal::Decimal;
     use crate::error::Result;
     use crate::providers::blockchain::provider::exchange_pair::ExchangePairData;
     use crate::schema::{associated_addresses, data_entries, leasing_balances, transactions};
     use crate::waves::transactions::{Transaction, TransactionType};
     use async_trait::async_trait;
+    use diesel::connection::DefaultLoadingMode;
     use diesel::dsl::sql;
+    use diesel::prelude::*;
+    use diesel::sql_types::{BigInt, Integer, VarChar};
     use itertools::Itertools;
     use wavesexchange_log::{debug, timer};
     use wx_topic::{ExchangePair, StateSingle};
@@ -253,6 +254,33 @@ mod repo_impl {
             &self,
             pair: ExchangePair,
         ) -> Result<Vec<ExchangePairData>> {
+            #[derive(QueryableByName)]
+            struct Item {
+                #[diesel(sql_type = VarChar)]
+                amount_asset: String,
+
+                #[diesel(sql_type = VarChar)]
+                price_asset: String,
+
+                #[diesel(sql_type = BigInt)]
+                amount_asset_volume: i64,
+
+                #[diesel(sql_type = BigInt)]
+                price_asset_volume: i64,
+
+                #[diesel(sql_type = VarChar)]
+                tx_id: String,
+
+                #[diesel(sql_type = Integer)]
+                height: i32,
+
+                #[diesel(sql_type = VarChar)]
+                block_id: String,
+
+                #[diesel(sql_type = BigInt)]
+                block_time_stamp: i64,
+            }
+
             self.interact(|conn| {
                 let first_uid = block_uid_1day_ago(conn)?;
 
@@ -270,7 +298,18 @@ mod repo_impl {
                     .bind::<BigInt, _>(first_uid)
                     .bind::<VarChar, _>(pair.amount_asset)
                     .bind::<VarChar, _>(pair.price_asset)
-                    .load::<ExchangePairData>(conn)?
+                    .load_iter::<Item, DefaultLoadingMode>(conn)?
+                    .map_ok(|item| ExchangePairData {
+                        amount_asset: item.amount_asset,
+                        price_asset: item.price_asset,
+                        amount_asset_volume: Decimal::new_raw(item.amount_asset_volume),
+                        price_asset_volume: Decimal::new_raw(item.price_asset_volume),
+                        tx_id: item.tx_id,
+                        height: item.height,
+                        block_id: item.block_id,
+                        block_time_stamp: item.block_time_stamp,
+                    })
+                    .collect::<QueryResult<Vec<ExchangePairData>>>()?
                 )
             }).await?
         }
