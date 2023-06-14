@@ -1,14 +1,14 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     sync::{Arc, RwLock},
-    time::Duration,
 };
 
 use super::{BlockData, DataFromBlock, LastValue};
 use crate::{
+    asset_info::AssetStorage,
     db::repo_provider::ProviderRepo,
     decimal::{Decimal, UnknownScale},
-    error::{Error, Result},
+    error::Result,
     waves::{
         self, encode_asset,
         transactions::{TransactionType, TransactionUpdate},
@@ -18,17 +18,9 @@ use async_trait::async_trait;
 use bigdecimal::BigDecimal;
 use itertools::Itertools;
 use serde::Serialize;
-use tokio::{
-    sync::{Mutex as TokioMutex, MutexGuard as TokioMutexGuard, RwLock as TokioRwLock},
-    time::sleep as tokio_sleep,
-};
+use tokio::sync::{Mutex as TokioMutex, MutexGuard as TokioMutexGuard};
 use waves_protobuf_schemas::waves::transaction::Data;
-use wavesexchange_apis::{
-    assets::dto::{AssetInfo, OutputFormat},
-    chrono::Utc,
-    AssetsService, HttpClient,
-};
-use wavesexchange_log::{debug, error};
+use wavesexchange_apis::chrono::Utc;
 use wx_topic::ExchangePair;
 
 const PRICE_ASSET_DECIMALS: u8 = 8;
@@ -48,11 +40,13 @@ pub struct ExchangePairData {
 pub struct ExchangePairsStorage {
     pairs_data: Arc<RwLock<Vec<ExchangePairData>>>,
     blocks_rowlog: Arc<RwLock<Vec<(String, i64)>>>,
-    asset_decimals: Arc<RwLock<HashMap<String, u8>>>,
-    asset_service_client: Arc<TokioRwLock<Option<HttpClient<AssetsService>>>>,
     last_block_timestamp: Arc<RwLock<i64>>,
     loaded_pairs: Arc<RwLock<HashSet<ExchangePair>>>,
     load_mutex: TokioMutex<bool>,
+}
+
+pub struct PairsContext {
+    pub asset_storage: AssetStorage,
 }
 
 #[derive(Debug, Serialize)]
@@ -73,10 +67,8 @@ impl ExchangePairsStorage {
         Self {
             pairs_data: Arc::new(RwLock::new(vec![])),
             blocks_rowlog: Arc::new(RwLock::new(vec![])),
-            asset_decimals: Arc::new(RwLock::new(HashMap::new())),
             last_block_timestamp: Arc::new(RwLock::new(-1)),
             loaded_pairs: Arc::new(RwLock::new(HashSet::new())),
-            asset_service_client: Arc::new(TokioRwLock::new(None)),
             load_mutex: TokioMutex::new(true),
         }
     }
@@ -85,15 +77,6 @@ impl ExchangePairsStorage {
         let rowlog_guard = self.blocks_rowlog.read().unwrap();
 
         rowlog_guard.len() > 0
-    }
-
-    pub async fn setup_asset_service_client(&self, assets_url: &str) {
-        let assets_srv: HttpClient<AssetsService> =
-            HttpClient::<AssetsService>::from_base_url(&*assets_url);
-
-        let mut cl = self.asset_service_client.write().await;
-
-        *cl = Some(assets_srv);
     }
 
     pub fn add_transaction(&self, pair: ExchangePairData) {
@@ -131,7 +114,11 @@ impl ExchangePairsStorage {
         loaded_guard.insert(pair);
     }
 
-    fn calc_stat(&self, pair: &ExchangePair) -> Option<ExchangePairsDailyStat> {
+    fn calc_stat(
+        &self,
+        pair: &ExchangePair,
+        asset_storage: &AssetStorage,
+    ) -> Option<ExchangePairsDailyStat> {
         let mut stat = ExchangePairsDailyStat {
             amount_asset: pair.amount_asset.clone(),
             price_asset: pair.price_asset.clone(),
@@ -146,18 +133,7 @@ impl ExchangePairsStorage {
 
         let ex_transactions = self.pairs_data.read().unwrap();
 
-        let asset_decimals = self.asset_decimals.read().unwrap();
-
-        let amount_dec = match asset_decimals.get(&pair.amount_asset) {
-            Some(a) => *a,
-            None => {
-                debug!(
-                    "amount asset decimals not found. asset_id: {}",
-                    pair.amount_asset
-                );
-                return None;
-            }
-        };
+        let amount_decimals = asset_storage.decimals_for_asset(&pair.amount_asset)?;
 
         let mut low = i64::MAX;
         let mut high = 0_i64;
@@ -184,7 +160,7 @@ impl ExchangePairsStorage {
                     .to_big();
                 let amount_asset_volume = pair_data
                     .amount_asset_volume
-                    .with_scale(amount_dec)
+                    .with_scale(amount_decimals)
                     .to_big();
 
                 // Because transactions are sorted in reverse order, we need to switch first_price/last_price here
@@ -209,7 +185,7 @@ impl ExchangePairsStorage {
                 quote_volume += &amount_asset_volume * &price_asset_volume;
             });
 
-        stat.volume = Some(volume.with_scale(amount_dec as i64));
+        stat.volume = Some(volume.with_scale(amount_decimals as i64));
         stat.quote_volume = Some(quote_volume.with_scale(PRICE_ASSET_DECIMALS as i64));
 
         Some(stat)
@@ -387,67 +363,6 @@ impl ExchangePairsStorage {
         self.last_block_timestamp = Arc::new(RwLock::new(t))
     }
 
-    async fn push_asset_decimals(&self, pair: &ExchangePair) -> Result<()> {
-        {
-            let r = self.asset_decimals.read().unwrap();
-
-            if r.contains_key(&pair.amount_asset) && r.contains_key(&pair.price_asset) {
-                return Ok(());
-            }
-        }
-
-        let assets = [pair.amount_asset.as_str(), pair.price_asset.as_str()];
-
-        let mut sleep_dur = 30;
-        while sleep_dur < 600 {
-            let resp = self
-                .asset_service_client
-                .read()
-                .await
-                .as_ref()
-                .expect("asset service client not configured")
-                .get(assets, None, OutputFormat::Full, false)
-                .await;
-
-            match resp {
-                Ok(assets_info) => {
-                    let mut asset_decimals = self.asset_decimals.write().unwrap();
-
-                    for a in assets_info.data {
-                        match a.data {
-                            Some(AssetInfo::Full(f)) => {
-                                assert!(
-                                    f.precision >= 0 && f.precision <= 30,
-                                    "probably bad precision value {} for asset {}",
-                                    f.precision,
-                                    f.id
-                                );
-                                asset_decimals.insert(f.id, f.precision as u8);
-                            }
-                            _ => {
-                                error!("bad AssetInfo from asset-service: {:?}", a);
-                            }
-                        }
-                    }
-                    return Ok(());
-                }
-                Err(e) => {
-                    debug!(
-                        "asset-service returned error, sleeping {}s: {}",
-                        sleep_dur, e
-                    );
-                    tokio_sleep(Duration::from_secs(sleep_dur)).await;
-                    sleep_dur *= 2;
-                }
-            }
-        }
-
-        Err(Error::AssetServiceClientError(format!(
-            "failed to query decimals from asset-service for assets {} and {}",
-            pair.amount_asset, pair.price_asset
-        )))
-    }
-
     async fn lock_load_mutex(&self) -> TokioMutexGuard<bool> {
         self.load_mutex.lock().await
     }
@@ -483,11 +398,11 @@ impl ExchangePairsStorage {
 }
 
 impl DataFromBlock for ExchangePair {
-    type Context = ();
+    type Context = PairsContext;
 
     fn data_from_block(
         block: &waves::BlockMicroblockAppend,
-        _ctx: &(),
+        ctx: &PairsContext,
     ) -> Vec<BlockData<ExchangePair>> {
         let mut pairs_in_block = extract_exchange_pairs(&block);
 
@@ -499,7 +414,8 @@ impl DataFromBlock for ExchangePair {
             .into_iter()
             .filter(|pair| crate::EXCHANGE_PAIRS_STORAGE.pair_is_loaded(pair))
             .map(|pair| {
-                let current_value = crate::EXCHANGE_PAIRS_STORAGE.calc_stat(&pair);
+                let current_value =
+                    crate::EXCHANGE_PAIRS_STORAGE.calc_stat(&pair, &ctx.asset_storage);
                 let current_value = serde_json::to_string(&current_value).unwrap();
                 BlockData::new(current_value, pair)
             })
@@ -508,7 +424,7 @@ impl DataFromBlock for ExchangePair {
 
     fn data_from_rollback(
         rollback: &waves::RollbackData,
-        _ctx: &(),
+        ctx: &PairsContext,
     ) -> Vec<BlockData<ExchangePair>> {
         let changed_pairs = crate::EXCHANGE_PAIRS_STORAGE.rollback(&rollback.block_id);
 
@@ -516,7 +432,8 @@ impl DataFromBlock for ExchangePair {
             .into_iter()
             .filter(|pair| crate::EXCHANGE_PAIRS_STORAGE.pair_is_loaded(pair))
             .map(|pair| {
-                let current_value = crate::EXCHANGE_PAIRS_STORAGE.calc_stat(&pair);
+                let current_value =
+                    crate::EXCHANGE_PAIRS_STORAGE.calc_stat(&pair, &ctx.asset_storage);
                 let current_value = serde_json::to_string(&current_value).unwrap();
                 BlockData::new(current_value, pair)
             })
@@ -583,14 +500,16 @@ fn extract_pairs_data(
 
 #[async_trait]
 impl<R: ProviderRepo + Sync> LastValue<R> for ExchangePair {
-    type Context = ();
+    type Context = PairsContext;
 
-    async fn last_value(self, _repo: &R, _ctx: &()) -> Result<String> {
-        let current_value = serde_json::to_string(&crate::EXCHANGE_PAIRS_STORAGE.calc_stat(&self))?;
+    async fn last_value(self, _repo: &R, ctx: &PairsContext) -> Result<String> {
+        let current_value = serde_json::to_string(
+            &crate::EXCHANGE_PAIRS_STORAGE.calc_stat(&self, &ctx.asset_storage),
+        )?;
         Ok(current_value)
     }
 
-    async fn init_last_value(&self, repo: &R, _ctx: &()) -> Result<bool> {
+    async fn init_last_value(&self, repo: &R, ctx: &PairsContext) -> Result<bool> {
         if crate::EXCHANGE_PAIRS_STORAGE.pair_is_loaded(self) {
             return Ok(false);
         }
@@ -602,9 +521,7 @@ impl<R: ProviderRepo + Sync> LastValue<R> for ExchangePair {
             return Ok(false);
         }
 
-        crate::EXCHANGE_PAIRS_STORAGE
-            .push_asset_decimals(self)
-            .await?;
+        ctx.asset_storage.preload_decimals_for_pair(self).await?;
 
         let pairs = repo.last_exchange_pairs_transactions(self.clone()).await?;
 

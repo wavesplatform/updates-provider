@@ -2,6 +2,7 @@
 extern crate diesel;
 extern crate wavesexchange_topic as wx_topic;
 
+mod asset_info;
 mod config;
 mod db;
 mod decimal;
@@ -16,14 +17,15 @@ mod subscriptions;
 mod utils;
 mod waves;
 
+use crate::asset_info::AssetStorage;
 use crate::db::{repo_consumer::PostgresConsumerRepo, repo_provider::PostgresProviderRepo};
 use crate::error::Error;
 use crate::metrics::*;
+use crate::providers::blockchain::provider::exchange_pair::{ExchangePairsStorage, PairsContext};
 use crate::providers::{blockchain, UpdatesProvider};
 use crate::resources::repo::ResourcesRepoRedis;
-use lazy_static::lazy_static;
 
-use blockchain::provider::exchange_pair::ExchangePairsStorage;
+use lazy_static::lazy_static;
 use std::sync::Arc;
 use std::time::Duration;
 use wavesexchange_log::{error, info};
@@ -36,7 +38,7 @@ lazy_static! {
 fn main() -> Result<(), Error> {
     let rt = tokio::runtime::Runtime::new().unwrap();
     let result = rt.block_on(tokio_main());
-    rt.shutdown_timeout(std::time::Duration::from_millis(1));
+    rt.shutdown_timeout(Duration::from_millis(1));
     result
 }
 
@@ -48,9 +50,7 @@ async fn tokio_main() -> Result<(), Error> {
     let blockchain_config = config::load_blockchain()?;
     let server_config = config::load_api()?;
 
-    EXCHANGE_PAIRS_STORAGE
-        .setup_asset_service_client(server_config.assets_service_url.as_str())
-        .await;
+    let asset_storage = AssetStorage::new(&server_config.assets_service_url);
 
     let metrics = tokio::spawn(
         MetricsWarpBuilder::new()
@@ -198,7 +198,7 @@ async fn tokio_main() -> Result<(), Error> {
         resources_repo.clone(),
         Duration::from_secs(600),
         provider_repo.clone(),
-        (),
+        PairsContext { asset_storage },
         rx,
     );
 
