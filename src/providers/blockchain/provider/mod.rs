@@ -1,3 +1,5 @@
+//! Module defining the data provider that gets data from blockchain updates.
+
 pub mod exchange_pair;
 pub mod leasing_balance;
 pub mod state;
@@ -11,7 +13,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, RwLock};
 use wavesexchange_log::{debug, error, info, warn};
-use wx_topic::{TopicKind, Topic};
+use wx_topic::{Topic, TopicKind};
 
 use super::super::watchlist::{WatchList, WatchListItem, WatchListUpdate};
 use super::super::UpdatesProvider;
@@ -21,12 +23,24 @@ use crate::providers::watchlist::KeyWatchStatus;
 use crate::resources::ResourcesRepo;
 use crate::waves::{BlockMicroblockAppend, RollbackData};
 
+/// Data item of the blockchain updates data provider.
+///
+/// Extends the following traits:
+/// * `DataFromBlock` to extract the value from blockchain updates block
+/// * `LastValue` to load the value from the database (aka `ProviderRepo`)
+/// * `WatchListItem` to store the value in a watchlist
 pub trait Item<R: ProviderRepo>:
     WatchListItem + Send + Sync + LastValue<R> + DataFromBlock
 {
 }
 
-pub struct Provider<T: Item<P>, R: ResourcesRepo, P: ProviderRepo + Clone> {
+/// Blockchain updates data provider.
+///
+/// Type arguments:
+/// * `T` defines the value type returned by this provider: State, Transaction, LeasingBalance etc.
+/// * `P` is the corresponding repo to load/save values from/to Postgres database
+/// * `R` is the repo to publish values in Redis
+pub struct Provider<T: Item<P>, R: ResourcesRepo, P: ProviderRepo> {
     watchlist: Arc<RwLock<WatchList<T, R>>>,
     resources_repo: Arc<R>,
     rx: mpsc::Receiver<Arc<Vec<BlockchainUpdate>>>,
@@ -60,7 +74,12 @@ where
         }
     }
 
-    /// Blockchain updates receive loop
+    #[cfg(test)]
+    pub(crate) fn watchlist(&self) -> Arc<RwLock<WatchList<T, R>>> {
+        self.watchlist.clone()
+    }
+
+    /// Blockchain updates receive loop + watchlist cleanup timer
     async fn run(&mut self) -> Result<()> {
         let mut interval = tokio::time::interval(self.clean_timeout);
         loop {
@@ -79,11 +98,6 @@ where
             }
         }
         Ok(())
-    }
-
-    #[cfg(test)]
-    pub fn watchlist(&self) -> Arc<RwLock<WatchList<T, R>>> {
-        self.watchlist.clone()
     }
 
     /// Handles updates from blockchain and processes watched ones
@@ -168,10 +182,32 @@ where
         }
         Ok(())
     }
+
+    async fn watchlist_process(
+        data: &T,
+        current_value: String,
+        resources_repo: &R,
+        watchlist: &RwLock<WatchList<T, R>>,
+    ) -> Result<()> {
+        // A.K.: the corresponding implementation in polling provider is more complex,
+        // it contains checks whether the value actually changed,
+        // in both watchlist and Redis repo. It is unclear why the implementations are different,
+        // and why these checks are dropped here. Maybe it is performance-related? Not sure.
+        let resource = data.clone().into().as_topic(); //TODO bad design - cloning is not necessary
+        info!("insert new value {:?}", resource);
+        watchlist
+            .write()
+            .await
+            .insert_value(data, current_value.clone());
+        resources_repo
+            .set_and_push(&resource, current_value)
+            .await?;
+        Ok(())
+    }
 }
 
 #[async_trait]
-impl<T, R, P> UpdatesProvider<T, R> for Provider<T, R, P>
+impl<T, R, P> UpdatesProvider<T> for Provider<T, R, P>
 where
     T: Item<P> + 'static,
     R: ResourcesRepo + Send + Sync + 'static,
@@ -181,6 +217,7 @@ where
     async fn fetch_updates(mut self) -> Result<mpsc::Sender<WatchListUpdate<T>>> {
         let (subscriptions_updates_sender, mut subscriptions_updates_receiver) = mpsc::channel(20);
 
+        // Run handler of subscribe/unsubscribe events
         let watchlist = self.watchlist.clone();
         let resources_repo = self.resources_repo.clone();
         let repo = self.repo.clone();
@@ -206,32 +243,16 @@ where
             }
         });
 
+        // Run handler of blockchain updates + watchlist cleanup timer
         tokio::task::spawn(async move {
-            info!("starting provider");
+            let data_type = std::any::type_name::<T>();
+            info!("starting {} provider", data_type);
             if let Err(error) = self.run().await {
-                error!("transaction provider return error: {:?}", error);
+                error!("provider for {} returned error: {:?}", data_type, error);
             }
         });
 
         Ok(subscriptions_updates_sender)
-    }
-
-    async fn watchlist_process(
-        data: &T,
-        current_value: String,
-        resources_repo: &R,
-        watchlist: &RwLock<WatchList<T, R>>,
-    ) -> Result<()> {
-        let resource = data.clone().into().as_topic(); //TODO bad design - cloning is not necessary
-        info!("insert new value {:?}", resource);
-        watchlist
-            .write()
-            .await
-            .insert_value(data, current_value.clone());
-        resources_repo
-            .set_and_push(&resource, current_value)
-            .await?;
-        Ok(())
     }
 }
 
