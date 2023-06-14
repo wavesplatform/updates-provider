@@ -29,8 +29,21 @@ use crate::waves::{BlockMicroblockAppend, RollbackData};
 /// * `DataFromBlock` to extract the value from blockchain updates block
 /// * `LastValue` to load the value from the database (aka `ProviderRepo`)
 /// * `WatchListItem` to store the value in a watchlist
-pub trait Item<R: ProviderRepo>:
-    WatchListItem + Send + Sync + LastValue<R> + DataFromBlock
+pub trait Item<R, C>:
+    WatchListItem + Send + Sync + LastValue<R, Context = C> + DataFromBlock<Context = C>
+where
+    R: ProviderRepo,
+{
+}
+
+// Blanket implementation of Item
+impl<T, R, C> Item<R, C> for T
+where
+    T: Send + Sync,
+    T: WatchListItem,
+    T: LastValue<R, Context = C>,
+    T: DataFromBlock<Context = C>,
+    R: ProviderRepo,
 {
 }
 
@@ -40,17 +53,19 @@ pub trait Item<R: ProviderRepo>:
 /// * `T` defines the value type returned by this provider: State, Transaction, LeasingBalance etc.
 /// * `P` is the corresponding repo to load/save values from/to Postgres database
 /// * `R` is the repo to publish values in Redis
-pub struct Provider<T: Item<P>, R: ResourcesRepo + Clone, P: ProviderRepo> {
+/// * `S` is the shared state (context) that is available to every data item
+pub struct Provider<T: Item<P, S>, R: ResourcesRepo + Clone, P: ProviderRepo, S> {
     watchlist: Arc<RwLock<WatchList<T, R>>>,
     resources_repo: R,
     rx: mpsc::Receiver<Arc<Vec<BlockchainUpdate>>>,
     repo: P,
     clean_timeout: Duration,
+    shared_context: Arc<S>,
 }
 
-impl<T, R, P> Provider<T, R, P>
+impl<T, R, P, S> Provider<T, R, P, S>
 where
-    T: Item<P> + 'static,
+    T: Item<P, S> + 'static,
     R: ResourcesRepo + Clone + Send + Sync + 'static,
     P: ProviderRepo + Clone + Send + Sync + 'static,
 {
@@ -58,6 +73,7 @@ where
         resources_repo: R,
         delete_timeout: Duration,
         repo: P,
+        shared_context: S,
         rx: mpsc::Receiver<Arc<Vec<BlockchainUpdate>>>,
     ) -> Self {
         let watchlist = Arc::new(RwLock::new(WatchList::new(
@@ -65,12 +81,14 @@ where
             delete_timeout,
         )));
         let clean_timeout = utils::clean_timeout(delete_timeout);
+        let shared_context = Arc::new(shared_context);
         Self {
             watchlist,
             resources_repo,
             rx,
             repo,
             clean_timeout,
+            shared_context,
         }
     }
 
@@ -101,10 +119,7 @@ where
     }
 
     /// Handles updates from blockchain and processes watched ones
-    async fn process_updates(
-        &mut self,
-        blockchain_updates: Arc<Vec<BlockchainUpdate>>,
-    ) -> Result<()> {
+    async fn process_updates(&self, blockchain_updates: Arc<Vec<BlockchainUpdate>>) -> Result<()> {
         for blockchain_update in blockchain_updates.iter() {
             match blockchain_update {
                 BlockchainUpdate::Block(block) => self.process_block(block).await?,
@@ -125,7 +140,7 @@ where
     async fn process_block(&self, block: &BlockMicroblockAppend) -> Result<()> {
         let repo = &self.resources_repo;
         let watchlist = &self.watchlist;
-        for block_data in T::data_from_block(block) {
+        for block_data in T::data_from_block(block, &self.shared_context) {
             let key = &block_data.data;
             let value = block_data.current_value;
             let watch_status = watchlist.read().await.key_watch_status(key);
@@ -155,7 +170,7 @@ where
     async fn process_rollback(&self, rollback: &RollbackData) -> Result<()> {
         let repo = &self.resources_repo;
         let watchlist = &self.watchlist;
-        for block_data in T::data_from_rollback(rollback) {
+        for block_data in T::data_from_rollback(rollback, &self.shared_context) {
             let key = &block_data.data;
             let value = block_data.current_value;
             let watch_status = watchlist.read().await.key_watch_status(key);
@@ -207,11 +222,12 @@ where
 }
 
 #[async_trait]
-impl<T, R, P> UpdatesProvider<T> for Provider<T, R, P>
+impl<T, R, P, S> UpdatesProvider<T> for Provider<T, R, P, S>
 where
-    T: Item<P> + 'static,
+    T: Item<P, S> + 'static,
     R: ResourcesRepo + Clone + Send + Sync + 'static,
     P: ProviderRepo + Clone + Send + Sync + 'static,
+    S: Send + Sync + 'static,
 {
     /// Run 2 async tasks: handler of subscribe/unsubscribe events & handler of blockchain updates
     async fn fetch_updates(mut self) -> Result<mpsc::Sender<WatchListUpdate<T>>> {
@@ -221,6 +237,7 @@ where
         let watchlist = self.watchlist.clone();
         let resources_repo = self.resources_repo.clone();
         let repo = self.repo.clone();
+        let shared_context = self.shared_context.clone();
         tokio::task::spawn(async move {
             info!("starting subscriptions updates handler");
             while let Some(upd) = subscriptions_updates_receiver.recv().await {
@@ -229,7 +246,13 @@ where
                     error!("error while updating watchlist: {:?}", err);
                 }
                 if let WatchListUpdate::Updated { item } = upd {
-                    let result = check_and_maybe_insert(&resources_repo, &repo, item.clone()).await;
+                    let result = check_and_maybe_insert(
+                        &resources_repo,
+                        &repo,
+                        item.clone(),
+                        &shared_context,
+                    )
+                    .await;
                     match result {
                         Ok(None) => { /* Nothing more to do */ }
                         Ok(Some(subtopics)) => {
@@ -256,17 +279,18 @@ where
     }
 }
 
-async fn check_and_maybe_insert<T: Item<P>, R: ResourcesRepo + Sync, P: ProviderRepo>(
+async fn check_and_maybe_insert<T: Item<P, S>, R: ResourcesRepo + Sync, P: ProviderRepo, S>(
     resources_repo: &R,
     repo: &P,
     value: T,
+    shared_context: &S,
 ) -> Result<Option<HashSet<String>>> {
     let topic = value.clone().into().as_topic();
     let mut existing_value = resources_repo.get(&topic).await?;
     let mut need_to_publish = existing_value.is_none();
 
     if topic.kind() == TopicKind::ExchangePair {
-        let loaded = value.init_last_value(repo.clone()).await?;
+        let loaded = value.init_last_value(repo, shared_context).await?;
         if loaded {
             //if pairs is loaded into EXCHANGE_PAIRS_STORAGE then make redis value invalid and need to replaced by last_value call
             need_to_publish = true;
@@ -277,7 +301,7 @@ async fn check_and_maybe_insert<T: Item<P>, R: ResourcesRepo + Sync, P: Provider
     let topic_value = if let Some(existing_value) = existing_value {
         existing_value
     } else {
-        value.last_value(repo).await?
+        value.last_value(repo, shared_context).await?
     };
 
     let subtopics = subtopics_from_topic_value(&topic, &topic_value)?;
@@ -291,7 +315,7 @@ async fn check_and_maybe_insert<T: Item<P>, R: ResourcesRepo + Sync, P: Provider
                 missing_values += 1;
                 let subtopic_value = T::maybe_item(&subtopic)
                     .ok_or_else(|| Error::InvalidTopic(subtopic.to_string()))?;
-                let new_value = subtopic_value.last_value(repo).await?;
+                let new_value = subtopic_value.last_value(repo, shared_context).await?;
                 resources_repo.set_and_push(&subtopic, new_value).await?;
             }
         }
@@ -312,12 +336,17 @@ async fn check_and_maybe_insert<T: Item<P>, R: ResourcesRepo + Sync, P: Provider
     Ok(subtopics)
 }
 
-async fn append_subtopic_to_multitopic<T: Item<P>, R: ResourcesRepo + Sync, P: ProviderRepo>(
+async fn append_subtopic_to_multitopic<T, R, P, S>(
     resources_repo: &R,
     multitopic_item: T,
     subtopic_item: T,
     watchlist: &Arc<RwLock<WatchList<T, R>>>,
-) -> Result<()> {
+) -> Result<()>
+where
+    T: Item<P, S>,
+    R: ResourcesRepo + Sync,
+    P: ProviderRepo,
+{
     let multitopic = multitopic_item.clone().into().as_topic(); //TODO bad design - cloning is not necessary
     let existing_value = resources_repo.get(&multitopic).await?;
     let mut subtopics = if let Some(existing_value) = existing_value {
@@ -357,8 +386,9 @@ fn subtopics_from_topic_value(topic: &Topic, value: &str) -> Result<Option<HashS
 }
 
 pub trait DataFromBlock: Sized {
-    fn data_from_block(block: &BlockMicroblockAppend) -> Vec<BlockData<Self>>;
-    fn data_from_rollback(rollback: &RollbackData) -> Vec<BlockData<Self>>;
+    type Context;
+    fn data_from_block(block: &BlockMicroblockAppend, ctx: &Self::Context) -> Vec<BlockData<Self>>;
+    fn data_from_rollback(rollback: &RollbackData, ctx: &Self::Context) -> Vec<BlockData<Self>>;
 }
 
 pub struct BlockData<T> {
@@ -379,13 +409,15 @@ impl<T> BlockData<T> {
 
 #[async_trait]
 pub trait LastValue<R: ProviderRepo> {
-    async fn last_value(self, repo: &R) -> Result<String>;
+    type Context;
+
+    async fn last_value(self, repo: &R, ctx: &Self::Context) -> Result<String>;
 
     // function init_last_value called before last_value
     // it need to load exchange_pairs::ExchangePairsStorage exchange pairs data
     // from database only once per amount_asset/price_asset
     // after restart updates provider
-    async fn init_last_value(&self, _repo: &R) -> Result<bool>;
+    async fn init_last_value(&self, repo: &R, ctx: &Self::Context) -> Result<bool>;
 }
 
 #[cfg(test)]

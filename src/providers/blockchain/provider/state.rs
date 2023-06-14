@@ -4,18 +4,20 @@ use regex::Regex;
 use std::collections::HashSet;
 use wx_topic::{State, StateMultiPatterns, StateSingle, TopicData};
 
-use super::{BlockData, DataFromBlock, Item, LastValue};
+use super::{BlockData, DataFromBlock, LastValue};
 use crate::db::repo_provider::ProviderRepo;
 use crate::error::Result;
 use crate::providers::watchlist::{KeyPattern, PatternMatcher};
 use crate::waves;
 
 impl DataFromBlock for State {
-    fn data_from_block(block: &waves::BlockMicroblockAppend) -> Vec<BlockData<State>> {
+    type Context = ();
+
+    fn data_from_block(block: &waves::BlockMicroblockAppend, _ctx: &()) -> Vec<BlockData<State>> {
         extract_data_entries(&block.data_entries)
     }
 
-    fn data_from_rollback(rollback: &waves::RollbackData) -> Vec<BlockData<State>> {
+    fn data_from_rollback(rollback: &waves::RollbackData, _ctx: &()) -> Vec<BlockData<State>> {
         extract_data_entries(&rollback.data_entries)
     }
 }
@@ -36,7 +38,9 @@ fn extract_data_entries(data_entries: &[waves::DataEntry]) -> Vec<BlockData<Stat
 
 #[async_trait]
 impl<R: ProviderRepo + Sync> LastValue<R> for State {
-    async fn last_value(self, repo: &R) -> Result<String> {
+    type Context = ();
+
+    async fn last_value(self, repo: &R, _ctx: &()) -> Result<String> {
         Ok(match self {
             State::Single(StateSingle { address, key }) => {
                 let maybe_data_entry = repo.last_data_entry(address, key).await?;
@@ -64,12 +68,10 @@ impl<R: ProviderRepo + Sync> LastValue<R> for State {
         })
     }
 
-    async fn init_last_value(&self, _repo: &R) -> Result<bool> {
+    async fn init_last_value(&self, _repo: &R, _ctx: &()) -> Result<bool> {
         Ok(false)
     }
 }
-
-impl<R: ProviderRepo + Sync> Item<R> for State {}
 
 impl KeyPattern for State {
     const PATTERNS_SUPPORTED: bool = true;

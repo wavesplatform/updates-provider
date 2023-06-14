@@ -1,17 +1,25 @@
 use async_trait::async_trait;
 
-use super::{BlockData, DataFromBlock, Item, LastValue};
+use super::{BlockData, DataFromBlock, LastValue};
 use crate::{
     db::repo_provider::ProviderRepo, error::Result, providers::watchlist::KeyPattern, waves,
 };
 use wx_topic::LeasingBalance;
 
 impl DataFromBlock for LeasingBalance {
-    fn data_from_block(block: &waves::BlockMicroblockAppend) -> Vec<BlockData<LeasingBalance>> {
+    type Context = ();
+
+    fn data_from_block(
+        block: &waves::BlockMicroblockAppend,
+        _ctx: &(),
+    ) -> Vec<BlockData<LeasingBalance>> {
         extract_leasing_balances(&block.leasing_balances)
     }
 
-    fn data_from_rollback(rollback: &waves::RollbackData) -> Vec<BlockData<LeasingBalance>> {
+    fn data_from_rollback(
+        rollback: &waves::RollbackData,
+        _ctx: &(),
+    ) -> Vec<BlockData<LeasingBalance>> {
         extract_leasing_balances(&rollback.leasing_balances)
     }
 }
@@ -33,7 +41,9 @@ fn extract_leasing_balances(
 
 #[async_trait]
 impl<R: ProviderRepo + Sync> LastValue<R> for LeasingBalance {
-    async fn last_value(self, repo: &R) -> Result<String> {
+    type Context = ();
+
+    async fn last_value(self, repo: &R, _ctx: &()) -> Result<String> {
         Ok(
             if let Some(lb) = repo.last_leasing_balance(self.address).await? {
                 let lb = waves::LeasingBalance::from(lb);
@@ -43,7 +53,8 @@ impl<R: ProviderRepo + Sync> LastValue<R> for LeasingBalance {
             },
         )
     }
-    async fn init_last_value(&self, _repo: &R) -> Result<bool> {
+
+    async fn init_last_value(&self, _repo: &R, _ctx: &()) -> Result<bool> {
         Ok(false)
     }
 }
@@ -57,5 +68,3 @@ impl KeyPattern for LeasingBalance {
         ()
     }
 }
-
-impl<R: ProviderRepo + Sync> Item<R> for LeasingBalance {}

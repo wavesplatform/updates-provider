@@ -4,7 +4,7 @@ use std::{
     time::Duration,
 };
 
-use super::{BlockData, DataFromBlock, Item, LastValue};
+use super::{BlockData, DataFromBlock, LastValue};
 use crate::{
     db::repo_provider::ProviderRepo,
     decimal::{Decimal, UnknownScale},
@@ -483,7 +483,12 @@ impl ExchangePairsStorage {
 }
 
 impl DataFromBlock for ExchangePair {
-    fn data_from_block(block: &waves::BlockMicroblockAppend) -> Vec<BlockData<ExchangePair>> {
+    type Context = ();
+
+    fn data_from_block(
+        block: &waves::BlockMicroblockAppend,
+        _ctx: &(),
+    ) -> Vec<BlockData<ExchangePair>> {
         let mut pairs_in_block = extract_exchange_pairs(&block);
 
         pairs_in_block.append(&mut crate::EXCHANGE_PAIRS_STORAGE.cleanup());
@@ -501,7 +506,10 @@ impl DataFromBlock for ExchangePair {
             .collect()
     }
 
-    fn data_from_rollback(rollback: &waves::RollbackData) -> Vec<BlockData<ExchangePair>> {
+    fn data_from_rollback(
+        rollback: &waves::RollbackData,
+        _ctx: &(),
+    ) -> Vec<BlockData<ExchangePair>> {
         let changed_pairs = crate::EXCHANGE_PAIRS_STORAGE.rollback(&rollback.block_id);
 
         changed_pairs
@@ -575,12 +583,14 @@ fn extract_pairs_data(
 
 #[async_trait]
 impl<R: ProviderRepo + Sync> LastValue<R> for ExchangePair {
-    async fn last_value(self, _repo: &R) -> Result<String> {
+    type Context = ();
+
+    async fn last_value(self, _repo: &R, _ctx: &()) -> Result<String> {
         let current_value = serde_json::to_string(&crate::EXCHANGE_PAIRS_STORAGE.calc_stat(&self))?;
         Ok(current_value)
     }
 
-    async fn init_last_value(&self, repo: &R) -> Result<bool> {
+    async fn init_last_value(&self, repo: &R, _ctx: &()) -> Result<bool> {
         if crate::EXCHANGE_PAIRS_STORAGE.pair_is_loaded(self) {
             return Ok(false);
         }
@@ -605,8 +615,6 @@ impl<R: ProviderRepo + Sync> LastValue<R> for ExchangePair {
         Ok(true)
     }
 }
-
-impl<R: ProviderRepo + Sync> Item<R> for ExchangePair {}
 
 #[cfg(test)]
 mod tests {

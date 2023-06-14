@@ -2,14 +2,19 @@ use async_trait::async_trait;
 use std::convert::TryFrom;
 use wx_topic::{Transaction, TransactionByAddress, TransactionExchange, TransactionType};
 
-use super::{BlockData, DataFromBlock, Item, LastValue};
+use super::{BlockData, DataFromBlock, LastValue};
 use crate::db::repo_provider::ProviderRepo;
 use crate::error::Result;
 use crate::providers::watchlist::KeyPattern;
 use crate::waves;
 
 impl DataFromBlock for Transaction {
-    fn data_from_block(block: &waves::BlockMicroblockAppend) -> Vec<BlockData<Transaction>> {
+    type Context = ();
+
+    fn data_from_block(
+        block: &waves::BlockMicroblockAppend,
+        _ctx: &(),
+    ) -> Vec<BlockData<Transaction>> {
         block
             .transactions
             .iter()
@@ -61,7 +66,10 @@ impl DataFromBlock for Transaction {
             .collect()
     }
 
-    fn data_from_rollback(_rollback: &waves::RollbackData) -> Vec<BlockData<Transaction>> {
+    fn data_from_rollback(
+        _rollback: &waves::RollbackData,
+        _ctx: &(),
+    ) -> Vec<BlockData<Transaction>> {
         //TODO process somehow rollback.removed_transaction_ids (is it possible??)
         vec![]
     }
@@ -69,7 +77,9 @@ impl DataFromBlock for Transaction {
 
 #[async_trait]
 impl<R: ProviderRepo + Sync> LastValue<R> for Transaction {
-    async fn last_value(self, repo: &R) -> Result<String> {
+    type Context = ();
+
+    async fn last_value(self, repo: &R, _ctx: &()) -> Result<String> {
         Ok(match self {
             Transaction::ByAddress(TransactionByAddress {
                 tx_type: TransactionType::All,
@@ -113,7 +123,7 @@ impl<R: ProviderRepo + Sync> LastValue<R> for Transaction {
         })
     }
 
-    async fn init_last_value(&self, _repo: &R) -> Result<bool> {
+    async fn init_last_value(&self, _repo: &R, _ctx: &()) -> Result<bool> {
         Ok(false)
     }
 }
@@ -127,5 +137,3 @@ impl KeyPattern for Transaction {
         ()
     }
 }
-
-impl<R: ProviderRepo + Sync> Item<R> for Transaction {}

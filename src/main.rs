@@ -153,10 +153,11 @@ async fn tokio_main() -> Result<(), Error> {
 
     // random channel buffer size
     let (tx, rx) = tokio::sync::mpsc::channel(20);
-    let provider = blockchain::provider::Provider::<wx_topic::Transaction, _, _>::new(
+    let provider = blockchain::provider::Provider::<wx_topic::Transaction, _, _, _>::new(
         resources_repo.clone(),
         blockchain_config.transaction_delete_timeout,
         provider_repo.clone(),
+        (),
         rx,
     );
 
@@ -166,10 +167,11 @@ async fn tokio_main() -> Result<(), Error> {
 
     // random channel buffer size
     let (tx, rx) = tokio::sync::mpsc::channel(20);
-    let provider = blockchain::provider::Provider::<wx_topic::State, _, _>::new(
+    let provider = blockchain::provider::Provider::<wx_topic::State, _, _, _>::new(
         resources_repo.clone(),
         blockchain_config.state_delete_timeout,
         provider_repo.clone(),
+        (),
         rx,
     );
 
@@ -178,10 +180,11 @@ async fn tokio_main() -> Result<(), Error> {
     let states_subscriptions_updates_sender = provider.fetch_updates().await?;
 
     let (tx, rx) = tokio::sync::mpsc::channel(20);
-    let provider = blockchain::provider::Provider::<wx_topic::LeasingBalance, _, _>::new(
+    let provider = blockchain::provider::Provider::<wx_topic::LeasingBalance, _, _, _>::new(
         resources_repo.clone(),
         blockchain_config.leasing_balance_delete_timeout,
         provider_repo.clone(),
+        (),
         rx,
     );
 
@@ -191,10 +194,11 @@ async fn tokio_main() -> Result<(), Error> {
 
     // random channel buffer size
     let (tx, rx) = tokio::sync::mpsc::channel(20);
-    let provider = blockchain::provider::Provider::<wx_topic::ExchangePair, _, _>::new(
+    let provider = blockchain::provider::Provider::<wx_topic::ExchangePair, _, _, _>::new(
         resources_repo.clone(),
         Duration::from_secs(600),
         provider_repo.clone(),
+        (),
         rx,
     );
 
