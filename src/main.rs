@@ -21,19 +21,14 @@ use crate::asset_info::AssetStorage;
 use crate::db::{repo_consumer::PostgresConsumerRepo, repo_provider::PostgresProviderRepo};
 use crate::error::Error;
 use crate::metrics::*;
-use crate::providers::blockchain::provider::exchange_pair::{ExchangePairsStorage, PairsContext};
+use crate::providers::blockchain::provider::exchange_pair::PairsContext;
 use crate::providers::{blockchain, UpdatesProvider};
 use crate::resources::repo::ResourcesRepoRedis;
 
-use lazy_static::lazy_static;
 use std::sync::Arc;
 use std::time::Duration;
 use wavesexchange_log::{error, info};
 use wavesexchange_warp::MetricsWarpBuilder;
-
-lazy_static! {
-    static ref EXCHANGE_PAIRS_STORAGE: ExchangePairsStorage = ExchangePairsStorage::new();
-}
 
 fn main() -> Result<(), Error> {
     let rt = tokio::runtime::Runtime::new().unwrap();
@@ -198,7 +193,10 @@ async fn tokio_main() -> Result<(), Error> {
         resources_repo.clone(),
         Duration::from_secs(600),
         provider_repo.clone(),
-        PairsContext { asset_storage },
+        PairsContext {
+            asset_storage,
+            pairs_storage: Default::default(),
+        },
         rx,
     );
 

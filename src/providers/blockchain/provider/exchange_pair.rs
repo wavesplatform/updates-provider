@@ -1,7 +1,4 @@
-use std::{
-    collections::HashSet,
-    sync::{Arc, RwLock},
-};
+use std::{collections::HashSet, sync::RwLock};
 
 use super::{BlockData, DataFromBlock, LastValue};
 use crate::{
@@ -37,14 +34,16 @@ pub struct ExchangePairData {
     pub time_stamp: i64,
 }
 
+#[derive(Default)]
 pub struct ExchangePairsStorage {
-    pairs_data: Arc<RwLock<Vec<ExchangePairData>>>,
-    loaded_pairs: Arc<RwLock<HashSet<ExchangePair>>>,
+    pairs_data: RwLock<Vec<ExchangePairData>>,
+    loaded_pairs: RwLock<HashSet<ExchangePair>>,
     load_mutex: TokioMutex<bool>,
 }
 
 pub struct PairsContext {
     pub asset_storage: AssetStorage,
+    pub pairs_storage: ExchangePairsStorage,
 }
 
 #[derive(Debug, Serialize)]
@@ -61,14 +60,6 @@ pub struct ExchangePairsDailyStat {
 }
 
 impl ExchangePairsStorage {
-    pub fn new() -> Self {
-        Self {
-            pairs_data: Arc::new(RwLock::new(vec![])),
-            loaded_pairs: Arc::new(RwLock::new(HashSet::new())),
-            load_mutex: TokioMutex::new(true),
-        }
-    }
-
     pub fn add_transaction(&self, pair: ExchangePairData) {
         let mut storage_guard = self.pairs_data.write().unwrap();
         // This needs to be optimized: collection scan
@@ -239,9 +230,9 @@ impl DataFromBlock for ExchangePair {
         block: &waves::BlockMicroblockAppend,
         ctx: &PairsContext,
     ) -> Vec<BlockData<ExchangePair>> {
-        let pairs_in_block = extract_exchange_pairs(&block);
+        let pairs_in_block = extract_exchange_pairs(&block, ctx);
 
-        let changed_pairs = crate::EXCHANGE_PAIRS_STORAGE.cleanup();
+        let changed_pairs = ctx.pairs_storage.cleanup();
 
         let pairs_to_recompute = pairs_in_block
             .into_iter()
@@ -251,10 +242,9 @@ impl DataFromBlock for ExchangePair {
 
         pairs_to_recompute
             .into_iter()
-            .filter(|pair| crate::EXCHANGE_PAIRS_STORAGE.pair_is_loaded(pair))
+            .filter(|pair| ctx.pairs_storage.pair_is_loaded(pair))
             .map(|pair| {
-                let current_value =
-                    crate::EXCHANGE_PAIRS_STORAGE.calc_stat(&pair, &ctx.asset_storage);
+                let current_value = ctx.pairs_storage.calc_stat(&pair, &ctx.asset_storage);
                 let current_value = serde_json::to_string(&current_value).unwrap();
                 BlockData::new(current_value, pair)
             })
@@ -270,14 +260,13 @@ impl DataFromBlock for ExchangePair {
             .iter()
             .cloned()
             .collect::<HashSet<_>>();
-        let changed_pairs = crate::EXCHANGE_PAIRS_STORAGE.rollback(&removed_tx_ids);
+        let changed_pairs = ctx.pairs_storage.rollback(&removed_tx_ids);
 
         changed_pairs
             .into_iter()
-            .filter(|pair| crate::EXCHANGE_PAIRS_STORAGE.pair_is_loaded(pair))
+            .filter(|pair| ctx.pairs_storage.pair_is_loaded(pair))
             .map(|pair| {
-                let current_value =
-                    crate::EXCHANGE_PAIRS_STORAGE.calc_stat(&pair, &ctx.asset_storage);
+                let current_value = ctx.pairs_storage.calc_stat(&pair, &ctx.asset_storage);
                 let current_value = serde_json::to_string(&current_value).unwrap();
                 BlockData::new(current_value, pair)
             })
@@ -285,7 +274,10 @@ impl DataFromBlock for ExchangePair {
     }
 }
 
-fn extract_exchange_pairs(block: &waves::BlockMicroblockAppend) -> Vec<ExchangePair> {
+fn extract_exchange_pairs(
+    block: &waves::BlockMicroblockAppend,
+    ctx: &PairsContext,
+) -> Vec<ExchangePair> {
     let unique_pairs_in_block = block
         .transactions
         .iter()
@@ -296,7 +288,7 @@ fn extract_exchange_pairs(block: &waves::BlockMicroblockAppend) -> Vec<ExchangeP
                 amount_asset: exchange_data.amount_asset.clone(),
                 price_asset: exchange_data.price_asset.clone(),
             };
-            crate::EXCHANGE_PAIRS_STORAGE.add_transaction(exchange_data);
+            ctx.pairs_storage.add_transaction(exchange_data);
             pair
         })
         .unique()
@@ -349,21 +341,20 @@ impl<R: ProviderRepo + Sync> LastValue<R> for ExchangePair {
     type Context = PairsContext;
 
     async fn last_value(self, _repo: &R, ctx: &PairsContext) -> Result<String> {
-        let current_value = serde_json::to_string(
-            &crate::EXCHANGE_PAIRS_STORAGE.calc_stat(&self, &ctx.asset_storage),
-        )?;
+        let current_value =
+            serde_json::to_string(&ctx.pairs_storage.calc_stat(&self, &ctx.asset_storage))?;
         Ok(current_value)
     }
 
     async fn init_last_value(&self, repo: &R, ctx: &PairsContext) -> Result<bool> {
-        if crate::EXCHANGE_PAIRS_STORAGE.pair_is_loaded(self) {
+        if ctx.pairs_storage.pair_is_loaded(self) {
             return Ok(false);
         }
 
-        let lock = crate::EXCHANGE_PAIRS_STORAGE.lock_load_mutex().await;
+        let lock = ctx.pairs_storage.lock_load_mutex().await;
 
         // check second time after locking to be sure that some other thread do not load same data
-        if crate::EXCHANGE_PAIRS_STORAGE.pair_is_loaded(self) {
+        if ctx.pairs_storage.pair_is_loaded(self) {
             return Ok(false);
         }
 
@@ -371,7 +362,7 @@ impl<R: ProviderRepo + Sync> LastValue<R> for ExchangePair {
 
         let pairs = repo.last_exchange_pairs_transactions(self.clone()).await?;
 
-        crate::EXCHANGE_PAIRS_STORAGE.push_pairs_data(pairs);
+        ctx.pairs_storage.push_pairs_data(pairs);
 
         drop(lock);
 
