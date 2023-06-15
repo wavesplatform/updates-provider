@@ -14,7 +14,7 @@ mod repo {
     pub use crate::providers::watchlist::tests::item::TestItem;
     use crate::waves::transactions::{Transaction, TransactionType};
     use crate::{
-        db::{repo_provider::ProviderRepo, BlockMicroblock, DataEntry, LeasingBalance},
+        db::{repo_provider::ProviderRepo, DataEntry, LeasingBalance},
         providers::blockchain::provider::exchange_pair::ExchangePairData,
     };
     use async_trait::async_trait;
@@ -78,10 +78,6 @@ mod repo {
             &self,
             _pair: ExchangePair,
         ) -> crate::error::Result<Vec<ExchangePairData>> {
-            unimplemented!()
-        }
-
-        async fn last_blocks_microblocks(&self) -> crate::error::Result<Vec<BlockMicroblock>> {
             unimplemented!()
         }
 
@@ -213,7 +209,6 @@ mod item {
         };
         let block = BlockMicroblockAppend {
             id: "0".to_string(),
-            ref_id: "_0".to_string(),
             time_stamp: None,
             height: 0,
             transactions: vec![],
@@ -302,7 +297,6 @@ async fn test_updates_provider() -> anyhow::Result<()> {
         };
         let update = BlockchainUpdate::Block(BlockMicroblockAppend {
             id: "0".to_string(),
-            ref_id: "_0".to_string(),
             time_stamp: None,
             height: 0,
             transactions: vec![],

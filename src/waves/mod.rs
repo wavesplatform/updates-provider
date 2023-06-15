@@ -19,7 +19,6 @@ pub struct Address(pub String);
 #[derive(Clone, Debug)]
 pub struct BlockMicroblockAppend {
     pub id: String,
-    pub ref_id: String,
     pub time_stamp: Option<i64>,
     pub height: i32,
     pub transactions: Vec<TransactionUpdate>,

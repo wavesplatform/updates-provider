@@ -231,16 +231,6 @@ impl TryFrom<std::sync::Arc<BlockchainUpdated>> for BlockchainUpdate {
                 match body {
                     Some(Body::Block(BlockAppend { block, .. })) => {
                         let block_uid = bs58::encode(&value.id).into_string();
-                        let ref_block_uid = bs58::encode(
-                            &block
-                                .as_ref()
-                                .expect("BlockAppend::Block is None")
-                                .header
-                                .as_ref()
-                                .expect("BlockAppend::Block::Header is None")
-                                .reference,
-                        )
-                        .into_string();
                         let raw_transactions = &block.as_ref().unwrap().transactions;
                         let transactions = parse_transactions(
                             block_uid.clone(),
@@ -250,7 +240,6 @@ impl TryFrom<std::sync::Arc<BlockchainUpdated>> for BlockchainUpdate {
                         );
                         Ok(BlockchainUpdate::Block(BlockMicroblockAppend {
                             id: block_uid,
-                            ref_id: ref_block_uid,
                             time_stamp: block
                                 .as_ref()
                                 .map(|b| {
@@ -280,20 +269,8 @@ impl TryFrom<std::sync::Arc<BlockchainUpdated>> for BlockchainUpdate {
                             transaction_ids,
                         );
 
-                        let ref_id = bs58::encode(
-                            &micro_block
-                                .as_ref()
-                                .unwrap()
-                                .micro_block
-                                .as_ref()
-                                .unwrap()
-                                .reference,
-                        )
-                        .into_string();
-
                         Ok(BlockchainUpdate::Microblock(BlockMicroblockAppend {
                             id: block_uid,
-                            ref_id,
                             time_stamp: None,
                             height,
                             transactions,

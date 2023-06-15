@@ -1,6 +1,6 @@
 //! Provider's database view (read-only operations).
 
-use super::{BlockMicroblock, DataEntry, LeasingBalance};
+use super::{DataEntry, LeasingBalance};
 use crate::error::Result;
 use crate::providers::blockchain::provider::exchange_pair::ExchangePairData;
 use crate::waves::transactions::{Transaction, TransactionType};
@@ -34,8 +34,6 @@ pub trait ProviderRepo {
         pair: ExchangePair,
     ) -> Result<Vec<ExchangePairData>>;
 
-    async fn last_blocks_microblocks(&self) -> Result<Vec<BlockMicroblock>>;
-
     async fn find_matching_data_keys(
         &self,
         addresses: Vec<String>,
@@ -46,7 +44,7 @@ pub trait ProviderRepo {
 mod repo_impl {
     use super::ProviderRepo;
     use crate::db::pool::{PgPoolWithStats, PooledPgConnection};
-    use crate::db::{BlockMicroblock, DataEntry, LeasingBalance};
+    use crate::db::{DataEntry, LeasingBalance};
     use crate::decimal::Decimal;
     use crate::error::Result;
     use crate::providers::blockchain::provider::exchange_pair::ExchangePairData;
@@ -132,10 +130,6 @@ mod repo_impl {
                 .await?
                 .last_exchange_pairs_transactions(pair)
                 .await
-        }
-
-        async fn last_blocks_microblocks(&self) -> Result<Vec<BlockMicroblock>> {
-            self.get_conn().await?.last_blocks_microblocks().await
         }
 
         async fn find_matching_data_keys(
@@ -307,19 +301,9 @@ mod repo_impl {
                         tx_id: item.tx_id,
                         height: item.height,
                         block_id: item.block_id,
-                        block_time_stamp: item.block_time_stamp,
+                        time_stamp: item.block_time_stamp,
                     })
                     .collect::<QueryResult<Vec<ExchangePairData>>>()?
-                )
-            }).await?
-        }
-
-        async fn last_blocks_microblocks(&self) -> Result<Vec<BlockMicroblock>> {
-            self.interact(|conn| {
-                let first_uid = block_uid_1day_ago(conn)?;
-                Ok(diesel::sql_query("select id, time_stamp, height from blocks_microblocks where uid > $1 and time_stamp > 0 order by uid")
-                    .bind::<BigInt, _>(first_uid)
-                    .load::<BlockMicroblock>(conn)?
                 )
             }).await?
         }

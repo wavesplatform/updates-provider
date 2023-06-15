@@ -122,12 +122,7 @@ where
     async fn process_updates(&self, blockchain_updates: Arc<Vec<BlockchainUpdate>>) -> Result<()> {
         for blockchain_update in blockchain_updates.iter() {
             match blockchain_update {
-                BlockchainUpdate::Block(block) => self.process_block(block).await?,
-                BlockchainUpdate::Microblock(block) => {
-                    crate::EXCHANGE_PAIRS_STORAGE
-                        .load_blocks_rowlog(&self.repo)
-                        .await?;
-
+                BlockchainUpdate::Block(block) | BlockchainUpdate::Microblock(block) => {
                     self.process_block(block).await?
                 }
                 BlockchainUpdate::Rollback(rollback) => self.process_rollback(rollback).await?,
