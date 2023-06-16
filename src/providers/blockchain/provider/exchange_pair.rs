@@ -237,11 +237,9 @@ impl DataFromBlock for ExchangePair {
         let pairs_to_recompute = pairs_in_block
             .into_iter()
             .chain(changed_pairs.into_iter())
-            .unique()
-            .collect_vec();
+            .unique();
 
         pairs_to_recompute
-            .into_iter()
             .filter(|pair| ctx.pairs_storage.pair_is_loaded(pair))
             .map(|pair| {
                 let current_value = ctx.pairs_storage.calc_stat(&pair, &ctx.asset_storage);
