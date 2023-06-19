@@ -5,7 +5,7 @@ use waves_protobuf_schemas::waves::events::BlockchainUpdated;
 use wx_topic::{BlockchainHeight, TopicData};
 
 pub struct Provider<R: ResourcesRepo> {
-    resources_repo: Arc<R>,
+    resources_repo: R,
     last_height: i32,
     rx: mpsc::Receiver<Arc<BlockchainUpdated>>,
 }
@@ -16,8 +16,8 @@ pub struct ProviderWithUpdatesSender<R: ResourcesRepo> {
 }
 
 impl<R: ResourcesRepo + Sync> Provider<R> {
-    pub async fn init(resources_repo: Arc<R>) -> Result<ProviderWithUpdatesSender<R>, Error> {
-        let last_height = get_last_height(resources_repo.clone()).await?;
+    pub async fn init(resources_repo: R) -> Result<ProviderWithUpdatesSender<R>, Error> {
+        let last_height = get_last_height(&resources_repo).await?;
         // random channel buffer size
         let (tx, rx) = mpsc::channel(20);
 
@@ -47,7 +47,7 @@ impl<R: ResourcesRepo + Sync> Provider<R> {
     }
 }
 
-async fn get_last_height<R: ResourcesRepo>(resources_repo: Arc<R>) -> Result<i32, Error> {
+async fn get_last_height<R: ResourcesRepo>(resources_repo: &R) -> Result<i32, Error> {
     let topic = TopicData::BlockchainHeight(BlockchainHeight).as_topic();
     if let Some(height) = resources_repo.get(&topic).await? {
         if let Ok(height) = height.parse() {

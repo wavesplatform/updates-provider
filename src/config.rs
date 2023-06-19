@@ -118,6 +118,7 @@ struct FlatBlockchainUpdaterConfig {
 struct FlatServerConfig {
     #[serde(default = "default_metrics_port")]
     metrics_port: u16,
+    pub assets_service_url: String,
 }
 
 pub fn load_redis() -> Result<RedisConfig, Error> {
@@ -184,6 +185,7 @@ pub fn load_blockchain() -> Result<providers::blockchain::Config, Error> {
 
 pub struct ServerConfig {
     pub metrics_port: u16,
+    pub assets_service_url: String,
 }
 
 pub fn load_api() -> Result<ServerConfig, Error> {
@@ -191,5 +193,6 @@ pub fn load_api() -> Result<ServerConfig, Error> {
 
     Ok(ServerConfig {
         metrics_port: flat_config.metrics_port,
+        assets_service_url: flat_config.assets_service_url,
     })
 }

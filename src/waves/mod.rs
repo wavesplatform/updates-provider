@@ -75,7 +75,7 @@ pub struct LeasingBalance {
     pub balance_out: i64,
 }
 
-fn encode_asset(asset: &[u8]) -> String {
+pub(crate) fn encode_asset(asset: &[u8]) -> String {
     if !asset.is_empty() {
         bs58::encode(asset).into_string()
     } else {

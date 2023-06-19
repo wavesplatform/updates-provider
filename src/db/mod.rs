@@ -22,6 +22,8 @@ pub const FRAGMENT_SEPARATOR: &str = "__";
 pub const STRING_DESCRIPTOR: &str = "s";
 pub const INTEGER_DESCRIPTOR: &str = "d";
 
+pub const MAX_UID: i64 = i64::MAX - 1;
+
 pub mod pool;
 pub mod repo_consumer;
 pub mod repo_provider;
@@ -266,6 +268,7 @@ impl TryFrom<std::sync::Arc<BlockchainUpdated>> for BlockchainUpdate {
                             transactions_metadata,
                             transaction_ids,
                         );
+
                         Ok(BlockchainUpdate::Microblock(BlockMicroblockAppend {
                             id: block_uid,
                             time_stamp: None,

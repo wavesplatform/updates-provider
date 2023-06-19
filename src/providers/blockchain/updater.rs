@@ -208,8 +208,10 @@ impl<R: ConsumerRepo> Updater<R> {
             elapsed_ms,
             if elapsed.as_secs() > 0 {
                 blockchain_updates.len() / elapsed.as_secs() as usize
-            } else {
+            } else if elapsed.as_millis() > 0 {
                 blockchain_updates.len() * 1000 / elapsed.as_millis() as usize
+            } else {
+                10000000 as usize
             }
         );
 

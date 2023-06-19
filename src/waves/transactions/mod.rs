@@ -44,7 +44,7 @@ pub struct InsertableTransaction {
 }
 
 #[repr(i16)]
-#[derive(Clone, Debug, Copy, AsExpression, FromSqlRow)]
+#[derive(Clone, Debug, Copy, AsExpression, FromSqlRow, PartialEq, Eq)]
 #[diesel(sql_type = SmallInt)]
 pub enum TransactionType {
     Genesis = 1,
@@ -114,7 +114,7 @@ where
     DB: diesel::backend::Backend,
     i16: FromSql<SmallInt, DB>,
 {
-    fn from_sql(bytes: diesel::backend::RawValue<DB>) -> diesel::deserialize::Result<Self> {
+    fn from_sql(bytes: DB::RawValue<'_>) -> diesel::deserialize::Result<Self> {
         Ok(i16::from_sql(bytes)?.try_into()?)
     }
 }
@@ -147,9 +147,7 @@ impl From<&Data> for TransactionType {
 impl TryFrom<wx_topic::TransactionType> for TransactionType {
     type Error = Error;
 
-    fn try_from(
-        value: wx_topic::TransactionType,
-    ) -> core::result::Result<Self, Self::Error> {
+    fn try_from(value: wx_topic::TransactionType) -> core::result::Result<Self, Self::Error> {
         match value {
             wx_topic::TransactionType::All => {
                 Err(Error::InvalidDBTransactionType(value.to_string()))

@@ -4,7 +4,6 @@ use std::{
     collections::{HashMap, HashSet},
     fmt::Debug,
     hash::Hash,
-    sync::Arc,
     time::{Duration, Instant},
 };
 use wavesexchange_log::{debug, warn};
@@ -14,7 +13,7 @@ use wx_topic::{Topic, TopicData};
 pub struct WatchList<T: WatchListItem, R: ResourcesRepo> {
     items: HashMap<T, ItemInfo>,
     patterns: HashMap<T, T::PatternMatcher>,
-    repo: Arc<R>,
+    repo: R,
     delete_timeout: Duration,
     type_name: String,
 }
@@ -103,7 +102,7 @@ pub trait MaybeFromTopic: Sized {
 }
 
 impl<T: WatchListItem, R: ResourcesRepo> WatchList<T, R> {
-    pub fn new(repo: Arc<R>, delete_timeout: Duration) -> Self {
+    pub fn new(repo: R, delete_timeout: Duration) -> Self {
         let items = HashMap::new();
         let patterns = HashMap::new();
         let type_name = std::any::type_name::<T>().to_string();
@@ -379,8 +378,7 @@ mod metrics {
 pub mod tests {
     use self::{item::TestItem, repo::TestResourcesRepo};
     use super::{KeyWatchStatus, WatchList, WatchListUpdate};
-    use std::collections::HashSet;
-    use std::{sync::Arc, time::Duration};
+    use std::{collections::HashSet, time::Duration};
 
     pub mod repo {
         use crate::{error::Error, resources::ResourcesRepo};
@@ -391,6 +389,7 @@ pub mod tests {
         };
         use wx_topic::Topic;
 
+        #[derive(Clone)]
         pub struct TestResourcesRepo(Arc<Mutex<HashMap<Topic, String>>>);
 
         impl Default for TestResourcesRepo {
@@ -560,7 +559,7 @@ pub mod tests {
     #[tokio::test]
     async fn test_watchlist_simple() {
         // Setup
-        let repo = Arc::new(TestResourcesRepo::default());
+        let repo = TestResourcesRepo::default();
         let keep_alive = Duration::from_nanos(1);
         let ensure_dead = Duration::from_nanos(2);
         let mut wl = WatchList::<TestItem, TestResourcesRepo>::new(repo, keep_alive);
@@ -601,7 +600,7 @@ pub mod tests {
         let set = |items: Vec<&str>| HashSet::from_iter(items.into_iter().map(ToString::to_string));
 
         // Setup
-        let repo = Arc::new(TestResourcesRepo::default());
+        let repo = TestResourcesRepo::default();
         let keep_alive = Duration::from_nanos(1);
         let ensure_dead = Duration::from_nanos(2);
         let mut wl = WatchList::<TestItem, TestResourcesRepo>::new(repo, keep_alive);
