@@ -18,7 +18,7 @@ RUN cargo install --root /usr/local/cargo diesel_cli --no-default-features --fea
 
 FROM debian:11
 WORKDIR /usr/www/app
-RUN apt-get update && apt-get install -y curl openssl libssl-dev libpq-dev
+RUN apt-get update && apt-get install -y curl openssl libssl-dev libpq-dev postgresql-client
 # RUN curl -ks 'https://cert.host.server/ssl_certs/EnterpriseRootCA.crt' -o '/usr/local/share/ca-certificates/EnterpriseRootCA.crt'
 RUN /usr/sbin/update-ca-certificates
 COPY --from=builder /usr/local/cargo/bin/service .
