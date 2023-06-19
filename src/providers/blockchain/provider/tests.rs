@@ -15,7 +15,7 @@ mod repo {
     use crate::waves::transactions::{Transaction, TransactionType};
     use crate::{
         db::{repo_provider::ProviderRepo, DataEntry, LeasingBalance},
-        providers::blockchain::provider::exchange_pair::ExchangePairData,
+        providers::blockchain::provider::exchange_pair::ExchangePairTx,
     };
     use async_trait::async_trait;
     use itertools::Itertools;
@@ -76,8 +76,8 @@ mod repo {
 
         async fn last_exchange_pairs_transactions(
             &self,
-            _pair: ExchangePair,
-        ) -> crate::error::Result<Vec<ExchangePairData>> {
+            _pair: &ExchangePair,
+        ) -> crate::error::Result<Vec<ExchangePairTx>> {
             unimplemented!()
         }
 

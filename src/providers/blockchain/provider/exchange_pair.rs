@@ -7,15 +7,16 @@ use crate::{
     decimal::{Decimal, UnknownScale},
     error::Result,
     waves::{
-        self, encode_asset,
+        encode_asset,
         transactions::{TransactionType, TransactionUpdate},
+        BlockMicroblockAppend, RollbackData,
     },
 };
 use async_trait::async_trait;
 use bigdecimal::BigDecimal;
 use itertools::Itertools;
 use serde::Serialize;
-use tokio::sync::{Mutex as TokioMutex, MutexGuard as TokioMutexGuard};
+use tokio::sync::Mutex as TokioMutex;
 use waves_protobuf_schemas::waves::transaction::Data;
 use wavesexchange_apis::chrono::Utc;
 use wx_topic::ExchangePair;
@@ -23,22 +24,18 @@ use wx_topic::ExchangePair;
 const PRICE_ASSET_DECIMALS: u8 = 8;
 
 #[derive(Debug, Clone)]
-pub struct ExchangePairData {
-    pub amount_asset: String,
-    pub price_asset: String,
+pub struct ExchangePairTx {
+    pub tx_id: String,
+    pub time_stamp: i64,
     pub amount_asset_volume: Decimal<UnknownScale>,
     pub price_asset_volume: Decimal<UnknownScale>,
-    pub tx_id: String,
-    pub height: i32,
-    pub block_id: String,
-    pub time_stamp: i64,
 }
 
 #[derive(Default)]
 pub struct ExchangePairsStorage {
-    pairs_data: RwLock<Vec<ExchangePairData>>,
+    pairs_data: RwLock<Vec<(ExchangePair, ExchangePairTx)>>,
     loaded_pairs: RwLock<HashSet<ExchangePair>>,
-    load_mutex: TokioMutex<bool>,
+    load_mutex: TokioMutex<()>,
 }
 
 pub struct PairsContext {
@@ -60,39 +57,31 @@ pub struct ExchangePairsDailyStat {
 }
 
 impl ExchangePairsStorage {
-    pub fn add_transaction(&self, pair: ExchangePairData) {
+    pub fn add_transaction(&self, pair: ExchangePair, data: ExchangePairTx) {
         let mut storage_guard = self.pairs_data.write().unwrap();
         // This needs to be optimized: collection scan
-        if storage_guard.iter().all(|p| p.tx_id != pair.tx_id) {
-            storage_guard.push(pair);
+        if storage_guard
+            .iter()
+            .all(|&(_, ref pd)| pd.tx_id != data.tx_id)
+        {
+            storage_guard.push((pair, data));
         }
     }
 
-    fn pair_is_loaded(&self, pair: &ExchangePair) -> bool {
-        self.loaded_pairs.read().unwrap().contains(pair)
-    }
-
-    fn push_pairs_data(&self, pairs: Vec<ExchangePairData>) {
-        let Some(pair) = pairs.first() else { return };
-
-        let pair = ExchangePair {
-            amount_asset: pair.amount_asset.clone(),
-            price_asset: pair.price_asset.clone(),
-        };
-
+    fn set_pair_initial_transactions(&self, pair: &ExchangePair, txs: Vec<ExchangePairTx>) {
         let mut storage_guard = self.pairs_data.write().unwrap();
 
         let mut loaded_guard = self.loaded_pairs.write().unwrap();
 
         // This needs to be optimized: collection scan
-        let pairs = {
-            let mut pairs = pairs;
-            pairs.retain(|p| storage_guard.iter().all(|pp| p.tx_id != pp.tx_id));
-            pairs
+        let txs = {
+            let mut txs = txs;
+            txs.retain(|p| storage_guard.iter().all(|&(_, ref pp)| p.tx_id != pp.tx_id));
+            txs
         };
 
-        storage_guard.extend(pairs.into_iter());
-        loaded_guard.insert(pair);
+        storage_guard.extend(txs.into_iter().map(|data| (pair.to_owned(), data)));
+        loaded_guard.insert(pair.to_owned());
     }
 
     fn calc_stat(
@@ -125,13 +114,15 @@ impl ExchangePairsStorage {
 
         ex_transactions
             .iter()
-            .filter(|t| {
-                t.amount_asset == pair.amount_asset
-                    && t.price_asset == pair.price_asset
+            .filter(|&&(ref p, ref d)| {
+                p.amount_asset == pair.amount_asset
+                    && p.price_asset == pair.price_asset
                     //all microblocks or last 24h blocks
-                    && (t.time_stamp < 1 || t.time_stamp > last_day_stamp)
+                    && (d.time_stamp < 1 || d.time_stamp > last_day_stamp)
             })
-            .sorted_by(|l, r| r.time_stamp.cmp(&l.time_stamp))
+            .map(|&(_, ref data)| data)
+            .sorted_by_key(|pd| pd.time_stamp)
+            .rev()
             .for_each(|pair_data| {
                 stat.txs_count += 1;
 
@@ -181,14 +172,10 @@ impl ExchangePairsStorage {
 
         let mut storage_guard = self.pairs_data.write().unwrap();
 
-        storage_guard.retain(|pair_data| {
-            let delete = removed_tx_ids.contains(&pair_data.tx_id);
+        storage_guard.retain(|(pair, data)| {
+            let delete = removed_tx_ids.contains(&data.tx_id);
             if delete {
-                let pair = ExchangePair {
-                    amount_asset: pair_data.amount_asset.clone(),
-                    price_asset: pair_data.price_asset.clone(),
-                };
-                changed_pairs.insert(pair);
+                changed_pairs.insert(pair.clone());
             }
             !delete
         });
@@ -203,23 +190,15 @@ impl ExchangePairsStorage {
 
         let mut storage_guard = self.pairs_data.write().unwrap();
 
-        storage_guard.retain(|pair_data| {
-            let delete = pair_data.time_stamp < trunc_stamp;
+        storage_guard.retain(|(pair, data)| {
+            let delete = data.time_stamp < trunc_stamp;
             if delete {
-                let pair = ExchangePair {
-                    amount_asset: pair_data.amount_asset.clone(),
-                    price_asset: pair_data.price_asset.clone(),
-                };
-                changed_pairs.insert(pair);
+                changed_pairs.insert(pair.clone());
             }
             !delete
         });
 
         changed_pairs
-    }
-
-    async fn lock_load_mutex(&self) -> TokioMutexGuard<bool> {
-        self.load_mutex.lock().await
     }
 }
 
@@ -227,20 +206,39 @@ impl DataFromBlock for ExchangePair {
     type Context = PairsContext;
 
     fn data_from_block(
-        block: &waves::BlockMicroblockAppend,
+        block: &BlockMicroblockAppend,
         ctx: &PairsContext,
     ) -> Vec<BlockData<ExchangePair>> {
-        let pairs_in_block = extract_exchange_pairs(&block, ctx);
+        let mut pairs_to_recompute = HashSet::new();
 
+        let txs_from_block = block
+            .transactions
+            .iter()
+            .filter(|t| t.tx_type == TransactionType::Exchange)
+            .filter_map(extract_pair_data);
+
+        for (pair, data) in txs_from_block {
+            if !pairs_to_recompute.contains(&pair) {
+                pairs_to_recompute.insert(pair.clone());
+            }
+            ctx.pairs_storage.add_transaction(pair, data);
+        }
+
+        // Storage cleanup (removal of transactions that became older than 24h)
+        // should be a proper background (or timer-based) task, but instead
+        // we perform cleanup on every incoming block. This is more or less acceptable
+        // as long as the blocks are coming at a steady rate.
+        // As the result of cleanup there can be some pairs that needs to be recomputed,
+        // in addition to those actually present in the block.
         let changed_pairs = ctx.pairs_storage.cleanup();
 
-        let pairs_to_recompute = pairs_in_block
-            .into_iter()
-            .chain(changed_pairs.into_iter())
-            .unique();
+        pairs_to_recompute.extend(changed_pairs);
+
+        let loaded_pairs = ctx.pairs_storage.loaded_pairs.read().unwrap();
 
         pairs_to_recompute
-            .filter(|pair| ctx.pairs_storage.pair_is_loaded(pair))
+            .into_iter()
+            .filter(|pair| loaded_pairs.contains(pair))
             .map(|pair| {
                 let current_value = ctx.pairs_storage.calc_stat(&pair, &ctx.asset_storage);
                 let current_value = serde_json::to_string(&current_value).unwrap();
@@ -250,7 +248,7 @@ impl DataFromBlock for ExchangePair {
     }
 
     fn data_from_rollback(
-        rollback: &waves::RollbackData,
+        rollback: &RollbackData,
         ctx: &PairsContext,
     ) -> Vec<BlockData<ExchangePair>> {
         let removed_tx_ids = rollback
@@ -260,9 +258,11 @@ impl DataFromBlock for ExchangePair {
             .collect::<HashSet<_>>();
         let changed_pairs = ctx.pairs_storage.rollback(&removed_tx_ids);
 
+        let loaded_pairs = ctx.pairs_storage.loaded_pairs.read().unwrap();
+
         changed_pairs
             .into_iter()
-            .filter(|pair| ctx.pairs_storage.pair_is_loaded(pair))
+            .filter(|pair| loaded_pairs.contains(pair))
             .map(|pair| {
                 let current_value = ctx.pairs_storage.calc_stat(&pair, &ctx.asset_storage);
                 let current_value = serde_json::to_string(&current_value).unwrap();
@@ -272,34 +272,8 @@ impl DataFromBlock for ExchangePair {
     }
 }
 
-fn extract_exchange_pairs(
-    block: &waves::BlockMicroblockAppend,
-    ctx: &PairsContext,
-) -> Vec<ExchangePair> {
-    let unique_pairs_in_block = block
-        .transactions
-        .iter()
-        .filter(|t| t.tx_type == TransactionType::Exchange)
-        .filter_map(|t| extract_pairs_data(&block, t))
-        .map(|exchange_data| {
-            let pair = ExchangePair {
-                amount_asset: exchange_data.amount_asset.clone(),
-                price_asset: exchange_data.price_asset.clone(),
-            };
-            ctx.pairs_storage.add_transaction(exchange_data);
-            pair
-        })
-        .unique()
-        .collect_vec();
-
-    unique_pairs_in_block
-}
-
-fn extract_pairs_data(
-    block: &waves::BlockMicroblockAppend,
-    update: &TransactionUpdate,
-) -> Option<ExchangePairData> {
-    let pair_data = match &update.data {
+fn extract_pair_data(update: &TransactionUpdate) -> Option<(ExchangePair, ExchangePairTx)> {
+    match &update.data {
         Data::Exchange(exchange_data) => {
             let asset_pair = exchange_data
                 .orders
@@ -317,21 +291,22 @@ fn extract_pairs_data(
                 Utc::now().timestamp_millis()
             };
 
-            Some(ExchangePairData {
+            let pair = ExchangePair {
                 amount_asset: encode_asset(&asset_pair.amount_asset_id),
                 price_asset: encode_asset(&asset_pair.price_asset_id),
+            };
+
+            let pair_data = ExchangePairTx {
+                tx_id: update.id.clone(),
+                time_stamp: timestamp,
                 amount_asset_volume: Decimal::new_raw(exchange_data.amount),
                 price_asset_volume: Decimal::new_raw(exchange_data.price),
-                tx_id: update.id.clone(),
-                height: block.height,
-                block_id: block.id.clone(),
-                time_stamp: timestamp,
-            })
+            };
+
+            Some((pair, pair_data))
         }
         _ => None,
-    };
-
-    pair_data
+    }
 }
 
 #[async_trait]
@@ -345,22 +320,35 @@ impl<R: ProviderRepo + Sync> LastValue<R> for ExchangePair {
     }
 
     async fn init_last_value(&self, repo: &R, ctx: &PairsContext) -> Result<bool> {
-        if ctx.pairs_storage.pair_is_loaded(self) {
+        if ctx
+            .pairs_storage
+            .loaded_pairs
+            .read()
+            .unwrap()
+            .contains(self)
+        {
             return Ok(false);
         }
 
-        let lock = ctx.pairs_storage.lock_load_mutex().await;
+        let lock = ctx.pairs_storage.load_mutex.lock().await;
 
         // check second time after locking to be sure that some other thread do not load same data
-        if ctx.pairs_storage.pair_is_loaded(self) {
+        if ctx
+            .pairs_storage
+            .loaded_pairs
+            .read()
+            .unwrap()
+            .contains(self)
+        {
             return Ok(false);
         }
 
         ctx.asset_storage.preload_decimals_for_pair(self).await?;
 
-        let pairs = repo.last_exchange_pairs_transactions(self.clone()).await?;
+        let transactions = repo.last_exchange_pairs_transactions(self).await?;
 
-        ctx.pairs_storage.push_pairs_data(pairs);
+        ctx.pairs_storage
+            .set_pair_initial_transactions(self, transactions);
 
         drop(lock);
 

@@ -2,7 +2,7 @@
 
 use super::{DataEntry, LeasingBalance};
 use crate::error::Result;
-use crate::providers::blockchain::provider::exchange_pair::ExchangePairData;
+use crate::providers::blockchain::provider::exchange_pair::ExchangePairTx;
 use crate::waves::transactions::{Transaction, TransactionType};
 use async_trait::async_trait;
 use wx_topic::{ExchangePair, StateSingle};
@@ -31,8 +31,8 @@ pub trait ProviderRepo {
 
     async fn last_exchange_pairs_transactions(
         &self,
-        pair: ExchangePair,
-    ) -> Result<Vec<ExchangePairData>>;
+        pair: &ExchangePair,
+    ) -> Result<Vec<ExchangePairTx>>;
 
     async fn find_matching_data_keys(
         &self,
@@ -47,14 +47,14 @@ mod repo_impl {
     use crate::db::{DataEntry, LeasingBalance};
     use crate::decimal::Decimal;
     use crate::error::Result;
-    use crate::providers::blockchain::provider::exchange_pair::ExchangePairData;
+    use crate::providers::blockchain::provider::exchange_pair::ExchangePairTx;
     use crate::schema::{associated_addresses, data_entries, leasing_balances, transactions};
     use crate::waves::transactions::{Transaction, TransactionType};
     use async_trait::async_trait;
     use diesel::connection::DefaultLoadingMode;
     use diesel::dsl::sql;
     use diesel::prelude::*;
-    use diesel::sql_types::{BigInt, Integer, VarChar};
+    use diesel::sql_types::{BigInt, VarChar};
     use itertools::Itertools;
     use wavesexchange_log::{debug, timer};
     use wx_topic::{ExchangePair, StateSingle};
@@ -124,8 +124,8 @@ mod repo_impl {
 
         async fn last_exchange_pairs_transactions(
             &self,
-            pair: ExchangePair,
-        ) -> Result<Vec<ExchangePairData>> {
+            pair: &ExchangePair,
+        ) -> Result<Vec<ExchangePairTx>> {
             self.get_conn()
                 .await?
                 .last_exchange_pairs_transactions(pair)
@@ -246,66 +246,57 @@ mod repo_impl {
 
         async fn last_exchange_pairs_transactions(
             &self,
-            pair: ExchangePair,
-        ) -> Result<Vec<ExchangePairData>> {
+            pair: &ExchangePair,
+        ) -> Result<Vec<ExchangePairTx>> {
             #[derive(QueryableByName)]
             struct Item {
                 #[diesel(sql_type = VarChar)]
-                amount_asset: String,
+                tx_id: String,
 
-                #[diesel(sql_type = VarChar)]
-                price_asset: String,
+                #[diesel(sql_type = BigInt)]
+                block_time_stamp: i64,
 
                 #[diesel(sql_type = BigInt)]
                 amount_asset_volume: i64,
 
                 #[diesel(sql_type = BigInt)]
                 price_asset_volume: i64,
-
-                #[diesel(sql_type = VarChar)]
-                tx_id: String,
-
-                #[diesel(sql_type = Integer)]
-                height: i32,
-
-                #[diesel(sql_type = VarChar)]
-                block_id: String,
-
-                #[diesel(sql_type = BigInt)]
-                block_time_stamp: i64,
             }
 
-            self.interact(|conn| {
+            let pair = pair.to_owned();
+
+            self.interact(move |conn| {
                 let first_uid = block_uid_1day_ago(conn)?;
 
-                Ok(diesel::sql_query(r#"
-                    select t.uid, t.id tx_id, b.height, b.id block_id, b.time_stamp::BIGINT as block_time_stamp, exchange_amount_asset as amount_asset, exchange_price_asset as price_asset,
-                        (body::json->'amount')::TEXT::BIGINT as amount_asset_volume, (body::json->'price')::TEXT::BIGINT as price_asset_volume
-                    from blocks_microblocks b
-                        inner join transactions t on t.block_uid = b.uid
-                    where t.block_uid > $1
-                        and t.tx_type = 7
-                        and t.exchange_amount_asset = $2
-                        and t.exchange_price_asset = $3
-                        and b.time_stamp > 0
-                    "#)
-                    .bind::<BigInt, _>(first_uid)
-                    .bind::<VarChar, _>(pair.amount_asset)
-                    .bind::<VarChar, _>(pair.price_asset)
-                    .load_iter::<Item, DefaultLoadingMode>(conn)?
-                    .map_ok(|item| ExchangePairData {
-                        amount_asset: item.amount_asset,
-                        price_asset: item.price_asset,
-                        amount_asset_volume: Decimal::new_raw(item.amount_asset_volume),
-                        price_asset_volume: Decimal::new_raw(item.price_asset_volume),
-                        tx_id: item.tx_id,
-                        height: item.height,
-                        block_id: item.block_id,
-                        time_stamp: item.block_time_stamp,
-                    })
-                    .collect::<QueryResult<Vec<ExchangePairData>>>()?
+                Ok(diesel::sql_query(
+                    r#"
+                    SELECT
+                        t.id tx_id,
+                        b.time_stamp::BIGINT AS block_time_stamp,
+                        (body::json->'amount')::TEXT::BIGINT AS amount_asset_volume,
+                        (body::json->'price')::TEXT::BIGINT AS price_asset_volume
+                    FROM blocks_microblocks b
+                        INNER JOIN transactions t ON t.block_uid = b.uid
+                    WHERE t.block_uid > $1
+                        AND t.tx_type = 7
+                        AND t.exchange_amount_asset = $2
+                        AND t.exchange_price_asset = $3
+                        AND b.time_stamp > 0
+                    "#,
                 )
-            }).await?
+                .bind::<BigInt, _>(first_uid)
+                .bind::<VarChar, _>(&pair.amount_asset)
+                .bind::<VarChar, _>(&pair.price_asset)
+                .load_iter::<Item, DefaultLoadingMode>(conn)?
+                .map_ok(|item| ExchangePairTx {
+                    tx_id: item.tx_id,
+                    time_stamp: item.block_time_stamp,
+                    amount_asset_volume: Decimal::new_raw(item.amount_asset_volume),
+                    price_asset_volume: Decimal::new_raw(item.price_asset_volume),
+                })
+                .collect::<QueryResult<Vec<ExchangePairTx>>>()?)
+            })
+            .await?
         }
 
         async fn find_matching_data_keys(
