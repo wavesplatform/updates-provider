@@ -56,12 +56,19 @@ impl<R: ConsumerRepo> Updater<R> {
         transactions_count_threshold: usize,
         associated_addresses_count_threshold: usize,
         waiting_blocks_timeout: Duration,
+        start_rollback_depth: u32,
     ) -> Result<UpdaterReturn<R>> {
         let (tx, rx) = mpsc::channel(updates_buffer_size);
         let last_height = {
-            let prev_handled_height = repo.execute(|ops| ops.get_prev_handled_height()).await?;
+            let prev_handled_height = repo
+                .execute(move |ops| ops.get_prev_handled_height(start_rollback_depth))
+                .await?;
             match prev_handled_height {
                 Some(PrevHandledHeight { uid, height }) => {
+                    info!(
+                        "Rolling back to height {} (by {} blocks back)",
+                        height, start_rollback_depth
+                    );
                     repo.transaction(move |ops| rollback_by_block_uid(ops, uid))
                         .await?;
                     height as i32 + 1
@@ -201,8 +208,10 @@ impl<R: ConsumerRepo> Updater<R> {
             elapsed_ms,
             if elapsed.as_secs() > 0 {
                 blockchain_updates.len() / elapsed.as_secs() as usize
-            } else {
+            } else if elapsed.as_millis() > 0 {
                 blockchain_updates.len() * 1000 / elapsed.as_millis() as usize
+            } else {
+                10000000 as usize
             }
         );
 

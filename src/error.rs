@@ -67,6 +67,8 @@ pub enum Error {
     SendErrorVecBlockchainUpdate,
     #[error("InvalidLeasingPath: {0}")]
     InvalidLeasingPath(String),
+    #[error("AssetServiceClientError: {0}")]
+    AssetServiceClientError(String),
 }
 
 #[derive(Debug)]

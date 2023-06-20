@@ -11,16 +11,19 @@ use std::{sync::Arc, time::Duration};
 use wx_topic::Topic;
 
 mod repo {
-    use crate::db::{repo_provider::ProviderRepo, DataEntry, LeasingBalance};
     pub use crate::providers::watchlist::tests::item::TestItem;
     use crate::waves::transactions::{Transaction, TransactionType};
+    use crate::{
+        db::{repo_provider::ProviderRepo, DataEntry, LeasingBalance},
+        providers::blockchain::provider::exchange_pair::ExchangePairTx,
+    };
     use async_trait::async_trait;
     use itertools::Itertools;
     use std::{
         collections::HashMap,
         sync::{Arc, Mutex},
     };
-    use wx_topic::StateSingle;
+    use wx_topic::{ExchangePair, StateSingle};
 
     #[derive(Clone)]
     pub struct TestProviderRepo(Arc<Mutex<HashMap<TestItem, String>>>);
@@ -71,6 +74,13 @@ mod repo {
             unimplemented!()
         }
 
+        async fn last_exchange_pairs_transactions(
+            &self,
+            _pair: &ExchangePair,
+        ) -> crate::error::Result<Vec<ExchangePairTx>> {
+            unimplemented!()
+        }
+
         async fn find_matching_data_keys(
             &self,
             _addresses: Vec<String>,
@@ -117,16 +127,16 @@ mod repo {
 }
 
 mod item {
-    use super::super::{BlockData, DataFromBlock, Item, LastValue};
+    use super::super::{BlockData, DataFromBlock, LastValue};
     use super::repo::TestProviderRepo;
     pub use crate::providers::watchlist::tests::item::TestItem;
     use crate::waves::{BlockMicroblockAppend, RollbackData, ValueDataEntry};
     use async_trait::async_trait;
 
-    impl Item<TestProviderRepo> for TestItem {}
-
     impl DataFromBlock for TestItem {
-        fn data_from_block(block: &BlockMicroblockAppend) -> Vec<BlockData<TestItem>> {
+        type Context = ();
+
+        fn data_from_block(block: &BlockMicroblockAppend, _ctx: &()) -> Vec<BlockData<TestItem>> {
             block
                 .data_entries
                 .iter()
@@ -146,14 +156,20 @@ mod item {
                 .collect()
         }
 
-        fn data_from_rollback(_rollback: &RollbackData) -> Vec<BlockData<Self>> {
+        fn data_from_rollback(_rollback: &RollbackData, _ctx: &()) -> Vec<BlockData<Self>> {
             unimplemented!() // Not used in tests
         }
     }
 
     #[async_trait]
     impl LastValue<TestProviderRepo> for TestItem {
-        async fn last_value(self, repo: &TestProviderRepo) -> crate::error::Result<String> {
+        type Context = ();
+
+        async fn last_value(
+            self,
+            repo: &TestProviderRepo,
+            _ctx: &(),
+        ) -> crate::error::Result<String> {
             if self.0.ends_with('*') {
                 let key_prefix = self.matched_subtopic_prefix();
                 let mut matching_topics = repo.get_keys_with_prefix(&key_prefix);
@@ -162,6 +178,14 @@ mod item {
             } else {
                 Ok(repo.get_value(&self))
             }
+        }
+
+        async fn init_last_value(
+            &self,
+            _repo: &TestProviderRepo,
+            _ctx: &(),
+        ) -> crate::error::Result<bool> {
+            Ok(false)
         }
     }
 
@@ -191,7 +215,7 @@ mod item {
             data_entries: vec![entry],
             leasing_balances: vec![],
         };
-        let data = TestItem::data_from_block(&block);
+        let data = TestItem::data_from_block(&block, &());
         assert_eq!(data.len(), 1);
         let (data_value, data_item) = (&data[0].current_value, &data[0].data);
         assert_eq!(data_value, "baz");
@@ -207,15 +231,15 @@ mod item {
 
         assert_eq!(db.get_value(&TestItem(single_topic)), "NONE");
         let item = TestItem(single_topic);
-        let last = item.last_value(&db).await?;
+        let last = item.last_value(&db, &()).await?;
         assert_eq!(last, "NONE");
         let item = TestItem(multi_topic);
-        let last = item.last_value(&db).await?;
+        let last = item.last_value(&db, &()).await?;
         assert_eq!(last, "[]");
 
         db.put_value(TestItem(single_topic), "value");
         let item = TestItem(multi_topic);
-        let last = item.last_value(&db).await?;
+        let last = item.last_value(&db, &()).await?;
         assert_eq!(last, r#"["topic://state/foo/bar"]"#);
 
         Ok(())
@@ -228,12 +252,12 @@ async fn test_updates_provider() -> anyhow::Result<()> {
     let sync = || async { tokio::time::sleep(Duration::from_millis(10)).await };
 
     // Setup
-    let res_repo = Arc::new(TestResourcesRepo::default());
+    let res_repo = TestResourcesRepo::default();
     let db_repo = TestProviderRepo::default();
     let keep_alive = Duration::from_nanos(1);
     let (tx, rx) = tokio::sync::mpsc::channel(8);
     let provider =
-        Provider::<TestItem, _, _>::new(res_repo.clone(), keep_alive, db_repo.clone(), rx);
+        Provider::<TestItem, _, _, _>::new(res_repo.clone(), keep_alive, db_repo.clone(), (), rx);
     let watchlist = provider.watchlist();
     let sender = provider.fetch_updates().await?;
     let subscribe = |topic: &'static str| {

@@ -15,4 +15,5 @@ pub struct Config {
     pub associated_addresses_count_threshold: usize,
     pub start_height: i32,
     pub waiting_blocks_timeout: Duration,
+    pub start_rollback_depth: u32,
 }

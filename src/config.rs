@@ -31,6 +31,10 @@ fn default_waiting_blocks_timeout() -> u64 {
     15
 }
 
+fn default_start_rollback_depth() -> u32 {
+    1
+}
+
 #[derive(Deserialize)]
 pub struct RedisConfig {
     pub host: String,
@@ -106,12 +110,15 @@ struct FlatBlockchainUpdaterConfig {
     pub start_height: i32,
     #[serde(default = "default_waiting_blocks_timeout")]
     pub waiting_blocks_timeout: u64,
+    #[serde(default = "default_start_rollback_depth")]
+    start_rollback_depth: u32,
 }
 
 #[derive(Deserialize)]
 struct FlatServerConfig {
     #[serde(default = "default_metrics_port")]
     metrics_port: u16,
+    pub assets_service_url: String,
 }
 
 pub fn load_redis() -> Result<RedisConfig, Error> {
@@ -172,11 +179,13 @@ pub fn load_blockchain() -> Result<providers::blockchain::Config, Error> {
         associated_addresses_count_threshold: flat_config.associated_addresses_count_threshold,
         start_height: flat_config.start_height,
         waiting_blocks_timeout: Duration::from_secs(flat_config.waiting_blocks_timeout),
+        start_rollback_depth: flat_config.start_rollback_depth,
     })
 }
 
 pub struct ServerConfig {
     pub metrics_port: u16,
+    pub assets_service_url: String,
 }
 
 pub fn load_api() -> Result<ServerConfig, Error> {
@@ -184,5 +193,6 @@ pub fn load_api() -> Result<ServerConfig, Error> {
 
     Ok(ServerConfig {
         metrics_port: flat_config.metrics_port,
+        assets_service_url: flat_config.assets_service_url,
     })
 }

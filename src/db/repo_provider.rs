@@ -2,9 +2,10 @@
 
 use super::{DataEntry, LeasingBalance};
 use crate::error::Result;
+use crate::providers::blockchain::provider::exchange_pair::ExchangePairTx;
 use crate::waves::transactions::{Transaction, TransactionType};
 use async_trait::async_trait;
-use wx_topic::StateSingle;
+use wx_topic::{ExchangePair, StateSingle};
 
 pub use self::repo_impl::PostgresProviderRepo;
 
@@ -28,6 +29,11 @@ pub trait ProviderRepo {
 
     async fn last_data_entry(&self, address: String, key: String) -> Result<Option<DataEntry>>;
 
+    async fn last_exchange_pairs_transactions(
+        &self,
+        pair: &ExchangePair,
+    ) -> Result<Vec<ExchangePairTx>>;
+
     async fn find_matching_data_keys(
         &self,
         addresses: Vec<String>,
@@ -36,19 +42,22 @@ pub trait ProviderRepo {
 }
 
 mod repo_impl {
-    use diesel::prelude::*;
-
     use super::ProviderRepo;
     use crate::db::pool::{PgPoolWithStats, PooledPgConnection};
     use crate::db::{DataEntry, LeasingBalance};
+    use crate::decimal::Decimal;
     use crate::error::Result;
+    use crate::providers::blockchain::provider::exchange_pair::ExchangePairTx;
     use crate::schema::{associated_addresses, data_entries, leasing_balances, transactions};
     use crate::waves::transactions::{Transaction, TransactionType};
     use async_trait::async_trait;
+    use diesel::connection::DefaultLoadingMode;
     use diesel::dsl::sql;
+    use diesel::prelude::*;
+    use diesel::sql_types::{BigInt, VarChar};
     use itertools::Itertools;
     use wavesexchange_log::{debug, timer};
-    use wx_topic::StateSingle;
+    use wx_topic::{ExchangePair, StateSingle};
 
     const MAX_UID: i64 = i64::MAX - 1;
 
@@ -111,6 +120,16 @@ mod repo_impl {
 
         async fn last_data_entry(&self, address: String, key: String) -> Result<Option<DataEntry>> {
             self.get_conn().await?.last_data_entry(address, key).await
+        }
+
+        async fn last_exchange_pairs_transactions(
+            &self,
+            pair: &ExchangePair,
+        ) -> Result<Vec<ExchangePairTx>> {
+            self.get_conn()
+                .await?
+                .last_exchange_pairs_transactions(pair)
+                .await
         }
 
         async fn find_matching_data_keys(
@@ -225,6 +244,61 @@ mod repo_impl {
             .await?
         }
 
+        async fn last_exchange_pairs_transactions(
+            &self,
+            pair: &ExchangePair,
+        ) -> Result<Vec<ExchangePairTx>> {
+            #[derive(QueryableByName)]
+            struct Item {
+                #[diesel(sql_type = VarChar)]
+                tx_id: String,
+
+                #[diesel(sql_type = BigInt)]
+                block_time_stamp: i64,
+
+                #[diesel(sql_type = BigInt)]
+                amount_asset_volume: i64,
+
+                #[diesel(sql_type = BigInt)]
+                price_asset_volume: i64,
+            }
+
+            let pair = pair.to_owned();
+
+            self.interact(move |conn| {
+                let first_uid = block_uid_1day_ago(conn)?;
+
+                Ok(diesel::sql_query(
+                    r#"
+                    SELECT
+                        t.id tx_id,
+                        b.time_stamp::BIGINT AS block_time_stamp,
+                        (body::json->'amount')::TEXT::BIGINT AS amount_asset_volume,
+                        (body::json->'price')::TEXT::BIGINT AS price_asset_volume
+                    FROM blocks_microblocks b
+                        INNER JOIN transactions t ON t.block_uid = b.uid
+                    WHERE t.block_uid > $1
+                        AND t.tx_type = 7
+                        AND t.exchange_amount_asset = $2
+                        AND t.exchange_price_asset = $3
+                        AND b.time_stamp > 0
+                    "#,
+                )
+                .bind::<BigInt, _>(first_uid)
+                .bind::<VarChar, _>(&pair.amount_asset)
+                .bind::<VarChar, _>(&pair.price_asset)
+                .load_iter::<Item, DefaultLoadingMode>(conn)?
+                .map_ok(|item| ExchangePairTx {
+                    tx_id: item.tx_id,
+                    time_stamp: item.block_time_stamp,
+                    amount_asset_volume: Decimal::new_raw(item.amount_asset_volume),
+                    price_asset_volume: Decimal::new_raw(item.price_asset_volume),
+                })
+                .collect::<QueryResult<Vec<ExchangePairTx>>>()?)
+            })
+            .await?
+        }
+
         async fn find_matching_data_keys(
             &self,
             addresses: Vec<String>,
@@ -324,6 +398,25 @@ mod repo_impl {
             })
             .await?
         }
+    }
+
+    fn block_uid_1day_ago(conn: &mut PgConnection) -> Result<i64> {
+        #[derive(Debug, QueryableByName)]
+        struct BlockUid {
+            #[diesel(sql_type = BigInt)]
+            uid: i64,
+        }
+
+        let blocks = diesel::sql_query(r#"
+            select uid from blocks_microblocks where time_stamp < (
+                select extract (epoch from (to_timestamp(time_stamp/1000) - '1 day'::interval) ) * 1000 as stamp from blocks_microblocks where time_stamp > 0 order by uid desc limit 1
+            ) order by time_stamp desc limit 1
+        "#)
+        .load::<BlockUid>(conn)?;
+
+        let block = blocks.first().unwrap_or(&BlockUid { uid: MAX_UID });
+
+        Ok(block.uid)
     }
 
     mod pattern_utils {

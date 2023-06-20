@@ -1,6 +1,6 @@
 [package]
 name = "updates-provider"
-version = "1.4.13"
+version = "1.5.0"
 authors = ["Аleksej Petrov <apetrov@wavesplatform.com>", "Alex Kordys <akordys@web3tech.ru>"]
 edition = "2021"
 
@@ -8,7 +8,8 @@ edition = "2021"
 anyhow = "1"
 async-trait = "0.1"
 blake2 = "0.10"
-bs58 = "0.4"
+bs58 = "0.5"
+bigdecimal = "0.3.0"
 hex = "0.4"
 envy = "0.4"
 futures = "0.3"
@@ -16,8 +17,9 @@ itertools = "0.10"
 lazy_static = "1"
 diesel = { version = "2", features = ["postgres", "chrono", "numeric", "serde_json"] }
 deadpool = { version = "0.9", default-features = false, features = ["managed", "rt_tokio_1"] }
-deadpool-redis = { version = "0.11", default-features = false, features = ["rt_tokio_1"] }
+deadpool-redis = { version = "0.12", default-features = false, features = ["rt_tokio_1"] }
 deadpool-diesel = { version = "0.4", default-features = false, features = ["postgres", "rt_tokio_1"] }
+
 percent-encoding = "2.1"
 protofixer = { version = "0.1.0", git = "https://github.com/a-kordys/protofixer", tag = "v0.1.0" }
 prometheus = "0.13"
@@ -30,9 +32,10 @@ thiserror = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 url = "2"
 warp = "0.3"
+wavesexchange_apis = { git = "https://github.com/waves-exchange/wavesexchange-rs", tag = "wavesexchange_apis/0.1.25" }
 wavesexchange_log = { git = "https://github.com/waves-exchange/wavesexchange-rs", tag = "wavesexchange_log/0.5.1" }
-wavesexchange_warp = { git = "https://github.com/waves-exchange/wavesexchange-rs", tag = "wavesexchange_warp/0.14.4" }
-wavesexchange_topic = { git = "https://github.com/waves-exchange/wavesexchange-rs", tag = "wavesexchange_topic/0.4.1" }
+wavesexchange_warp = { git = "https://github.com/waves-exchange/wavesexchange-rs", tag = "wavesexchange_warp/0.14.6" }
+wavesexchange_topic = { git = "https://github.com/waves-exchange/wavesexchange-rs", tag = "wavesexchange_topic/0.4.3" }
 waves-protobuf-schemas = { git = "https://github.com/wavesplatform/protobuf-schemas", tag = "rust_v1.4.3-1" }
 
 [dev-dependencies]

@@ -1,12 +1,20 @@
 #![allow(clippy::unused_unit)]
 
 use wx_topic::{
-    BlockchainHeight, ConfigFile, LeasingBalance, State, TestResource, Topic,
+    BlockchainHeight, ConfigFile, ExchangePair, LeasingBalance, State, TestResource, Topic,
     Transaction, TransactionByAddress, TransactionExchange, TransactionType as Type,
 };
 
 use crate::providers::watchlist::{KeyPattern, MaybeFromTopic, WatchListItem};
 use crate::waves::transactions::TransactionType;
+
+impl MaybeFromTopic for ExchangePair {
+    fn maybe_item(topic: &Topic) -> Option<Self> {
+        topic.data().as_pair().cloned()
+    }
+}
+
+impl WatchListItem for ExchangePair {}
 
 impl MaybeFromTopic for ConfigFile {
     fn maybe_item(topic: &Topic) -> Option<Self> {
@@ -21,10 +29,7 @@ impl WatchListItem for ConfigFile {}
 
 impl MaybeFromTopic for State {
     fn maybe_item(topic: &Topic) -> Option<Self> {
-        if let Some(state) = topic.data().as_state() {
-            return Some(state.to_owned());
-        }
-        None
+        topic.data().as_state().cloned()
     }
 }
 
@@ -32,10 +37,7 @@ impl WatchListItem for State {}
 
 impl MaybeFromTopic for TestResource {
     fn maybe_item(topic: &Topic) -> Option<Self> {
-        if let Some(test_resource) = topic.data().as_test_resource() {
-            return Some(test_resource.to_owned());
-        }
-        None
+        topic.data().as_test_resource().cloned()
     }
 }
 
@@ -43,10 +45,7 @@ impl WatchListItem for TestResource {}
 
 impl MaybeFromTopic for BlockchainHeight {
     fn maybe_item(topic: &Topic) -> Option<Self> {
-        if let Some(blockchain_height) = topic.data().as_blockchain_height() {
-            return Some(blockchain_height.to_owned());
-        }
-        None
+        topic.data().as_blockchain_height().cloned()
     }
 }
 
@@ -122,6 +121,15 @@ impl MaybeFromTopic for LeasingBalance {
 }
 
 impl WatchListItem for LeasingBalance {}
+
+impl KeyPattern for ExchangePair {
+    const PATTERNS_SUPPORTED: bool = false;
+    type PatternMatcher = ();
+
+    fn new_matcher(&self) -> Self::PatternMatcher {
+        ()
+    }
+}
 
 impl KeyPattern for ConfigFile {
     const PATTERNS_SUPPORTED: bool = false;

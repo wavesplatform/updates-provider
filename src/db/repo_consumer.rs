@@ -29,7 +29,7 @@ pub trait ConsumerRepo {
 }
 
 pub trait ConsumerRepoOperations {
-    fn get_prev_handled_height(&mut self) -> Result<Option<PrevHandledHeight>>;
+    fn get_prev_handled_height(&mut self, depth: u32) -> Result<Option<PrevHandledHeight>>;
 
     fn get_block_uid(&mut self, block_id: &str) -> Result<i64>;
 
@@ -92,6 +92,7 @@ mod repo_impl {
     };
     use super::{ConsumerRepo, ConsumerRepoOperations};
     use crate::db::pool::{PgPoolWithStats, PooledPgConnection};
+    use crate::db::MAX_UID;
     use crate::error::Result;
     use crate::schema::blocks_microblocks::dsl::*;
     use crate::schema::data_entries_uid_seq;
@@ -104,8 +105,6 @@ mod repo_impl {
     use crate::utils::chunks::ToChunks;
     use crate::waves::transactions::InsertableTransaction;
     use wavesexchange_log::timer;
-
-    const MAX_UID: i64 = i64::MAX - 1;
 
     /// Consumer's repo implementation that uses Postgres database as the storage.
     ///
@@ -151,14 +150,14 @@ mod repo_impl {
     }
 
     impl ConsumerRepoOperations for PgConnection {
-        fn get_prev_handled_height(&mut self) -> Result<Option<PrevHandledHeight>> {
+        fn get_prev_handled_height(&mut self, depth: u32) -> Result<Option<PrevHandledHeight>> {
             timer!("get_prev_handled_height()", verbose);
+
+            let sql_height = format!("(select max(height) - {} from blocks_microblocks)", depth);
 
             Ok(blocks_microblocks
                 .select((blocks_microblocks::uid, blocks_microblocks::height))
-                .filter(blocks_microblocks::height.eq(diesel::dsl::sql::<Integer>(
-                    "(select max(height) - 1 from blocks_microblocks)",
-                )))
+                .filter(blocks_microblocks::height.eq(diesel::dsl::sql::<Integer>(&sql_height)))
                 .order(blocks_microblocks::uid.asc())
                 .first(self)
                 .optional()?)

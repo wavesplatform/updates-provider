@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use wavesexchange_log::debug;
 use wx_topic::Topic;
 
+#[derive(Clone)]
 pub struct ResourcesRepoRedis {
     pool: RedisPoolWithStats,
 }
