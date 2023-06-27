@@ -21,7 +21,7 @@ deadpool-redis = { version = "0.12", default-features = false, features = ["rt_t
 deadpool-diesel = { version = "0.4", default-features = false, features = ["postgres", "rt_tokio_1"] }
 
 percent-encoding = "2.1"
-protofixer = { version = "0.1.0", git = "https://github.com/a-kordys/protofixer", tag = "v0.1.0" }
+protofixer = { version = "1.0.0", registry = "wx" }
 prometheus = "0.13"
 regex = "1"
 reqwest = "0.11"
@@ -36,7 +36,7 @@ wavesexchange_apis = { git = "https://github.com/waves-exchange/wavesexchange-rs
 wavesexchange_log = { git = "https://github.com/waves-exchange/wavesexchange-rs", tag = "wavesexchange_log/0.5.1" }
 wavesexchange_warp = { git = "https://github.com/waves-exchange/wavesexchange-rs", tag = "wavesexchange_warp/0.14.6" }
 wavesexchange_topic = { git = "https://github.com/waves-exchange/wavesexchange-rs", tag = "wavesexchange_topic/0.4.3" }
-waves-protobuf-schemas = { git = "https://github.com/wavesplatform/protobuf-schemas", tag = "rust_v1.4.3-1" }
+waves-protobuf-schemas = { version = "1.4.3", registry = "wx" }
 
 [dev-dependencies]
 base64 = "0.21"
