@@ -4,6 +4,12 @@ WORKDIR /usr/src/service
 RUN rustup component add rustfmt
 RUN apt-get update && apt-get install -y protobuf-compiler
 
+ARG CARGO_REGISTRIES_WX_INDEX="https://gitlab.waves.exchange/we-private/alexandrie.git"
+ARG CARGO_NET_GIT_FETCH_WITH_CLI="true"
+ARG CARGO_REGISTRY_AUTH=""
+RUN git config --global credential.helper store
+RUN echo "https://${CARGO_REGISTRY_AUTH}@gitlab.waves.exchange" > ~/.git-credentials
+
 RUN echo "fn main() {}" > dummy.rs
 COPY Cargo.* ./
 RUN sed -i 's#src/main.rs#dummy.rs#' Cargo.toml
