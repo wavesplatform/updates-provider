@@ -5,6 +5,7 @@ use std::{
 };
 
 use super::{BlockData, DataFromBlock, LastValue};
+use crate::asset_info::AssetLoadError;
 use crate::{
     asset_info::AssetStorage,
     db::repo_provider::ProviderRepo,
@@ -349,7 +350,17 @@ impl<R: ProviderRepo + Sync> LastValue<R> for ExchangePair {
             }
         }
 
-        ctx.asset_storage.preload_decimals_for_pair(self).await?;
+        if let Err(e) = ctx.asset_storage.preload_decimals_for_pair(self).await {
+            if let AssetLoadError::AssetsNotFound(..) = e {
+                let mut pairs = ctx.pairs_storage.pairs.lock().unwrap();
+                if let Some(pair_state) = pairs.remove(self) {
+                    let mut loaded = pair_state.loaded_lock.lock().unwrap();
+                    *loaded = true;
+                    pair_state.is_loaded.notify_all();
+                }
+            }
+            return Err(e.into());
+        }
 
         let transactions = repo.last_exchange_pairs_transactions(self).await?;
 
