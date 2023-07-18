@@ -274,6 +274,9 @@ where
     }
 }
 
+/// Called when a subscription is added to the watchlist.
+/// Ensures that Redis contains the latest value of the subscription's topic,
+/// publishes if necessary.
 async fn check_and_maybe_insert<T: Item<P, S>, R: ResourcesRepo + Sync, P: ProviderRepo, S>(
     resources_repo: &R,
     repo: &P,
@@ -281,22 +284,31 @@ async fn check_and_maybe_insert<T: Item<P, S>, R: ResourcesRepo + Sync, P: Provi
     shared_context: &S,
 ) -> Result<Option<HashSet<String>>> {
     let topic = value.clone().into().as_topic();
-    let mut existing_value = resources_repo.get(&topic).await?;
-    let mut need_to_publish = existing_value.is_none();
+    let existing_value = resources_repo.get(&topic).await?;
 
-    if topic.kind() == TopicKind::ExchangePair {
-        let loaded = value.init_last_value(repo, shared_context).await?;
-        if loaded {
-            //if pairs is loaded into EXCHANGE_PAIRS_STORAGE then make redis value invalid and need to replaced by last_value call
-            need_to_publish = true;
-            existing_value = None;
-        }
-    }
-
-    let topic_value = if let Some(existing_value) = existing_value {
-        existing_value
+    // This is a hack for the ExchangePair topics.
+    // When updates-provider restarts, there may be a stale value in Redis, which needs to be refreshed.
+    // For other topics this is ok, because the value that is loaded from the database would be the same.
+    // But ExchangePair topics are time-dependent (transactions gets evicted from the time window),
+    // so potentially we need to recompute (and republish) the value.
+    let first_loaded = if topic.kind() == TopicKind::ExchangePair {
+        value.init_context(repo, shared_context).await?
     } else {
-        value.last_value(repo, shared_context).await?
+        false
+    };
+
+    let (topic_value, need_to_publish) = match (existing_value, first_loaded) {
+        (None, _) => {
+            let topic_value = value.last_value(repo, shared_context).await?;
+            (topic_value, true)
+        }
+        (Some(existing_value), false) => (existing_value, false),
+        (Some(existing_value), true) => {
+            // Recompute time-dependent value
+            let topic_value = value.last_value(repo, shared_context).await?;
+            let need_to_publish = existing_value != topic_value;
+            (topic_value, need_to_publish)
+        }
     };
 
     let subtopics = subtopics_from_topic_value(&topic, &topic_value)?;
@@ -380,9 +392,20 @@ fn subtopics_from_topic_value(topic: &Topic, value: &str) -> Result<Option<HashS
     })
 }
 
-pub trait DataFromBlock: Sized {
+/// This trait must be implemented on every type that represents a subscription topic.
+///
+/// Methods of this trait extracts data associated with this topic from a blockchain update/rollback.
+pub trait DataFromBlock
+where
+    Self: Sized,
+{
+    /// Some context that is shared among all the topics of the same type.
     type Context;
+
+    /// Extract data from a block or microblock.
     fn data_from_block(block: &BlockMicroblockAppend, ctx: &Self::Context) -> Vec<BlockData<Self>>;
+
+    /// Extract data from a rollback.
     fn data_from_rollback(rollback: &RollbackData, ctx: &Self::Context) -> Vec<BlockData<Self>>;
 }
 
@@ -402,17 +425,24 @@ impl<T> BlockData<T> {
     }
 }
 
+/// This trait must be implemented on every type that represents a subscription topic.
+///
+/// Methods of this trait loads the last know value for this topic from the database.
 #[async_trait]
 pub trait LastValue<R: ProviderRepo> {
+    /// Some context that is shared among all the topics of the same type.
     type Context;
 
+    /// Read last known value of this topic from the database.
     async fn last_value(self, repo: &R, ctx: &Self::Context) -> Result<String>;
 
-    // function init_last_value called before last_value
-    // it need to load exchange_pairs::ExchangePairsStorage exchange pairs data
-    // from database only once per amount_asset/price_asset
-    // after restart updates provider
-    async fn init_last_value(&self, repo: &R, ctx: &Self::Context) -> Result<bool>;
+    /// Initialize the shared context before first use,
+    /// called at least once for every unique topic.
+    ///
+    /// Currently used for `TopicKind::ExchangePair` only.
+    /// This is kind of a hack for the architecture that does not natively support
+    /// values recomputed on-the-fly.
+    async fn init_context(&self, repo: &R, ctx: &Self::Context) -> Result<bool>;
 }
 
 #[cfg(test)]

@@ -54,7 +54,7 @@ impl<R: ProviderRepo + Sync> LastValue<R> for LeasingBalance {
         )
     }
 
-    async fn init_last_value(&self, _repo: &R, _ctx: &()) -> Result<bool> {
+    async fn init_context(&self, _repo: &R, _ctx: &()) -> Result<bool> {
         Ok(false)
     }
 }
