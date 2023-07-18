@@ -331,13 +331,18 @@ impl<R: ProviderRepo + Sync> LastValue<R> for ExchangePair {
         {
             let mut pairs = ctx.pairs_storage.pairs.lock().unwrap();
             if let Some(pair_state) = pairs.get(self) {
-                // This pair is already loaded (or being loaded) by another task
+                /* This pair is already loaded, or being loaded by another task.
+                If the pair is present in the HashMap, yet no load is in progress,
+                we conclude that it has already been fully loaded. */
+                let mut first_loaded = false;
+
                 let mut loaded = pair_state.loaded_lock.lock().unwrap();
                 while !*loaded {
+                    first_loaded = true;
                     loaded = pair_state.is_loaded.wait(loaded).unwrap();
                 }
-                // Pair is already loaded, so we are done
-                return Ok(false);
+
+                return Ok(first_loaded);
             } else {
                 // Not loaded before - initiate loading
                 pairs.insert(self.to_owned(), PairState::default());
