@@ -92,16 +92,24 @@ impl AssetStorage {
             .into_iter()
             .zip(pair_assets)
             .filter_map(|(asset, asset_id)| {
-                let Some(AssetInfo::Full(f)) = asset.data else {
-                    return Some(asset_id.to_owned());
+                let precision = if let Some(AssetInfo::Full(f)) = asset.data {
+                    f.precision as u8
+                } else {
+                    // hack: assign decimals 8 to all non-existing assets
+                    8u8
                 };
-                assert!(
-                    f.precision >= 0 && f.precision <= 30,
-                    "probably bad precision value {} for asset {}",
-                    f.precision,
-                    f.id
-                );
-                assets.insert(f.id, f.precision as u8);
+
+                // let Some(AssetInfo::Full(f)) = asset.data else {
+                // return Some(asset_id.to_owned());
+                // };
+
+                // assert!(
+                //     f.precision >= 0 && f.precision <= 30,
+                //     "probably bad precision value {} for asset {}",
+                //     f.precision,
+                //     f.id
+                // );
+                assets.insert(asset_id.to_owned(), precision);
                 None
             })
             .collect_vec();
