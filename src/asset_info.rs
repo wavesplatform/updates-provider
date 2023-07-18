@@ -10,6 +10,7 @@ use wavesexchange_apis::{
 };
 use wavesexchange_log::{debug, error, warn};
 use wx_topic::ExchangePair;
+use AssetLoadError::*;
 
 pub struct AssetStorage {
     asset_service: HttpClient<AssetsService>,
@@ -33,26 +34,36 @@ impl AssetStorage {
 
         let mut attempt = 0;
         let mut retry_delay = 30;
-        let mut last_error: Option<Error> = None;
+        let mut last_error: Option<AssetLoadError> = None;
+
         while retry_delay < 600 {
             if attempt > 0 {
                 warn!("Attempt #{} to load decimals for pair {:?}", attempt, pair);
             }
 
             match self.load(pair).await {
-                Ok(..) => return Ok(()),
-                Err(e) => {
-                    debug!("asset-service error, sleeping {}s: {}", retry_delay, e);
-                    last_error = Some(e);
-                    attempt += 1;
-                    sleep(Duration::from_secs(retry_delay)).await;
-                    retry_delay *= 2;
-                }
+                Ok(..) => break,
+                Err(e) => match &e {
+                    AssetsNotFound(..) => {
+                        last_error = Some(e);
+                        break;
+                    }
+                    AssetServiceError { api_error, .. } => {
+                        debug!(
+                            "asset-service error, sleeping {}s: {:?}",
+                            retry_delay, api_error
+                        );
+                        last_error = Some(e);
+                        attempt += 1;
+                        sleep(Duration::from_secs(retry_delay)).await;
+                        retry_delay *= 2;
+                    }
+                },
             }
         }
 
         match last_error {
-            Some(e) => Err(e),
+            Some(e) => Err(e.into()),
             None => Ok(()),
         }
     }
@@ -62,29 +73,27 @@ impl AssetStorage {
         assets.contains_key(&pair.amount_asset) && assets.contains_key(&pair.price_asset)
     }
 
-    async fn load(&self, pair: &ExchangePair) -> Result<(), Error> {
+    async fn load(&self, pair: &ExchangePair) -> Result<(), AssetLoadError> {
         let pair_assets = [pair.amount_asset.as_str(), pair.price_asset.as_str()];
 
         let resp = self
             .asset_service
             .get(pair_assets, None, OutputFormat::Full, false)
             .await
-            .map_err(|api_error| {
-                Error::AssetServiceClientError(format!(
-                    "failed to query decimals from asset-service for assets {} and {} with {:?}",
-                    pair.amount_asset, pair.price_asset, api_error,
-                ))
+            .map_err(|api_error| AssetServiceError {
+                pair: pair.to_owned(),
+                api_error,
             })?;
 
         let mut assets = self.asset_decimals.write().unwrap();
 
-        let non_existent_assets = resp
+        let assets_not_found = resp
             .data
             .into_iter()
             .zip(pair_assets)
             .filter_map(|(asset, asset_id)| {
                 let Some(AssetInfo::Full(f)) = asset.data else {
-                    return Some(asset_id);
+                    return Some(asset_id.to_owned());
                 };
                 assert!(
                     f.precision >= 0 && f.precision <= 30,
@@ -97,13 +106,10 @@ impl AssetStorage {
             })
             .collect_vec();
 
-        if non_existent_assets.is_empty() {
+        if assets_not_found.is_empty() {
             Ok(())
         } else {
-            Err(Error::AssetServiceClientError(format!(
-                "requested assets do not exist: {:?}",
-                non_existent_assets
-            )))
+            Err(AssetsNotFound(assets_not_found))
         }
     }
 
@@ -115,5 +121,32 @@ impl AssetStorage {
             error!("asset decimals not found for {}", asset);
         }
         res
+    }
+}
+
+#[derive(Debug, Clone, thiserror::Error)]
+enum AssetLoadError {
+    #[error("AssetsNotFound {0:?}")]
+    AssetsNotFound(Vec<String>),
+    #[error("AssetServiceError for pair {pair:?}, reason: {api_error:?}")]
+    AssetServiceError {
+        pair: ExchangePair,
+        api_error: wavesexchange_apis::Error,
+    },
+}
+
+impl From<AssetLoadError> for Error {
+    fn from(err: AssetLoadError) -> Self {
+        Error::AssetServiceClientError(match err {
+            AssetsNotFound(ids) => {
+                format!("requested assets not found in asset-service: {:?}", ids)
+            }
+            AssetServiceError { pair, api_error } => {
+                format!(
+                    "asset-service request failed for pair {:?} with {:?}",
+                    pair, api_error,
+                )
+            }
+        })
     }
 }
