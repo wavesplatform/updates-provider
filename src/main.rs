@@ -191,7 +191,7 @@ async fn tokio_main() -> Result<(), Error> {
     let (tx, rx) = tokio::sync::mpsc::channel(20);
     let provider = blockchain::provider::Provider::<wx_topic::ExchangePair, _, _, _>::new(
         resources_repo.clone(),
-        Duration::from_secs(600),
+        blockchain_config.pairs_delete_timeout,
         provider_repo.clone(),
         PairsContext {
             asset_storage,
