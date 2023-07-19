@@ -292,7 +292,13 @@ async fn check_and_maybe_insert<T: Item<P, S>, R: ResourcesRepo + Sync, P: Provi
     // But ExchangePair topics are time-dependent (transactions gets evicted from the time window),
     // so potentially we need to recompute (and republish) the value.
     let first_loaded = if topic.kind() == TopicKind::ExchangePair {
-        value.init_context(repo, shared_context).await?
+        match value.init_context(repo, shared_context).await {
+            Ok(loaded) => loaded,
+            Err(err) => {
+                error!("Failed to initialize context: {}", err);
+                true // force NULL value
+            }
+        }
     } else {
         false
     };

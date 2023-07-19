@@ -1,7 +1,6 @@
-use std::collections::HashMap;
 use std::{
-    collections::HashSet,
-    sync::{Condvar, Mutex, RwLock},
+    collections::{HashMap, HashSet},
+    sync::{Arc, Condvar, Mutex, RwLock},
 };
 
 use super::{BlockData, DataFromBlock, LastValue};
@@ -19,7 +18,9 @@ use crate::{
 use async_trait::async_trait;
 use bigdecimal::BigDecimal;
 use itertools::Itertools;
+use scopeguard::defer;
 use serde::Serialize;
+use tokio::task;
 use waves_protobuf_schemas::waves::transaction::Data;
 use wavesexchange_apis::chrono::Utc;
 use wx_topic::ExchangePair;
@@ -39,7 +40,7 @@ pub struct PairsStorage {
     /// All transactions for the last 24h
     transactions: RwLock<Vec<(ExchangePair, ExchangePairTx)>>,
     /// Pairs that are fully loaded (or being loaded) from database + blockchain
-    pairs: Mutex<HashMap<ExchangePair, PairState>>,
+    pairs: Mutex<HashMap<ExchangePair, Arc<PairState>>>,
 }
 
 #[derive(Default)]
@@ -328,21 +329,24 @@ impl<R: ProviderRepo + Sync> LastValue<R> for ExchangePair {
     }
 
     async fn init_context(&self, repo: &R, ctx: &PairsContext) -> Result<bool> {
-        {
-            let mut pairs = ctx.pairs_storage.pairs.lock().unwrap();
-            if let Some(pair_state) = pairs.get(self) {
-                // This pair is already loaded (or being loaded) by another task
-                let mut loaded = pair_state.loaded_lock.lock().unwrap();
-                while !*loaded {
-                    loaded = pair_state.is_loaded.wait(loaded).unwrap();
-                }
-                // Pair is already loaded, so we are done
-                return Ok(false);
-            } else {
-                // Not loaded before - initiate loading
-                pairs.insert(self.to_owned(), PairState::default());
-            }
+        // Get loading status of the pair
+        let (pair_state, being_loaded) = ctx.pairs_storage.pair_loading_state(self);
+
+        if being_loaded {
+            // This pair is already loaded (or being loaded) by another task
+            let waited = pair_state.block_until_fully_loaded();
+
+            // Pair is now loaded, so we are done
+            return Ok(waited);
         }
+
+        // This code is executed even if one of the subsequent calls fails
+        defer! {
+            // Signal other tasks that this pair is finished loading
+            pair_state.notify_loaded();
+        }
+
+        // Not loaded before - initiate loading
 
         ctx.asset_storage.preload_decimals_for_pair(self).await?;
 
@@ -351,17 +355,43 @@ impl<R: ProviderRepo + Sync> LastValue<R> for ExchangePair {
         ctx.pairs_storage
             .set_pair_initial_transactions(self, transactions);
 
-        {
-            // Signal other tasks that this pair is finished loading
-            let pairs = ctx.pairs_storage.pairs.lock().unwrap();
-            let Some(pair_state) = pairs.get(self) else {
-                unreachable!("internal error: pair_state lost");
-            };
-            let mut loaded = pair_state.loaded_lock.lock().unwrap();
-            *loaded = true;
-            pair_state.is_loaded.notify_all();
+        Ok(true)
+    }
+}
+
+impl PairsStorage {
+    fn pair_loading_state(&self, pair: &ExchangePair) -> (Arc<PairState>, bool) {
+        let mut pairs = self.pairs.lock().unwrap();
+        if let Some(existing_state) = pairs.get(pair).cloned() {
+            (existing_state, true)
+        } else {
+            let new_state = Arc::new(PairState::default());
+            pairs.insert(pair.to_owned(), Arc::clone(&new_state));
+            (new_state, false)
+        }
+    }
+}
+
+impl PairState {
+    fn block_until_fully_loaded(&self) -> bool {
+        let mut loaded = self.loaded_lock.lock().unwrap();
+
+        if *loaded {
+            return false;
         }
 
-        Ok(true)
+        task::block_in_place(|| {
+            while !*loaded {
+                loaded = self.is_loaded.wait(loaded).unwrap();
+            }
+        });
+
+        return true;
+    }
+
+    fn notify_loaded(&self) {
+        let mut loaded = self.loaded_lock.lock().unwrap();
+        *loaded = true;
+        self.is_loaded.notify_all();
     }
 }
