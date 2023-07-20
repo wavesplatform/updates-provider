@@ -100,6 +100,8 @@ struct FlatBlockchainUpdaterConfig {
     pub state_delete_timeout: u64,
     #[serde(default = "default_delete_timeout")]
     pub leasing_balance_delete_timeout: u64,
+    #[serde(default = "default_delete_timeout")]
+    pub pairs_delete_timeout: u64,
     #[serde(default = "default_updates_buffer_size")]
     pub updates_buffer_size: usize,
     #[serde(default = "default_transactions_count_threshold")]
@@ -174,6 +176,7 @@ pub fn load_blockchain() -> Result<providers::blockchain::Config, Error> {
         leasing_balance_delete_timeout: Duration::from_secs(
             flat_config.leasing_balance_delete_timeout,
         ),
+        pairs_delete_timeout: Duration::from_secs(flat_config.pairs_delete_timeout),
         updates_buffer_size: flat_config.updates_buffer_size,
         transactions_count_threshold: flat_config.transactions_count_threshold,
         associated_addresses_count_threshold: flat_config.associated_addresses_count_threshold,
