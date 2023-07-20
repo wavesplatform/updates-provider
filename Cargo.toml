@@ -1,7 +1,7 @@
 [package]
 name = "updates-provider"
-version = "1.5.0"
-authors = ["Аleksej Petrov <apetrov@wavesplatform.com>", "Alex Kordys <akordys@web3tech.ru>"]
+version = "1.5.1"
+authors = ["Аleksej Petrov <apetrov@wavesplatform.com>", "Alex Kordys <akordys@uniqsoft.ae>"]
 edition = "2021"
 
 [dependencies]
