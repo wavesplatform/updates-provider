@@ -112,6 +112,11 @@ impl PairsStorage {
 
         let amount_decimals = asset_storage.decimals_for_asset(&pair.amount_asset)?;
 
+        // This is a hack: we don't need price asset decimals for computations,
+        // but this allows to check whether price asset is invalid
+        // and therefore exit early returning `None`.
+        let _ = asset_storage.decimals_for_asset(&pair.price_asset)?;
+
         let mut low = i64::MAX;
         let mut high = 0_i64;
         let mut volume = BigDecimal::from(0);
