@@ -10,6 +10,7 @@ pub struct Config {
     pub transaction_delete_timeout: Duration,
     pub state_delete_timeout: Duration,
     pub leasing_balance_delete_timeout: Duration,
+    pub pairs_delete_timeout: Duration,
     pub updates_buffer_size: usize,
     pub transactions_count_threshold: usize,
     pub associated_addresses_count_threshold: usize,

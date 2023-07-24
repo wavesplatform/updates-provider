@@ -1,4 +1,7 @@
-use std::{collections::HashSet, sync::RwLock};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::{Arc, Condvar, Mutex, RwLock},
+};
 
 use super::{BlockData, DataFromBlock, LastValue};
 use crate::{
@@ -15,8 +18,9 @@ use crate::{
 use async_trait::async_trait;
 use bigdecimal::BigDecimal;
 use itertools::Itertools;
+use scopeguard::defer;
 use serde::Serialize;
-use tokio::sync::Mutex as TokioMutex;
+use tokio::task;
 use waves_protobuf_schemas::waves::transaction::Data;
 use wavesexchange_apis::chrono::Utc;
 use wx_topic::ExchangePair;
@@ -32,15 +36,22 @@ pub struct ExchangePairTx {
 }
 
 #[derive(Default)]
-pub struct ExchangePairsStorage {
-    pairs_data: RwLock<Vec<(ExchangePair, ExchangePairTx)>>,
-    loaded_pairs: RwLock<HashSet<ExchangePair>>,
-    load_mutex: TokioMutex<()>,
+pub struct PairsStorage {
+    /// All transactions for the last 24h
+    transactions: RwLock<Vec<(ExchangePair, ExchangePairTx)>>,
+    /// Pairs that are fully loaded (or being loaded) from database + blockchain
+    pairs: Mutex<HashMap<ExchangePair, Arc<PairState>>>,
+}
+
+#[derive(Default)]
+struct PairState {
+    is_loaded: Condvar,
+    loaded_lock: Mutex<bool>,
 }
 
 pub struct PairsContext {
     pub asset_storage: AssetStorage,
-    pub pairs_storage: ExchangePairsStorage,
+    pub pairs_storage: PairsStorage,
 }
 
 #[derive(Debug, Serialize)]
@@ -56,32 +67,28 @@ pub struct ExchangePairsDailyStat {
     txs_count: i64,
 }
 
-impl ExchangePairsStorage {
-    pub fn add_transaction(&self, pair: ExchangePair, data: ExchangePairTx) {
-        let mut storage_guard = self.pairs_data.write().unwrap();
-        // This needs to be optimized: collection scan
-        if storage_guard
-            .iter()
-            .all(|&(_, ref pd)| pd.tx_id != data.tx_id)
-        {
-            storage_guard.push((pair, data));
+impl PairsStorage {
+    fn add_transactions(&self, txs: Vec<(ExchangePair, ExchangePairTx)>) {
+        let mut storage_txs = self.transactions.write().unwrap();
+        for (pair, tx) in txs {
+            // This needs to be optimized: collection scan
+            if storage_txs.iter().all(|&(_, ref pd)| pd.tx_id != tx.tx_id) {
+                storage_txs.push((pair, tx));
+            }
         }
     }
 
     fn set_pair_initial_transactions(&self, pair: &ExchangePair, txs: Vec<ExchangePairTx>) {
-        let mut storage_guard = self.pairs_data.write().unwrap();
-
-        let mut loaded_guard = self.loaded_pairs.write().unwrap();
+        let mut storage_txs = self.transactions.write().unwrap();
 
         // This needs to be optimized: collection scan
         let txs = {
             let mut txs = txs;
-            txs.retain(|p| storage_guard.iter().all(|&(_, ref pp)| p.tx_id != pp.tx_id));
+            txs.retain(|p| storage_txs.iter().all(|&(_, ref pp)| p.tx_id != pp.tx_id));
             txs
         };
 
-        storage_guard.extend(txs.into_iter().map(|data| (pair.to_owned(), data)));
-        loaded_guard.insert(pair.to_owned());
+        storage_txs.extend(txs.into_iter().map(|data| (pair.to_owned(), data)));
     }
 
     fn calc_stat(
@@ -101,9 +108,14 @@ impl ExchangePairsStorage {
             quote_volume: None,
         };
 
-        let ex_transactions = self.pairs_data.read().unwrap();
+        let storage_txs = self.transactions.read().unwrap();
 
         let amount_decimals = asset_storage.decimals_for_asset(&pair.amount_asset)?;
+
+        // This is a hack: we don't need price asset decimals for computations,
+        // but this allows to check whether price asset is invalid
+        // and therefore exit early returning `None`.
+        let _ = asset_storage.decimals_for_asset(&pair.price_asset)?;
 
         let mut low = i64::MAX;
         let mut high = 0_i64;
@@ -112,7 +124,7 @@ impl ExchangePairsStorage {
 
         let last_day_stamp = Utc::now().timestamp_millis() - 86400000;
 
-        ex_transactions
+        storage_txs
             .iter()
             .filter(|&&(ref p, ref d)| {
                 p.amount_asset == pair.amount_asset
@@ -170,9 +182,9 @@ impl ExchangePairsStorage {
 
         let mut changed_pairs = HashSet::new();
 
-        let mut storage_guard = self.pairs_data.write().unwrap();
+        let mut storage_txs = self.transactions.write().unwrap();
 
-        storage_guard.retain(|(pair, data)| {
+        storage_txs.retain(|(pair, data)| {
             let delete = removed_tx_ids.contains(&data.tx_id);
             if delete {
                 changed_pairs.insert(pair.clone());
@@ -188,9 +200,9 @@ impl ExchangePairsStorage {
 
         let mut changed_pairs = HashSet::new();
 
-        let mut storage_guard = self.pairs_data.write().unwrap();
+        let mut storage_txs = self.transactions.write().unwrap();
 
-        storage_guard.retain(|(pair, data)| {
+        storage_txs.retain(|(pair, data)| {
             let delete = data.time_stamp < trunc_stamp;
             if delete {
                 changed_pairs.insert(pair.clone());
@@ -215,14 +227,16 @@ impl DataFromBlock for ExchangePair {
             .transactions
             .iter()
             .filter(|t| t.tx_type == TransactionType::Exchange)
-            .filter_map(extract_pair_data);
+            .filter_map(extract_pair_data)
+            .collect_vec();
 
-        for (pair, data) in txs_from_block {
-            if !pairs_to_recompute.contains(&pair) {
-                pairs_to_recompute.insert(pair.clone());
+        for (pair, _) in &txs_from_block {
+            if !pairs_to_recompute.contains(pair) {
+                pairs_to_recompute.insert(pair.to_owned());
             }
-            ctx.pairs_storage.add_transaction(pair, data);
         }
+
+        ctx.pairs_storage.add_transactions(txs_from_block);
 
         // Storage cleanup (removal of transactions that became older than 24h)
         // should be a proper background (or timer-based) task, but instead
@@ -234,11 +248,11 @@ impl DataFromBlock for ExchangePair {
 
         pairs_to_recompute.extend(changed_pairs);
 
-        let loaded_pairs = ctx.pairs_storage.loaded_pairs.read().unwrap();
+        let loaded_pairs = ctx.pairs_storage.pairs.lock().unwrap();
 
         pairs_to_recompute
             .into_iter()
-            .filter(|pair| loaded_pairs.contains(pair))
+            .filter(|pair| loaded_pairs.contains_key(pair))
             .map(|pair| {
                 let current_value = ctx.pairs_storage.calc_stat(&pair, &ctx.asset_storage);
                 let current_value = serde_json::to_string(&current_value).unwrap();
@@ -258,11 +272,11 @@ impl DataFromBlock for ExchangePair {
             .collect::<HashSet<_>>();
         let changed_pairs = ctx.pairs_storage.rollback(&removed_tx_ids);
 
-        let loaded_pairs = ctx.pairs_storage.loaded_pairs.read().unwrap();
+        let loaded_pairs = ctx.pairs_storage.pairs.lock().unwrap();
 
         changed_pairs
             .into_iter()
-            .filter(|pair| loaded_pairs.contains(pair))
+            .filter(|pair| loaded_pairs.contains_key(pair))
             .map(|pair| {
                 let current_value = ctx.pairs_storage.calc_stat(&pair, &ctx.asset_storage);
                 let current_value = serde_json::to_string(&current_value).unwrap();
@@ -319,29 +333,25 @@ impl<R: ProviderRepo + Sync> LastValue<R> for ExchangePair {
         Ok(current_value)
     }
 
-    async fn init_last_value(&self, repo: &R, ctx: &PairsContext) -> Result<bool> {
-        if ctx
-            .pairs_storage
-            .loaded_pairs
-            .read()
-            .unwrap()
-            .contains(self)
-        {
-            return Ok(false);
+    async fn init_context(&self, repo: &R, ctx: &PairsContext) -> Result<bool> {
+        // Get loading status of the pair
+        let (pair_state, being_loaded) = ctx.pairs_storage.pair_loading_state(self);
+
+        if being_loaded {
+            // This pair is already loaded (or being loaded) by another task
+            let waited = pair_state.block_until_fully_loaded();
+
+            // Pair is now loaded, so we are done
+            return Ok(waited);
         }
 
-        let lock = ctx.pairs_storage.load_mutex.lock().await;
-
-        // check second time after locking to be sure that some other thread do not load same data
-        if ctx
-            .pairs_storage
-            .loaded_pairs
-            .read()
-            .unwrap()
-            .contains(self)
-        {
-            return Ok(false);
+        // This code is executed even if one of the subsequent calls fails
+        defer! {
+            // Signal other tasks that this pair is finished loading
+            pair_state.notify_loaded();
         }
+
+        // Not loaded before - initiate loading
 
         ctx.asset_storage.preload_decimals_for_pair(self).await?;
 
@@ -350,8 +360,43 @@ impl<R: ProviderRepo + Sync> LastValue<R> for ExchangePair {
         ctx.pairs_storage
             .set_pair_initial_transactions(self, transactions);
 
-        drop(lock);
-
         Ok(true)
+    }
+}
+
+impl PairsStorage {
+    fn pair_loading_state(&self, pair: &ExchangePair) -> (Arc<PairState>, bool) {
+        let mut pairs = self.pairs.lock().unwrap();
+        if let Some(existing_state) = pairs.get(pair).cloned() {
+            (existing_state, true)
+        } else {
+            let new_state = Arc::new(PairState::default());
+            pairs.insert(pair.to_owned(), Arc::clone(&new_state));
+            (new_state, false)
+        }
+    }
+}
+
+impl PairState {
+    fn block_until_fully_loaded(&self) -> bool {
+        let mut loaded = self.loaded_lock.lock().unwrap();
+
+        if *loaded {
+            return false;
+        }
+
+        task::block_in_place(|| {
+            while !*loaded {
+                loaded = self.is_loaded.wait(loaded).unwrap();
+            }
+        });
+
+        return true;
+    }
+
+    fn notify_loaded(&self) {
+        let mut loaded = self.loaded_lock.lock().unwrap();
+        *loaded = true;
+        self.is_loaded.notify_all();
     }
 }

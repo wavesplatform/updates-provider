@@ -180,7 +180,7 @@ mod item {
             }
         }
 
-        async fn init_last_value(
+        async fn init_context(
             &self,
             _repo: &TestProviderRepo,
             _ctx: &(),
