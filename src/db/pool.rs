@@ -12,10 +12,7 @@ pub type PgPoolCreateError = BuildError<deadpool_diesel::Error>;
 pub type PgPoolRuntimeError = deadpool::managed::PoolError<deadpool_diesel::Error>;
 
 pub fn new(config: &PostgresConfig, gauge: IntGauge) -> Result<PgPoolWithStats, Error> {
-    let db_url = format!(
-        "postgres://{}:{}@{}:{}/{}",
-        config.user, config.password, config.host, config.port, config.database
-    );
+    let db_url = config.database_url();
 
     let manager = Manager::new(db_url, Runtime::Tokio1);
 

@@ -56,6 +56,15 @@ fn default_pg_pool_size() -> u8 {
     4
 }
 
+impl PostgresConfig {
+    pub fn database_url(&self) -> String {
+        format!(
+            "postgres://{}:{}@{}:{}/{}",
+            self.user, self.password, self.host, self.port, self.database
+        )
+    }
+}
+
 #[derive(Deserialize)]
 pub struct PostgresConfig {
     pub host: String,
