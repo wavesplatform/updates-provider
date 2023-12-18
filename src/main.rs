@@ -27,8 +27,12 @@ use crate::resources::repo::ResourcesRepoRedis;
 
 use std::sync::Arc;
 use std::time::Duration;
+use wavesexchange_liveness::channel;
 use wavesexchange_log::{error, info};
 use wavesexchange_warp::MetricsWarpBuilder;
+
+const POLL_INTERVAL_SECS: u64 = 60;
+const MAX_BLOCK_AGE: Duration = Duration::from_secs(300);
 
 fn main() -> Result<(), Error> {
     let rt = tokio::runtime::Runtime::new().unwrap();
@@ -47,6 +51,9 @@ async fn tokio_main() -> Result<(), Error> {
 
     let asset_storage = AssetStorage::new(&server_config.assets_service_url);
 
+    let db_url = postgres_config.postgres_ro.database_url();
+    let readiness_channel = channel(db_url, POLL_INTERVAL_SECS, MAX_BLOCK_AGE);
+
     let metrics = tokio::spawn(
         MetricsWarpBuilder::new()
             .with_metrics_port(server_config.metrics_port)
@@ -57,6 +64,7 @@ async fn tokio_main() -> Result<(), Error> {
             .with_metric(&*POSTGRES_READ_CONNECTIONS_AVAILABLE)
             .with_metric(&*POSTGRES_WRITE_CONNECTIONS_AVAILABLE)
             .with_metric(&*DB_WRITE_TIME)
+            .with_readiness_channel(readiness_channel)
             .run_async(),
     );
 
