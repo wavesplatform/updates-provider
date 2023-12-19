@@ -1,6 +1,6 @@
 [package]
 name = "updates-provider"
-version = "1.5.1"
+version = "1.5.2"
 authors = ["Аleksej Petrov <apetrov@wavesplatform.com>", "Alex Kordys <akordys@uniqsoft.ae>"]
 edition = "2021"
 
@@ -33,9 +33,10 @@ thiserror = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 url = "2"
 warp = "0.3"
-wavesexchange_apis = { git = "https://github.com/waves-exchange/wavesexchange-rs", tag = "wavesexchange_apis/0.1.25" }
+wavesexchange_apis = { git = "https://github.com/waves-exchange/wavesexchange-rs", tag = "wavesexchange_apis/0.1.36" }
 wavesexchange_log = { git = "https://github.com/waves-exchange/wavesexchange-rs", tag = "wavesexchange_log/0.5.1" }
-wavesexchange_warp = { git = "https://github.com/waves-exchange/wavesexchange-rs", tag = "wavesexchange_warp/0.14.6" }
+wavesexchange_liveness = { git = "https://github.com/waves-exchange/wavesexchange-rs", tag = "wavesexchange_liveness/0.2.0" }
+wavesexchange_warp = { git = "https://github.com/waves-exchange/wavesexchange-rs", tag = "wavesexchange_warp/0.14.9" }
 wavesexchange_topic = { git = "https://github.com/waves-exchange/wavesexchange-rs", tag = "wavesexchange_topic/0.4.3" }
 waves-protobuf-schemas = { git = "https://github.com/wavesplatform/protobuf-schemas", tag = "rust_v1.4.3-1" }
 
