@@ -8,7 +8,7 @@ pub use deadpool::managed::BuildError;
 
 pub type PgPool = Pool;
 pub type PooledPgConnection = Connection;
-pub type PgPoolCreateError = BuildError<deadpool_diesel::Error>;
+pub type PgPoolCreateError = BuildError;
 pub type PgPoolRuntimeError = deadpool::managed::PoolError<deadpool_diesel::Error>;
 
 pub fn new(config: &PostgresConfig, gauge: IntGauge) -> Result<PgPoolWithStats, Error> {

@@ -48,8 +48,10 @@ impl Puller {
             to_height: 0,
         });
 
+        const MAX_MSG_SIZE: usize = 8 * 1024 * 1024; // 8 MB instead of the default 4 MB
         let mut stream: tonic::Streaming<SubscribeEvent> =
             BlockchainUpdatesApiClient::new(self.channel.clone())
+                .max_decoding_message_size(MAX_MSG_SIZE)
                 .subscribe(request)
                 .await?
                 .into_inner();

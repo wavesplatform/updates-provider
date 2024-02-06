@@ -336,7 +336,7 @@ impl TryFrom<&OrderWithOptionalMeta<'_>> for Order {
         };
         let price_mode = {
             // Strangely in protobuf we have proper type for it but the field is still just `i32`
-            waves::order::PriceMode::from_i32(value.order.price_mode).expect("bad PriceMode")
+            waves::order::PriceMode::try_from(value.order.price_mode).expect("bad PriceMode")
         };
         let eip712_signature = {
             match value.order.sender {
@@ -491,6 +491,7 @@ impl From<&Order> for waves_protobuf_schemas::waves::Order {
                 .map(|proof| bs58::decode(proof).into_vec().unwrap())
                 .collect(),
             price_mode: waves::order::PriceMode::from(value.price_mode) as i32,
+            attachment: vec![],
             sender: match value.eip712_signature {
                 None => {
                     let sender_public_key_bytes =
