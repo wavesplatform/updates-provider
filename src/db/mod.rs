@@ -3,7 +3,7 @@ use std::convert::TryFrom;
 use std::hash::{Hash, Hasher};
 
 use waves_protobuf_schemas::waves;
-use waves_protobuf_schemas::waves::data_transaction_data::data_entry::Value;
+use waves_protobuf_schemas::waves::data_entry::Value;
 use waves_protobuf_schemas::waves::events::blockchain_updated::append::{
     BlockAppend, Body, MicroBlockAppend,
 };

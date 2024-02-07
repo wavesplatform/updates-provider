@@ -52,7 +52,7 @@ async fn tokio_main() -> Result<(), Error> {
     let asset_storage = AssetStorage::new(&server_config.assets_service_url);
 
     let db_url = postgres_config.postgres_ro.database_url();
-    let readiness_channel = channel(db_url, POLL_INTERVAL_SECS, MAX_BLOCK_AGE);
+    let readiness_channel = channel(db_url, POLL_INTERVAL_SECS, MAX_BLOCK_AGE, None);
 
     let metrics = tokio::spawn(
         MetricsWarpBuilder::new()
