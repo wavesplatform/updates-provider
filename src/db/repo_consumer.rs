@@ -78,6 +78,8 @@ pub trait ConsumerRepoOperations {
     fn update_leasing_balances_block_references(&mut self, block_uid: &i64) -> Result<()>;
 
     fn get_next_lease_update_uid(&mut self) -> Result<i64>;
+
+    fn delete_data_entries(&mut self, block_count: i64) -> Result<()>;
 }
 
 mod repo_impl {
@@ -105,6 +107,10 @@ mod repo_impl {
     use crate::utils::chunks::ToChunks;
     use crate::waves::transactions::InsertableTransaction;
     use wavesexchange_log::timer;
+    use wavesexchange_log::info;
+
+
+    const MAX_SUPERSEDED_BY: i64 = 9223372036854775806;
 
     /// Consumer's repo implementation that uses Postgres database as the storage.
     ///
@@ -453,6 +459,24 @@ mod repo_impl {
             Ok(leasing_balances_uid_seq
                 .select(leasing_balances_uid_seq::last_value)
                 .first(self)?)
+        }
+
+        fn delete_data_entries(&mut self, blocks_count: i64) -> Result<()> {
+            timer!("delete_data_entries()", verbose);
+
+            let target_block_uid: i64 = blocks_microblocks
+                .select(uid)
+                .order(uid.desc())
+                .offset(blocks_count)
+                .first(self)?;
+
+            let num_deleted = diesel::delete(data_entries::table)
+                .filter(data_entries::superseded_by.ne(MAX_SUPERSEDED_BY))
+                .filter(data_entries::block_uid.le(target_block_uid))
+                .execute(self)?;
+
+            info!("Number of deleted old data entries: {}", num_deleted);
+            Ok(())
         }
     }
 }

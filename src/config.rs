@@ -35,6 +35,10 @@ fn default_start_rollback_depth() -> u32 {
     1
 }
 
+fn default_old_data_depth_threshold() -> u32 {
+    2000
+}
+
 #[derive(Deserialize)]
 pub struct RedisConfig {
     pub host: String,
@@ -123,6 +127,8 @@ struct FlatBlockchainUpdaterConfig {
     pub waiting_blocks_timeout: u64,
     #[serde(default = "default_start_rollback_depth")]
     start_rollback_depth: u32,
+    #[serde(default = "default_old_data_depth_threshold")]
+    old_data_depth_threshold: u32,
 }
 
 #[derive(Deserialize)]
@@ -192,6 +198,7 @@ pub fn load_blockchain() -> Result<providers::blockchain::Config, Error> {
         start_height: flat_config.start_height,
         waiting_blocks_timeout: Duration::from_secs(flat_config.waiting_blocks_timeout),
         start_rollback_depth: flat_config.start_rollback_depth,
+        old_data_depth_threshold: flat_config.old_data_depth_threshold
     })
 }
 

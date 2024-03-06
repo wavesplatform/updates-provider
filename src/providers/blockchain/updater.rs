@@ -19,6 +19,7 @@ use crate::waves::BlockMicroblockAppend;
 
 const TX_CHUNK_SIZE: usize = 65535 / 4;
 const ADDRESSES_CHUNK_SIZE: usize = 65535 / 2;
+const BLOCKS_DELETION_DEPTH: i64 = 2000;
 
 pub struct Updater<R: ConsumerRepo> {
     rx: mpsc::Receiver<Arc<BlockchainUpdated>>,
@@ -198,6 +199,12 @@ impl<R: ConsumerRepo> Updater<R> {
 
         // Write updates to the Postgres database
         write_updates(&self.repo, blockchain_updates.clone(), microblock_flag).await?;
+
+        if let UpdatesSequenceState::NeedSquash = microblock_flag {
+            self.repo
+                .execute(move |ops| remove_old_data(ops, BLOCKS_DELETION_DEPTH))
+                .await?;
+        }
 
         let elapsed = start.elapsed();
         let elapsed_ms = elapsed.as_millis() as i64;
@@ -511,6 +518,11 @@ fn insert_leasing_balances<O: ConsumerRepoOperations>(
         leasing_balances_count,
         start.elapsed().as_millis()
     );
+    Ok(())
+}
+
+fn remove_old_data<O: ConsumerRepoOperations>(repo_ops: &mut O, block_count: i64) -> Result<()> {
+    repo_ops.delete_data_entries(block_count)?;
     Ok(())
 }
 

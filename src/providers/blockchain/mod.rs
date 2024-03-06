@@ -17,4 +17,5 @@ pub struct Config {
     pub start_height: i32,
     pub waiting_blocks_timeout: Duration,
     pub start_rollback_depth: u32,
+    pub old_data_depth_threshold: u32
 }
