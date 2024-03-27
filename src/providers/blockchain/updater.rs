@@ -197,14 +197,15 @@ impl<R: ConsumerRepo> Updater<R> {
 
         let blockchain_updates = Arc::new(blockchain_updates);
 
-        // Write updates to the Postgres database
-        write_updates(&self.repo, blockchain_updates.clone(), microblock_flag).await?;
-
+        // Remove outdated data from db after each new block
         if let UpdatesSequenceState::NeedSquash = microblock_flag {
             self.repo
                 .execute(move |ops| remove_old_data(ops, BLOCKS_DELETION_DEPTH))
                 .await?;
         }
+
+        // Write updates to the Postgres database
+        write_updates(&self.repo, blockchain_updates.clone(), microblock_flag).await?;
 
         let elapsed = start.elapsed();
         let elapsed_ms = elapsed.as_millis() as i64;
