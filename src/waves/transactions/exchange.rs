@@ -839,6 +839,7 @@ fn test_order_conversion() {
             49, 72, 229, 37, 132,
         ]],
         price_mode: waves::order::PriceMode::FixedDecimals as i32,
+        attachment: vec![],
     };
     let order_with_meta = OrderWithOptionalMeta {
         order: &waves_order,
