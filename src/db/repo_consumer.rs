@@ -235,8 +235,8 @@ mod repo_impl {
             timer!("insert_data_entries()", verbose);
 
             // one data entry has 18 columns
-            // pg cannot insert more then 65535
-            // so the biggest chunk should be less then 3640
+            // pg cannot insert more than 65535
+            // so the biggest chunk should be less than 3640
             let chunk_size = 3600;
             for chunk in entries.iter().chunks_from_iter(chunk_size) {
                 diesel::insert_into(data_entries::table)
@@ -393,8 +393,8 @@ mod repo_impl {
             timer!("insert_leasing_balances()", verbose);
 
             // one leasing balance entry has 6 columns
-            // pg cannot insert more then 65535
-            // so the biggest chunk should be less then 10922
+            // pg cannot insert more than 65535
+            // so the biggest chunk should be less than 10922
             let chunk_size = 10000;
             for chunk in entries.iter().chunks_from_iter(chunk_size) {
                 diesel::insert_into(leasing_balances::table)
