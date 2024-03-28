@@ -36,7 +36,7 @@ pub struct UpdaterReturn<R: ConsumerRepo> {
     pub updater: Updater<R>,
 }
 
-#[derive(Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 enum UpdatesSequenceState {
     Ok,
     HasMicroBlocks,
@@ -71,7 +71,7 @@ impl<R: ConsumerRepo> Updater<R> {
                     );
                     repo.transaction(move |ops| rollback_by_block_uid(ops, uid))
                         .await?;
-                    height as i32 + 1
+                    height + 1
                 }
                 None => 1i32,
             }
@@ -231,54 +231,58 @@ async fn write_updates<R: ConsumerRepo>(
     blockchain_updates: Arc<Vec<BlockchainUpdate>>,
     microblock_flag: &mut UpdatesSequenceState,
 ) -> Result<()> {
-    if let UpdatesSequenceState::NeedSquash = microblock_flag {
-        let mut i = 0;
-        let mut blockchain_updates_iter = blockchain_updates.iter().enumerate();
-        loop {
-            match blockchain_updates_iter.next() {
-                Some((idx, BlockchainUpdate::Block(_))) => {
-                    insert_blockchain_updates(repo, Arc::new(blockchain_updates[..idx].to_vec()))
-                        .await?;
-                    squash_microblocks(repo).await?;
-                    *microblock_flag = UpdatesSequenceState::default();
-                    i = idx;
-                    break;
+    let res_microblock_flag = repo
+        .transaction({
+            let mut microblock_flag = *microblock_flag;
+            move |ops| {
+                if let UpdatesSequenceState::NeedSquash = microblock_flag {
+                    let mut i = 0;
+                    let mut blockchain_updates_iter = blockchain_updates.iter().enumerate();
+                    loop {
+                        match blockchain_updates_iter.next() {
+                            Some((idx, BlockchainUpdate::Block(_))) => {
+                                insert_blockchain_updates(ops, &blockchain_updates[..idx])?;
+                                squash_microblocks(ops)?;
+                                microblock_flag = UpdatesSequenceState::default();
+                                i = idx;
+                                break;
+                            }
+                            Some(_) => (),
+                            None => break,
+                        }
+                    }
+                    insert_blockchain_updates(ops, &blockchain_updates[i..])?;
+                } else {
+                    insert_blockchain_updates(ops, &blockchain_updates)?;
                 }
-                Some(_) => (),
-                None => break,
+                Ok(microblock_flag)
             }
-        }
-        insert_blockchain_updates(repo, Arc::new(blockchain_updates[i..].to_vec())).await?;
-    } else {
-        insert_blockchain_updates(repo, blockchain_updates).await?;
-    }
+        })
+        .await?;
+
+    *microblock_flag = res_microblock_flag;
 
     Ok(())
 }
 
-async fn insert_blockchain_updates<'a, R: ConsumerRepo>(
-    repo: &R,
-    blockchain_updates: Arc<Vec<BlockchainUpdate>>,
+fn insert_blockchain_updates<'a, O: ConsumerRepoOperations>(
+    ops: &mut O,
+    blockchain_updates: &[BlockchainUpdate],
 ) -> Result<()> {
-    repo.transaction(move |ops| {
-        let mut appends = vec![];
-        let mut rollback_block_id = None;
-        for update in blockchain_updates.iter() {
-            match update {
-                BlockchainUpdate::Block(block) => appends.push(block),
-                BlockchainUpdate::Microblock(block) => appends.push(block),
-                BlockchainUpdate::Rollback(rb) => rollback_block_id = Some(&rb.block_id),
-            }
+    let mut appends = vec![];
+    let mut rollback_block_id = None;
+    for update in blockchain_updates {
+        match update {
+            BlockchainUpdate::Block(block) => appends.push(block),
+            BlockchainUpdate::Microblock(block) => appends.push(block),
+            BlockchainUpdate::Rollback(rb) => rollback_block_id = Some(&rb.block_id),
         }
-        insert_appends(ops, appends)?;
-        if let Some(block_id) = rollback_block_id {
-            rollback(ops, block_id)?;
-            info!("rolled back to block id {}", block_id);
-        }
-
-        Ok(())
-    })
-    .await?;
+    }
+    insert_appends(ops, appends)?;
+    if let Some(block_id) = rollback_block_id {
+        rollback(ops, block_id)?;
+        info!("rolled back to block id {}", block_id);
+    }
 
     Ok(())
 }
@@ -580,21 +584,16 @@ fn count_txs_addresses(buffer: &[BlockchainUpdate]) -> (usize, usize) {
         })
 }
 
-async fn squash_microblocks<R: ConsumerRepo>(repo: &R) -> Result<()> {
-    repo.transaction(|ops| {
-        if let Some(total_block_id) = ops.get_total_block_id()? {
-            let key_block_uid = ops.get_key_block_uid()?;
+fn squash_microblocks<O: ConsumerRepoOperations>(ops: &mut O) -> Result<()> {
+    if let Some(total_block_id) = ops.get_total_block_id()? {
+        let key_block_uid = ops.get_key_block_uid()?;
 
-            ops.update_data_entries_block_references(&key_block_uid)?;
-            ops.update_leasing_balances_block_references(&key_block_uid)?;
-            ops.update_transactions_block_references(&key_block_uid)?;
-            ops.delete_microblocks()?;
-            ops.change_block_id(&key_block_uid, &total_block_id)?;
-        }
-
-        Ok(())
-    })
-    .await?;
+        ops.update_data_entries_block_references(&key_block_uid)?;
+        ops.update_leasing_balances_block_references(&key_block_uid)?;
+        ops.update_transactions_block_references(&key_block_uid)?;
+        ops.delete_microblocks()?;
+        ops.change_block_id(&key_block_uid, &total_block_id)?;
+    }
 
     Ok(())
 }
