@@ -64,6 +64,7 @@ async fn tokio_main() -> Result<(), Error> {
             .with_metric(&*POSTGRES_READ_CONNECTIONS_AVAILABLE)
             .with_metric(&*POSTGRES_WRITE_CONNECTIONS_AVAILABLE)
             .with_metric(&*DB_WRITE_TIME)
+            .with_metric(&*AVG_UPDATE_WRITE_TIME)
             .with_readiness_channel(readiness_channel)
             .run_async(),
     );

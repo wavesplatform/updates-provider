@@ -1,5 +1,5 @@
 use lazy_static::lazy_static;
-use prometheus::{IntGauge, IntGaugeVec, Opts};
+use prometheus::{Gauge, IntGauge, IntGaugeVec, Opts};
 
 lazy_static! {
     pub static ref WATCHLISTS_TOPICS: IntGaugeVec = IntGaugeVec::new(
@@ -38,6 +38,11 @@ lazy_static! {
     pub static ref DB_WRITE_TIME: IntGauge = IntGauge::new(
         "WatchlistsDatabaseWriteTime",
         "Time (in ms) of DB writes"
+    )
+    .expect("can't create db_write_time metrics");
+    pub static ref AVG_UPDATE_WRITE_TIME: Gauge = Gauge::new(
+        "AvgUpdateWriteTime",
+        "Average time cost (in ms) of writing a single update"
     )
     .expect("can't create db_write_time metrics");
 }

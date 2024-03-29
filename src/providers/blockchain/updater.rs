@@ -28,6 +28,7 @@ pub struct Updater<R: ConsumerRepo> {
     associated_addresses_count_threshold: usize,
     providers: Vec<mpsc::Sender<Arc<Vec<BlockchainUpdate>>>>,
     waiting_blocks_timeout: Duration,
+    stats: stats::Stats,
 }
 
 pub struct UpdaterReturn<R: ConsumerRepo> {
@@ -46,6 +47,49 @@ enum UpdatesSequenceState {
 impl Default for UpdatesSequenceState {
     fn default() -> Self {
         Self::Ok
+    }
+}
+
+mod stats {
+    use crate::metrics::AVG_UPDATE_WRITE_TIME;
+    use std::time::Duration;
+    use wavesexchange_log as log;
+
+    #[derive(Default)]
+    pub struct Stats {
+        num_blocks: usize,
+        data_entries_count: usize,
+        total_time: Duration,
+    }
+
+    impl Stats {
+        const REFRESH_INTERVAL_BLOCKS: usize = 1440; // Approx. once per day
+
+        pub fn update(&mut self, num_blocks: usize, data_entries_count: usize, time: Duration) {
+            self.num_blocks += num_blocks;
+            self.data_entries_count += data_entries_count;
+            self.total_time += time;
+
+            if self.num_blocks >= Self::REFRESH_INTERVAL_BLOCKS {
+                if let Some(time) = self.avg_time_ms_per_update() {
+                    AVG_UPDATE_WRITE_TIME.set(time);
+                    log::debug!("== Avg. write time per update: {} ms", time);
+                }
+                self.num_blocks = 0;
+                self.data_entries_count = 0;
+                self.total_time = Duration::default();
+            }
+        }
+
+        pub fn avg_time_ms_per_update(&self) -> Option<f64> {
+            let time_ms = self.total_time.as_secs_f64() * 1000.0;
+            let count = self.data_entries_count as f64;
+            if count > 0.0 && time_ms > 0.0 {
+                Some(time_ms / count)
+            } else {
+                None
+            }
+        }
     }
 }
 
@@ -84,6 +128,7 @@ impl<R: ConsumerRepo> Updater<R> {
             associated_addresses_count_threshold,
             providers: vec![],
             waiting_blocks_timeout,
+            stats: Default::default(),
         };
         Ok(UpdaterReturn {
             last_height,
@@ -197,7 +242,12 @@ impl<R: ConsumerRepo> Updater<R> {
         let blockchain_updates = Arc::new(blockchain_updates);
 
         // Write updates to the Postgres database
-        write_updates(&self.repo, blockchain_updates.clone(), microblock_flag).await?;
+        let stats = write_updates(&self.repo, blockchain_updates.clone(), microblock_flag).await?;
+        self.stats.update(
+            blockchain_updates.len(),
+            stats.data_entries_count,
+            stats.total_time,
+        );
 
         let elapsed = start.elapsed();
         let elapsed_ms = elapsed.as_millis() as i64;
@@ -226,22 +276,30 @@ impl<R: ConsumerRepo> Updater<R> {
     }
 }
 
+struct WriteStats {
+    total_time: Duration,
+    data_entries_count: usize,
+}
+
 async fn write_updates<R: ConsumerRepo>(
     repo: &R,
     blockchain_updates: Arc<Vec<BlockchainUpdate>>,
     microblock_flag: &mut UpdatesSequenceState,
-) -> Result<()> {
-    let res_microblock_flag = repo
+) -> Result<WriteStats> {
+    let (res_microblock_flag, stats) = repo
         .transaction({
             let mut microblock_flag = *microblock_flag;
             move |ops| {
+                let start = Instant::now();
+                let mut data_entries_count = 0;
+                let c = &mut data_entries_count;
                 if let UpdatesSequenceState::NeedSquash = microblock_flag {
                     let mut i = 0;
                     let mut blockchain_updates_iter = blockchain_updates.iter().enumerate();
                     loop {
                         match blockchain_updates_iter.next() {
                             Some((idx, BlockchainUpdate::Block(_))) => {
-                                insert_blockchain_updates(ops, &blockchain_updates[..idx])?;
+                                insert_blockchain_updates(ops, &blockchain_updates[..idx], c)?;
                                 squash_microblocks(ops)?;
                                 microblock_flag = UpdatesSequenceState::default();
                                 i = idx;
@@ -251,23 +309,28 @@ async fn write_updates<R: ConsumerRepo>(
                             None => break,
                         }
                     }
-                    insert_blockchain_updates(ops, &blockchain_updates[i..])?;
+                    insert_blockchain_updates(ops, &blockchain_updates[i..], c)?;
                 } else {
-                    insert_blockchain_updates(ops, &blockchain_updates)?;
+                    insert_blockchain_updates(ops, &blockchain_updates, c)?;
                 }
-                Ok(microblock_flag)
+                let stats = WriteStats {
+                    total_time: start.elapsed(),
+                    data_entries_count,
+                };
+                Ok((microblock_flag, stats))
             }
         })
         .await?;
 
     *microblock_flag = res_microblock_flag;
 
-    Ok(())
+    Ok(stats)
 }
 
 fn insert_blockchain_updates<'a, O: ConsumerRepoOperations>(
     ops: &mut O,
     blockchain_updates: &[BlockchainUpdate],
+    data_entries_count: &mut usize,
 ) -> Result<()> {
     let mut appends = vec![];
     let mut rollback_block_id = None;
@@ -278,32 +341,50 @@ fn insert_blockchain_updates<'a, O: ConsumerRepoOperations>(
             BlockchainUpdate::Rollback(rb) => rollback_block_id = Some(&rb.block_id),
         }
     }
-    insert_appends(ops, appends)?;
+    let res = insert_appends(ops, appends)?;
     if let Some(block_id) = rollback_block_id {
         rollback(ops, block_id)?;
         info!("rolled back to block id {}", block_id);
     }
 
+    *data_entries_count += res.n_data_entries;
+
     Ok(())
+}
+
+#[allow(dead_code)] // Some of the fields are not used yet, left for completeness
+#[derive(Clone, Default, Debug)]
+struct InsertStats {
+    pub n_transactions: usize,
+    pub n_addresses: usize,
+    pub n_data_entries: usize,
+    pub n_leasing_balances: usize,
 }
 
 fn insert_appends<O: ConsumerRepoOperations>(
     repo_ops: &mut O,
     appends: Vec<&BlockMicroblockAppend>,
-) -> Result<()> {
-    if !appends.is_empty() {
+) -> Result<InsertStats> {
+    let res = if !appends.is_empty() {
         let h = appends.last().unwrap().height;
         let block_uids = insert_blocks(repo_ops, &appends)?;
         let transaction_updates = appends.iter().map(|block| block.transactions.iter());
 
-        insert_transactions(repo_ops, transaction_updates.clone(), &block_uids)?;
-        insert_addresses(repo_ops, transaction_updates)?;
-        insert_data_entries(repo_ops, &appends, &block_uids)?;
-        insert_leasing_balances(repo_ops, &appends, &block_uids)?;
+        #[rustfmt::skip]
+        let res = InsertStats {
+            n_transactions: insert_transactions(repo_ops, transaction_updates.clone(), &block_uids)?,
+            n_addresses: insert_addresses(repo_ops, transaction_updates)?,
+            n_data_entries: insert_data_entries(repo_ops, &appends, &block_uids)?,
+            n_leasing_balances: insert_leasing_balances(repo_ops, &appends, &block_uids)?,
+        };
 
         info!("handled updates batch last height {:?}", h);
-    }
-    Ok(())
+        res
+    } else {
+        InsertStats::default()
+    };
+
+    Ok(res)
 }
 
 fn insert_blocks<O: ConsumerRepoOperations>(
@@ -325,7 +406,7 @@ fn insert_transactions<'a, O: ConsumerRepoOperations>(
     repo_ops: &mut O,
     transaction_updates: impl Iterator<Item = impl Iterator<Item = &'a TransactionUpdate>>,
     block_uids: &[i64],
-) -> Result<()> {
+) -> Result<usize> {
     let start = Instant::now();
     let mut inserted_transactions_count = 0;
     let transactions_chunks = block_uids
@@ -349,13 +430,13 @@ fn insert_transactions<'a, O: ConsumerRepoOperations>(
         inserted_transactions_count,
         start.elapsed().as_millis()
     );
-    Ok(())
+    Ok(inserted_transactions_count)
 }
 
 fn insert_addresses<'a, O: ConsumerRepoOperations>(
     repo_ops: &mut O,
     transaction_updates: impl Iterator<Item = impl Iterator<Item = &'a TransactionUpdate>>,
-) -> Result<()> {
+) -> Result<usize> {
     let start = Instant::now();
     let mut inserted_addresses_count = 0;
     let addresses_chunks = transaction_updates
@@ -380,14 +461,14 @@ fn insert_addresses<'a, O: ConsumerRepoOperations>(
         inserted_addresses_count,
         start.elapsed().as_millis()
     );
-    Ok(())
+    Ok(inserted_addresses_count)
 }
 
 fn insert_data_entries<O: ConsumerRepoOperations>(
     repo_ops: &mut O,
     blocks_updates: &[&BlockMicroblockAppend],
     block_uids: &[i64],
-) -> Result<()> {
+) -> Result<usize> {
     let start = Instant::now();
     let next_uid = repo_ops.get_next_update_uid()?;
 
@@ -398,7 +479,7 @@ fn insert_data_entries<O: ConsumerRepoOperations>(
         .enumerate()
         .map(|(idx, (de, block_uid))| (de, idx as i64 + next_uid, block_uid).into());
 
-    let data_entries_count = entries.clone().count() as i64;
+    let data_entries_count = entries.clone().count();
 
     let mut grouped_updates: HashMap<DataEntry, Vec<DataEntry>> = HashMap::new();
 
@@ -442,20 +523,20 @@ fn insert_data_entries<O: ConsumerRepoOperations>(
     updates_with_uids_superseded_by.sort_by_key(|de| de.uid);
 
     repo_ops.insert_data_entries(&updates_with_uids_superseded_by)?;
-    repo_ops.set_next_update_uid(next_uid + data_entries_count)?;
+    repo_ops.set_next_update_uid(next_uid + data_entries_count as i64)?;
     debug!(
         "{} data entries were inserted in {} ms",
         data_entries_count,
         start.elapsed().as_millis()
     );
-    Ok(())
+    Ok(data_entries_count)
 }
 
 fn insert_leasing_balances<O: ConsumerRepoOperations>(
     repo_ops: &mut O,
     blocks_updates: &[&BlockMicroblockAppend],
     block_uids: &[i64],
-) -> Result<()> {
+) -> Result<usize> {
     let start = Instant::now();
     let next_uid = repo_ops.get_next_lease_update_uid()?;
 
@@ -466,7 +547,7 @@ fn insert_leasing_balances<O: ConsumerRepoOperations>(
         .enumerate()
         .map(|(idx, (l, block_uid))| (l, idx as i64 + next_uid, block_uid).into());
 
-    let leasing_balances_count = leasing_balances.clone().count() as i64;
+    let leasing_balances_count = leasing_balances.clone().count();
 
     let mut grouped_updates: HashMap<LeasingBalance, Vec<LeasingBalance>> = HashMap::new();
 
@@ -509,13 +590,13 @@ fn insert_leasing_balances<O: ConsumerRepoOperations>(
     updates_with_uids_superseded_by.sort_by_key(|de| de.uid);
 
     repo_ops.insert_leasing_balances(&updates_with_uids_superseded_by)?;
-    repo_ops.set_next_lease_update_uid(next_uid + leasing_balances_count)?;
+    repo_ops.set_next_lease_update_uid(next_uid + leasing_balances_count as i64)?;
     debug!(
         "{} leasing balances were inserted in {} ms",
         leasing_balances_count,
         start.elapsed().as_millis()
     );
-    Ok(())
+    Ok(leasing_balances_count)
 }
 
 fn rollback<O: ConsumerRepoOperations>(repo_ops: &mut O, block_id: &str) -> Result<()> {
